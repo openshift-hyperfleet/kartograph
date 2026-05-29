@@ -42,6 +42,10 @@ const sharedConversationPanelVue = readFileSync(
   resolve(__dirname, '../components/extraction/SharedConversationPanel.vue'),
   'utf-8',
 )
+const manageWorkspaceHubTs = readFileSync(
+  resolve(__dirname, '../utils/kgManageWorkspaceHub.ts'),
+  'utf-8',
+)
 
 const baseWorkspaceStatus = {
   workspace_mode: 'schema_bootstrap' as const,
@@ -184,13 +188,18 @@ describe('KG-MANAGE-001 - manage entry navigation', () => {
   })
 })
 
-describe('KG-MANAGE-002 - workspace step card set', () => {
-  it('renders Project workspace section with exactly four step cards', () => {
+describe('KG-MANAGE-002 - workspace hub tile set', () => {
+  it('renders Project workspace section with hub tiles and stats', () => {
     expect(manageWorkspaceVue).toContain('Project workspace')
-    expect(manageWorkspaceVue).toContain('workspaceStepCards')
-    for (const stepId of WORKSPACE_STEP_ORDER) {
-      expect(manageWorkspaceVue).toContain(WORKSPACE_STEP_TITLES[stepId])
-    }
+    expect(manageWorkspaceVue).toContain('workspaceHubTiles')
+    expect(manageWorkspaceVue).toContain('workspaceHubTileClasses')
+    expect(manageWorkspaceVue).toContain('Entity Types')
+    expect(manageWorkspaceVue).toContain('Relationship Types')
+    expect(manageWorkspaceVue).toContain('Mutation Runs')
+    expect(manageWorkspaceHubTs).toContain('Data sources')
+    expect(manageWorkspaceHubTs).toContain('Design')
+    expect(manageWorkspaceHubTs).toContain('Mutation logs')
+    expect(manageWorkspaceHubTs).toContain('Maintain')
   })
 
   it('buildWorkspaceStepCards returns the canonical four-card set', () => {
@@ -212,10 +221,10 @@ describe('KG-MANAGE-002 - workspace step card set', () => {
 })
 
 describe('KG-MANAGE-003 - suggested next step callout', () => {
-  it('renders Suggested next step callout above the card grid', () => {
+  it('renders next-step callout in the workspace hub card', () => {
     expect(manageWorkspaceVue).toContain('Suggested next step')
-    expect(manageWorkspaceVue).toContain('suggestedNextStep')
-    expect(manageWorkspaceVue).toContain('openWorkspaceStep')
+    expect(manageWorkspaceVue).toContain('workspaceHubNextStep')
+    expect(manageWorkspaceVue).toContain('Next step')
   })
 
   it('prioritizes data sources when no sources are connected', () => {
@@ -254,15 +263,16 @@ describe('KG-MANAGE-003 - suggested next step callout', () => {
   })
 })
 
-describe('KG-MANAGE-004 - step card status semantics', () => {
-  it('renders status label, tint, detail text, and primary action per card', () => {
-    expect(manageWorkspaceVue).toContain('stepStatusTintClass')
-    expect(manageWorkspaceVue).toContain('card.status')
-    expect(manageWorkspaceVue).toContain('card.statusDetail')
-    expect(manageWorkspaceVue).toContain('card.actionLabel')
+describe('KG-MANAGE-004 - workspace hub tile semantics', () => {
+  it('renders hub tile classes, badges, subtitles, and link labels', () => {
+    expect(manageWorkspaceVue).toContain('workspaceHubTileClasses')
+    expect(manageWorkspaceVue).toContain('workspaceHubStepBadgeClass')
+    expect(manageWorkspaceVue).toContain('item.subtitle')
+    expect(manageWorkspaceVue).toContain('item.linkLabel')
+    expect(manageWorkspaceVue).toContain('item.lockedReason')
   })
 
-  it('maps each status label to a tint class', () => {
+  it('maps each status label to a tint class in graph-management rail', () => {
     expect(stepStatusTintClass('ready')).toContain('emerald')
     expect(stepStatusTintClass('in_progress')).toContain('blue')
     expect(stepStatusTintClass('needs_attention')).toContain('amber')
@@ -540,10 +550,10 @@ describe('KG-MANAGE-017 - chat input keyboard contract', () => {
 })
 
 describe('KG-MANAGE-018 - keyboard operable step and rail actions', () => {
-  it('supports keyboard activation for step card primary actions', () => {
-    expect(manageWorkspaceVue).toContain('onStepActionKeydown')
-    expect(manageWorkspaceVue).toContain('handleActivatableKeydown')
-    expect(manageWorkspaceVue).toContain('@keydown="onStepActionKeydown($event, card.id)"')
+  it('uses native links for workspace hub tiles', () => {
+    expect(manageWorkspaceVue).toContain('workspaceHubTiles')
+    expect(manageWorkspaceVue).toContain('<NuxtLink')
+    expect(manageWorkspaceVue).toContain('focus-visible:ring-2 focus-visible:ring-ring')
   })
 
   it('supports keyboard activation for graph management rail selection', () => {

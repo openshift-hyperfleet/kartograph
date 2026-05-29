@@ -455,6 +455,7 @@ class TestDataSourceRecordIngestionPrepared:
             prepared_file_count=55,
         )
         assert ds.last_prepared_commit == "abc123"
+        assert ds.clone_head_commit == "abc123"
         assert ds.last_prepared_file_count == 55
 
     def test_record_ingestion_prepared_preserves_file_count_when_none(self):

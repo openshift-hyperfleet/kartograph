@@ -164,6 +164,7 @@ class TestIngestionPreparedTransition:
         assert saved_run.status == "ingested"
         assert saved_run.completed_at is not None
         assert ds.last_prepared_commit == "abc123"
+        assert ds.clone_head_commit == "abc123"
         assert ds.last_prepared_file_count == 99
         mock_ds_repo.save.assert_awaited_once()
 

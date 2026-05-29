@@ -23,31 +23,65 @@ export function commitStatusLabel(
   return current === remote ? 'matches branch head' : 'new commits on branch'
 }
 
-export function prepareCommitStatusLabel(
-  prepared: string | null | undefined,
-  tracked: string | null | undefined,
+/** Commit we have ingested (local HEAD after pull/prepare). */
+export function resolveIngestedHeadCommit(ds: {
+  clone_head_commit?: string | null
+  last_prepared_commit?: string | null
+  ingested_head_commit?: string | null
+}): string | null {
+  if (ds.ingested_head_commit) return ds.ingested_head_commit
+  return ds.clone_head_commit ?? ds.last_prepared_commit ?? null
+}
+
+/** Remote branch tip from last check (what git pull would reach). */
+export function resolveBranchTipCommit(ds: {
+  tracked_branch_head_commit?: string | null
+}): string | null {
+  return ds.tracked_branch_head_commit ?? null
+}
+
+/**
+ * Newest commit on the branch we do not have yet.
+ * When never ingested, the whole branch tip is unpulled.
+ */
+export function resolveNewestUnpulledCommit(ds: {
+  newest_unpulled_commit?: string | null
+  tracked_branch_head_commit?: string | null
+  clone_head_commit?: string | null
+  last_prepared_commit?: string | null
+  ingested_head_commit?: string | null
+}): string | null {
+  if (ds.newest_unpulled_commit !== undefined) {
+    return ds.newest_unpulled_commit
+  }
+  const tip = resolveBranchTipCommit(ds)
+  if (!tip) return null
+  const ingested = resolveIngestedHeadCommit(ds)
+  if (!ingested) return tip
+  return ingested === tip ? null : tip
+}
+
+export function hasUnpulledCommits(ds: Parameters<typeof resolveNewestUnpulledCommit>[0]): boolean {
+  return resolveNewestUnpulledCommit(ds) !== null
+}
+
+export function unpulledCommitStatusLabel(
+  unpulled: string | null | undefined,
+  branchTip: string | null | undefined,
 ): string {
-  if (!tracked) return 'branch head unknown'
-  if (!prepared) return 'not prepared yet'
-  return prepared === tracked ? 'prepared at branch head' : 'new commits to prepare'
+  if (!branchTip) return 'check branch to see remote tip'
+  if (!unpulled) return 'up to date with branch'
+  return 'new commit on branch (not ingested yet)'
 }
 
-export function needsIngestionPrepare(ds: {
-  last_prepared_commit?: string | null
-  tracked_branch_head_commit?: string | null
-}): boolean {
-  const tracked = ds.tracked_branch_head_commit
-  if (!tracked) return false
-  return ds.last_prepared_commit !== tracked
+export function needsIngestionPrepare(ds: Parameters<typeof hasUnpulledCommits>[0]): boolean {
+  return hasUnpulledCommits(ds)
 }
 
-export function isIngestionPreparedAtHead(ds: {
-  last_prepared_commit?: string | null
-  tracked_branch_head_commit?: string | null
-}): boolean {
-  const tracked = ds.tracked_branch_head_commit
-  const prepared = ds.last_prepared_commit
-  return !!tracked && !!prepared && prepared === tracked
+export function isIngestionPreparedAtHead(ds: Parameters<typeof hasUnpulledCommits>[0]): boolean {
+  const tip = resolveBranchTipCommit(ds)
+  const ingested = resolveIngestedHeadCommit(ds)
+  return !!tip && !!ingested && ingested === tip
 }
 
 export function formatPreparedFileCount(count: number | null | undefined): string {

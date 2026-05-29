@@ -66,7 +66,7 @@ def _build_operation_count_entry_previews(
 @router.post(
     "/data-sources/{ds_id}/commit-refs/refresh",
     status_code=status.HTTP_200_OK,
-    summary="Refresh source commit references for a data source",
+    summary="Check remote branch tip and unpulled commits for a data source",
 )
 async def refresh_commit_references(
     ds_id: str,
@@ -76,7 +76,12 @@ async def refresh_commit_references(
         GitCommitReferenceService, Depends(get_git_commit_reference_service)
     ],
 ) -> DataSourceResponse:
-    """Refresh tracked/cloned commit references for a Git-backed data source."""
+    """Resolve the remote branch tip and whether we have unpulled commits.
+
+    Updates ``tracked_branch_head_commit`` to the current GitHub branch HEAD
+    (the commit ``git pull`` would fast-forward to). The response includes
+    ``newest_unpulled_commit`` when that tip is ahead of our ingested head.
+    """
     try:
         ds = await service.get(
             user_id=current_user.user_id.value,

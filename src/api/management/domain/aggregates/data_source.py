@@ -397,6 +397,7 @@ class DataSource:
             )
         if prepared_commit:
             self.last_prepared_commit = prepared_commit
+            self.clone_head_commit = prepared_commit
         if prepared_file_count is not None:
             self.last_prepared_file_count = prepared_file_count
 

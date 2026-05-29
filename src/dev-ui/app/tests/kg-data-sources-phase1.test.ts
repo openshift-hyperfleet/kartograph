@@ -2,14 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
-  commitStatusLabel,
+  hasUnpulledCommits,
   isIngestionPreparedAtHead,
   needsIngestionPrepare,
   prepStatusBadgeVariant,
-  prepareCommitStatusLabel,
+  resolveNewestUnpulledCommit,
   resolvePrepStatusLabel,
   resolveRepoUrl,
   shortCommitHash,
+  unpulledCommitStatusLabel,
 } from '@/utils/kgDataSourcesCommits'
 
 const phase1Vue = readFileSync(
@@ -56,6 +57,14 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('Files on branch')
     expect(phase1Vue).toContain('formatPreparedFileCount')
   })
+
+  it('shows unpulled commit columns', () => {
+    expect(phase1Vue).toContain('Newest unpulled')
+    expect(phase1Vue).toContain('Last extraction baseline')
+    expect(phase1Vue).toContain('Ingested at')
+    expect(phase1Vue).toContain('Branch tip')
+    expect(phase1Vue).toContain('resolveNewestUnpulledCommit')
+  })
 })
 
 describe('KG wizard parallel ingestion prep', () => {
@@ -83,9 +92,15 @@ describe('kgDataSourcesCommits helpers', () => {
   it('maps sync statuses to prep labels', () => {
     expect(resolvePrepStatusLabel('ingested')).toBe('Prepared')
     expect(prepStatusBadgeVariant('ingested')).toBe('success')
-    expect(commitStatusLabel('abc', 'abc')).toBe('matches branch head')
-    expect(prepareCommitStatusLabel('abc', 'abc')).toBe('prepared at branch head')
+    expect(
+      resolveNewestUnpulledCommit({
+        tracked_branch_head_commit: 'remote',
+        clone_head_commit: 'local',
+      }),
+    ).toBe('remote')
+    expect(unpulledCommitStatusLabel(null, 'remote')).toBe('up to date with branch')
     expect(needsIngestionPrepare({ tracked_branch_head_commit: 'abc', last_prepared_commit: null })).toBe(true)
-    expect(isIngestionPreparedAtHead({ tracked_branch_head_commit: 'abc', last_prepared_commit: 'abc' })).toBe(true)
+    expect(hasUnpulledCommits({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(false)
+    expect(isIngestionPreparedAtHead({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(true)
   })
 })

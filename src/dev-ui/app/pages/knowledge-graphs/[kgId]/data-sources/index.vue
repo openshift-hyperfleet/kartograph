@@ -30,12 +30,16 @@ import {
   type SyncRunStatus,
 } from '@/utils/kgDataSourcesSync'
 import {
+  formatPreparedFileCount,
   commitStatusClass,
   commitStatusLabel,
-  formatPreparedFileCount,
+  hasUnpulledCommits,
   isIngestionPreparedAtHead,
   needsIngestionPrepare,
-  prepareCommitStatusLabel,
+  resolveBranchTipCommit,
+  resolveIngestedHeadCommit,
+  resolveNewestUnpulledCommit,
+  unpulledCommitStatusLabel,
   prepStatusBadgeVariant,
   resolvePrepStatusLabel,
   resolveRepoUrl,
@@ -106,6 +110,9 @@ interface DataSourceItem {
   tracked_branch_head_commit?: string | null
   last_prepared_commit?: string | null
   last_prepared_file_count?: number | null
+  ingested_head_commit?: string | null
+  newest_unpulled_commit?: string | null
+  clone_head_commit?: string | null
   sync_runs?: SyncRun[]
   diff_summary?: DataSourceDiffSummary | null
 }
@@ -350,8 +357,18 @@ async function checkAllCommitRefs() {
         apiFetch(`/management/data-sources/${ds.id}/commit-refs/refresh`, { method: 'POST' }),
       ),
     )
-    toast.success('Branch heads updated')
     await loadDataSources()
+    const unpulled = visibleDataSources.value.filter((ds) => hasUnpulledCommits(ds))
+    if (unpulled.length === 0) {
+      toast.success('Up to date with remote branches')
+    } else {
+      toast.success(
+        `${unpulled.length} source${unpulled.length === 1 ? '' : 's'} have unpulled commits`,
+        {
+          description: 'Newest unpulled commit is shown in the table.',
+        },
+      )
+    }
   } catch {
     toast.error('Failed to check for new commits')
   } finally {
@@ -637,8 +654,9 @@ watch(tenantVersion, async () => {
               </div>
             </div>
             <CardDescription>
-              Each row is one connected repository. Prepare ingestion context when tracked branch
-              head moves ahead of the last prepared commit.
+              Check for new commits resolves the remote branch tip (like after
+              <span class="font-mono text-xs">git fetch</span>) and shows the newest commit you
+              have not ingested yet. Prepare pulls that content into a JobPackage.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-3">
@@ -651,7 +669,7 @@ watch(tenantVersion, async () => {
             </div>
 
             <div v-else class="overflow-x-auto rounded-md border">
-              <table class="w-full min-w-[960px] text-sm">
+              <table class="w-full min-w-[1120px] text-sm">
                 <thead>
                   <tr class="border-b bg-muted/50 text-left">
                     <th class="px-3 py-2 font-medium">Source</th>
@@ -659,7 +677,9 @@ watch(tenantVersion, async () => {
                     <th class="px-3 py-2 font-medium">Status</th>
                     <th class="px-3 py-2 font-medium">Files on branch</th>
                     <th class="px-3 py-2 font-medium">Last extraction baseline</th>
-                    <th class="px-3 py-2 font-medium">Tracked branch head</th>
+                    <th class="px-3 py-2 font-medium">Ingested at</th>
+                    <th class="px-3 py-2 font-medium">Newest unpulled</th>
+                    <th class="px-3 py-2 font-medium">Branch tip</th>
                     <th class="px-3 py-2 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -668,7 +688,7 @@ watch(tenantVersion, async () => {
                     v-for="ds in visibleDataSources"
                     :key="ds.id"
                     class="border-b border-border/60 align-top last:border-0"
-                    :class="needsIngestionPrepare(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
+                    :class="hasUnpulledCommits(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
                   >
                     <td class="px-3 py-2">
                       <p class="font-medium leading-tight">{{ ds.name }}</p>
@@ -694,32 +714,76 @@ watch(tenantVersion, async () => {
                       {{ formatPreparedFileCount(ds.last_prepared_file_count) }}
                     </td>
                     <td class="px-3 py-2 font-mono text-xs">
-                      <div :class="commitStatusClass(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit)">
+                      <div
+                        :class="
+                          commitStatusClass(
+                            ds.last_extraction_baseline_commit,
+                            ds.tracked_branch_head_commit,
+                          )
+                        "
+                      >
                         <span :title="ds.last_extraction_baseline_commit || ''">
                           {{ shortCommitHash(ds.last_extraction_baseline_commit) }}
                         </span>
                       </div>
                       <div
                         class="mt-0.5 text-[10px]"
-                        :class="commitStatusClass(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit)"
+                        :class="
+                          commitStatusClass(
+                            ds.last_extraction_baseline_commit,
+                            ds.tracked_branch_head_commit,
+                          )
+                        "
                       >
-                        {{ commitStatusLabel(ds.last_extraction_baseline_commit, ds.tracked_branch_head_commit) }}
+                        {{
+                          commitStatusLabel(
+                            ds.last_extraction_baseline_commit,
+                            ds.tracked_branch_head_commit,
+                          )
+                        }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs">
+                      <span :title="resolveIngestedHeadCommit(ds) || ''">
+                        {{ shortCommitHash(resolveIngestedHeadCommit(ds)) }}
+                      </span>
+                      <div class="mt-0.5 text-[10px] text-muted-foreground">
+                        {{ resolveIngestedHeadCommit(ds) ? 'have locally' : 'nothing ingested yet' }}
                       </div>
                     </td>
                     <td class="px-3 py-2 font-mono text-xs">
                       <div
-                        :class="commitStatusClass(ds.last_prepared_commit, ds.tracked_branch_head_commit)"
+                        :class="
+                          hasUnpulledCommits(ds)
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-green-600 dark:text-green-400'
+                        "
                       >
-                        <span :title="ds.tracked_branch_head_commit || ''">
-                          {{ shortCommitHash(ds.tracked_branch_head_commit) }}
+                        <span :title="resolveNewestUnpulledCommit(ds) || ''">
+                          {{ shortCommitHash(resolveNewestUnpulledCommit(ds)) }}
                         </span>
                       </div>
                       <div
                         class="mt-0.5 text-[10px]"
-                        :class="commitStatusClass(ds.last_prepared_commit, ds.tracked_branch_head_commit)"
+                        :class="
+                          hasUnpulledCommits(ds)
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-muted-foreground'
+                        "
                       >
-                        {{ prepareCommitStatusLabel(ds.last_prepared_commit, ds.tracked_branch_head_commit) }}
+                        {{
+                          unpulledCommitStatusLabel(
+                            resolveNewestUnpulledCommit(ds),
+                            resolveBranchTipCommit(ds),
+                          )
+                        }}
                       </div>
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs text-muted-foreground">
+                      <span :title="resolveBranchTipCommit(ds) || ''">
+                        {{ shortCommitHash(resolveBranchTipCommit(ds)) }}
+                      </span>
+                      <div class="mt-0.5 text-[10px] text-muted-foreground">remote tip</div>
                     </td>
                     <td class="px-3 py-2">
                       <div class="flex flex-wrap gap-1">
@@ -741,15 +805,15 @@ watch(tenantVersion, async () => {
                       <div
                         v-if="ds.diff_summary && ds.diff_summary.total_changed_files > 0"
                         class="mt-2 rounded border p-2 text-[11px]"
-                        :class="needsIngestionPrepare(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
+                        :class="hasUnpulledCommits(ds) ? 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20' : 'bg-muted/10'"
                       >
                         <div class="flex items-center justify-between gap-2">
                           <span>
                             <span class="font-medium">{{ ds.diff_summary.total_changed_files }}</span>
                             changed files
                           </span>
-                          <Badge :variant="needsIngestionPrepare(ds) ? 'default' : 'secondary'" class="text-[10px]">
-                            {{ needsIngestionPrepare(ds) ? 'Prepare needed' : 'Up to date' }}
+                          <Badge :variant="hasUnpulledCommits(ds) ? 'default' : 'secondary'" class="text-[10px]">
+                            {{ hasUnpulledCommits(ds) ? 'Unpulled commits' : 'Up to date' }}
                           </Badge>
                         </div>
                         <Button

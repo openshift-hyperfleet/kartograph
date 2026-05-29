@@ -1,11 +1,41 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { ArrowLeft, CheckCircle2, Coins, DollarSign, Loader2, PlayCircle, ShieldAlert } from 'lucide-vue-next'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Box,
+  CheckCircle2,
+  ChevronLeft,
+  Coins,
+  Database,
+  DollarSign,
+  FileText,
+  GitBranch,
+  Link2,
+  Loader2,
+  Lock,
+  MessageSquare,
+  PlayCircle,
+  ScrollText,
+  ShieldAlert,
+  Trash2,
+  Wrench,
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
 import {
   GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
@@ -23,13 +53,21 @@ import {
 } from '@/utils/kgGraphManagement'
 import {
   buildManageStepUrl,
-  buildSuggestedNextStep,
-  buildWorkspaceStepCards,
   parseManageStepQuery,
-  resolveStepDestination,
   stepStatusTintClass,
-  type WorkspaceStepId,
 } from '@/utils/kgManageWorkspace'
+import {
+  buildWorkspaceHubNextStep,
+  buildWorkspaceHubTiles,
+  resolveWorkspaceHubPhaseBadge,
+  workspaceHubDescription,
+  workspaceHubStepBadgeClass,
+  workspaceHubTileClasses,
+  type WorkspaceHubOverview,
+  type WorkspaceHubSourceRow,
+} from '@/utils/kgManageWorkspaceHub'
+import { isIngestionPreparedAtHead, resolvePrepStatusLabel, resolveRepoUrl } from '@/utils/kgDataSourcesCommits'
+import { latestSyncRun } from '@/utils/kgDataSourcesSync'
 import {
   appendLocalChatMessage,
   buildTransitionRestrictionReason,
@@ -82,8 +120,13 @@ interface KnowledgeGraphIdentity {
 interface DataSourceRef {
   id: string
   name: string
+  connection_config?: Record<string, string>
   last_extraction_baseline_commit?: string | null
   tracked_branch_head_commit?: string | null
+  clone_head_commit?: string | null
+  last_prepared_commit?: string | null
+  ingested_head_commit?: string | null
+  newest_unpulled_commit?: string | null
 }
 
 interface MutationLogRunView extends MutationLogRunRecord {
@@ -133,7 +176,13 @@ const graphApi = useGraphApi()
 const kgId = computed(() => String(route.params.kgId ?? ''))
 const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
 const dataSourceCount = ref(0)
+const preparedSourceCount = ref(0)
 const maintenanceReadyCount = ref(0)
+const overviewSourceRows = ref<WorkspaceHubSourceRow[]>([])
+const entityTypeLabels = ref<string[]>([])
+const relationshipTypeLabels = ref<string[]>([])
+const deleteKgDialogOpen = ref(false)
+const deletingKg = ref(false)
 const loading = ref(false)
 const workspaceLoadError = ref<string | null>(null)
 const workspaceForbidden = ref(false)
@@ -187,8 +236,24 @@ const workspaceOverviewInput = computed(() => ({
   workspaceStatus: statusProjection.value,
 }))
 
-const workspaceStepCards = computed(() => buildWorkspaceStepCards(workspaceOverviewInput.value))
-const suggestedNextStep = computed(() => buildSuggestedNextStep(workspaceOverviewInput.value))
+const workspaceHubOverview = computed((): WorkspaceHubOverview => ({
+  ...workspaceOverviewInput.value,
+  preparedSourceCount: preparedSourceCount.value,
+  entityTypeLabels: entityTypeLabels.value,
+  relationshipTypeLabels: relationshipTypeLabels.value,
+}))
+
+const workspaceHubTiles = computed(() => buildWorkspaceHubTiles(workspaceHubOverview.value))
+const workspaceHubNextStep = computed(() => buildWorkspaceHubNextStep(workspaceHubOverview.value))
+const workspaceHubPhaseBadge = computed(() => resolveWorkspaceHubPhaseBadge(workspaceHubOverview.value))
+const workspaceHubDescriptionText = computed(() => workspaceHubDescription(workspaceHubOverview.value))
+
+const workspaceHubTileIcons = {
+  'data-sources': GitBranch,
+  'graph-management': MessageSquare,
+  'mutation-logs': ScrollText,
+  maintain: Wrench,
+} as const
 
 const graphHeaderTitle = computed(() =>
   kgIdentity.value?.name ?? 'Knowledge Graph Manage Workspace',
@@ -382,9 +447,78 @@ async function loadOverviewMetrics() {
       if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
       return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
     }).length
+
+    let prepared = 0
+    const rows: WorkspaceHubSourceRow[] = []
+    for (const ds of dataSources) {
+      let status = 'not prepared'
+      let statusVariant: WorkspaceHubSourceRow['statusVariant'] = 'secondary'
+      try {
+        const runs = await apiFetch<Array<{ status: string }>>(
+          `/management/data-sources/${ds.id}/sync-runs`,
+        )
+        const latest = latestSyncRun(runs)
+        if (latest) {
+          status = resolvePrepStatusLabel(latest.status).toLowerCase()
+          if (latest.status === 'ingested' || latest.status === 'completed') {
+            statusVariant = 'success'
+          }
+        }
+      } catch {
+        // keep default status
+      }
+      if (isIngestionPreparedAtHead(ds)) {
+        prepared += 1
+        if (status === 'not prepared') {
+          status = 'prepared'
+          statusVariant = 'success'
+        }
+      }
+      rows.push({
+        id: ds.id,
+        name: ds.name,
+        url: resolveRepoUrl(ds.connection_config),
+        status,
+        statusVariant,
+      })
+    }
+    preparedSourceCount.value = prepared
+    overviewSourceRows.value = rows
+
+    try {
+      const ontology = await apiFetch<{
+        node_types?: Array<{ label: string }>
+        edge_types?: Array<{ label: string }>
+      }>(`/management/knowledge-graphs/${kgId.value}/ontology`)
+      entityTypeLabels.value = (ontology.node_types ?? []).map((t) => t.label)
+      relationshipTypeLabels.value = (ontology.edge_types ?? []).map((t) => t.label)
+    } catch {
+      entityTypeLabels.value = []
+      relationshipTypeLabels.value = []
+    }
   } catch {
     dataSourceCount.value = 0
+    preparedSourceCount.value = 0
     maintenanceReadyCount.value = 0
+    overviewSourceRows.value = []
+    entityTypeLabels.value = []
+    relationshipTypeLabels.value = []
+  }
+}
+
+async function handleDeleteKnowledgeGraph() {
+  deletingKg.value = true
+  try {
+    await apiFetch(`/management/knowledge-graphs/${kgId.value}`, { method: 'DELETE' })
+    toast.success(`Knowledge graph "${kgIdentity.value?.name ?? kgId.value}" deleted`)
+    deleteKgDialogOpen.value = false
+    await navigateTo('/knowledge-graphs')
+  } catch (err) {
+    toast.error('Failed to delete knowledge graph', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    deletingKg.value = false
   }
 }
 
@@ -484,12 +618,6 @@ async function applyInlineMutations() {
   } finally {
     inlineMutationApplying.value = false
   }
-}
-
-function openWorkspaceStep(stepId: WorkspaceStepId) {
-  navigateTo(resolveStepDestination(kgId.value, stepId, {
-    dataSourceCount: dataSourceCount.value,
-  }))
 }
 
 function returnToWorkspaceOverview() {
@@ -696,10 +824,6 @@ function onRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) 
   handleActivatableKeydown(event, () => selectRailItem(itemId))
 }
 
-function onStepActionKeydown(event: KeyboardEvent, stepId: WorkspaceStepId) {
-  handleActivatableKeydown(event, () => openWorkspaceStep(stepId))
-}
-
 function onModeSwitchKeydown(event: KeyboardEvent, mode: GraphManagementMode) {
   handleActivatableKeydown(event, () => setGraphManagementMode(mode))
 }
@@ -826,7 +950,11 @@ watch(tenantVersion, () => {
   statusProjection.value = null
   extractionSession.value = null
   dataSourceCount.value = 0
+  preparedSourceCount.value = 0
   maintenanceReadyCount.value = 0
+  overviewSourceRows.value = []
+  entityTypeLabels.value = []
+  relationshipTypeLabels.value = []
   workspaceLoadError.value = null
   workspaceForbidden.value = false
   workspaceForbiddenReason.value = null
@@ -876,35 +1004,39 @@ watch(selectedOpsDataSourceId, () => {
 
 <template>
   <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <div class="space-y-1">
-        <div class="flex items-center gap-2">
-          <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
-          <Badge v-if="!showOverview" variant="secondary">{{ stepBadgeLabel }}</Badge>
-        </div>
-        <p class="text-sm text-muted-foreground">
-          <template v-if="showOverview">
-            Project workspace for knowledge graph {{ kgId }}.
-          </template>
-          <template v-else-if="activeStep === 'graph-management'">
-            Conversation-first graph management with shared session and mode-specific workspace panels.
-          </template>
-          <template v-else>
-            Knowledge-graph scoped mutation run visibility and run metrics.
-          </template>
-        </p>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        @click="showOverview ? navigateTo('/knowledge-graphs') : returnToWorkspaceOverview()"
+    <template v-if="showOverview">
+      <NuxtLink
+        to="/knowledge-graphs"
+        class="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft class="mr-1.5 size-3.5" />
-        {{ showOverview ? 'Back to Knowledge Graphs' : 'Back to workspace overview' }}
-      </Button>
-    </div>
+        <ChevronLeft class="mr-1 size-4" />
+        Back to Knowledge Graphs
+      </NuxtLink>
+    </template>
 
-    <Separator />
+    <template v-else>
+      <div class="flex items-center justify-between">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
+            <Badge variant="secondary">{{ stepBadgeLabel }}</Badge>
+          </div>
+          <p class="text-sm text-muted-foreground">
+            <template v-if="activeStep === 'graph-management'">
+              Conversation-first graph management with shared session and mode-specific workspace panels.
+            </template>
+            <template v-else>
+              Knowledge-graph scoped mutation run visibility and run metrics.
+            </template>
+          </p>
+        </div>
+        <Button variant="outline" size="sm" @click="returnToWorkspaceOverview()">
+          <ArrowLeft class="mr-1.5 size-3.5" />
+          Back to workspace overview
+        </Button>
+      </div>
+      <Separator />
+    </template>
 
     <div v-if="!hasTenant" class="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
       Select a tenant to manage this workspace.
@@ -912,10 +1044,10 @@ watch(selectedOpsDataSourceId, () => {
 
     <div
       v-else-if="workspaceOverviewState.phase === 'loading'"
-      class="flex items-center gap-2 text-sm text-muted-foreground"
+      class="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"
       role="status"
     >
-      <Loader2 class="size-4 animate-spin" />
+      <Loader2 class="size-8 animate-spin" />
       {{ workspaceOverviewState.message }}
     </div>
 
@@ -942,50 +1074,240 @@ watch(selectedOpsDataSourceId, () => {
 
     <template v-else-if="statusProjection">
       <section v-if="showOverview" class="space-y-6">
-        <div>
-          <h2 class="text-lg font-semibold tracking-tight">Project workspace</h2>
-          <p class="text-sm text-muted-foreground">
-            Choose a step to continue work on this knowledge graph without re-selecting context.
-          </p>
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex min-w-0 items-center gap-3">
+            <Database class="size-8 shrink-0 text-primary" />
+            <div class="min-w-0">
+              <h2 class="text-2xl font-bold tracking-tight">{{ graphHeaderTitle }}</h2>
+              <p class="truncate font-mono text-sm text-muted-foreground">{{ kgId }}</p>
+              <p
+                v-if="kgIdentity?.description"
+                class="mt-0.5 text-sm text-muted-foreground"
+              >
+                {{ kgIdentity.description }}
+              </p>
+            </div>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <Button variant="destructive" size="sm" class="gap-1.5" @click="deleteKgDialogOpen = true">
+              <Trash2 class="size-4" />
+              Delete
+            </Button>
+            <Badge :variant="workspaceHubPhaseBadge.variant" class="text-sm">
+              {{ workspaceHubPhaseBadge.label }}
+            </Badge>
+          </div>
         </div>
 
-        <Card class="border-primary/30 bg-primary/5">
+        <Separator />
+
+        <Card class="border-border">
           <CardHeader class="pb-3">
-            <CardTitle class="text-base">Suggested next step</CardTitle>
-            <CardDescription>{{ suggestedNextStep.description }}</CardDescription>
+            <CardTitle class="text-base">Project workspace</CardTitle>
+            <CardDescription>{{ workspaceHubDescriptionText }}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button @click="openWorkspaceStep(suggestedNextStep.stepId)">
-              {{ suggestedNextStep.actionLabel }} {{ suggestedNextStep.title }}
-            </Button>
+          <CardContent class="space-y-4">
+            <div
+              class="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between"
+              :class="
+                workspaceHubNextStep.primaryPhase
+                  ? 'border-primary/25 bg-primary/5'
+                  : 'border-border bg-muted/40'
+              "
+            >
+              <div class="min-w-0 space-y-1">
+                <p
+                  class="text-xs font-semibold uppercase tracking-wide"
+                  :class="workspaceHubNextStep.primaryPhase ? 'text-primary' : 'text-muted-foreground'"
+                >
+                  {{ workspaceHubNextStep.primaryPhase ? 'Next step' : 'Suggested next step' }}
+                </p>
+                <p class="text-sm font-medium leading-snug">{{ workspaceHubNextStep.title }}</p>
+                <p class="text-sm leading-snug text-muted-foreground">{{ workspaceHubNextStep.description }}</p>
+              </div>
+              <Button
+                as-child
+                :variant="workspaceHubNextStep.primaryPhase ? 'default' : 'secondary'"
+                class="w-full shrink-0 sm:w-auto"
+              >
+                <NuxtLink :to="workspaceHubNextStep.to" class="inline-flex items-center justify-center gap-2">
+                  {{ workspaceHubNextStep.label }}
+                  <ArrowRight class="size-4" />
+                </NuxtLink>
+              </Button>
+            </div>
+
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <template v-for="item in workspaceHubTiles" :key="item.key">
+                <NuxtLink
+                  v-if="item.enabled"
+                  :to="item.to"
+                  class="flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  :class="[
+                    workspaceHubTileClasses(item),
+                    item.tone === 'success'
+                      ? 'hover:bg-green-500/10 dark:hover:bg-green-950/30'
+                      : 'hover:bg-muted/60',
+                  ]"
+                >
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex min-w-0 flex-1 items-center gap-2">
+                      <component
+                        :is="workspaceHubTileIcons[item.key]"
+                        class="size-4 shrink-0"
+                        :class="
+                          item.tone === 'success'
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-primary'
+                        "
+                      />
+                      <span class="text-sm font-semibold leading-tight">{{ item.title }}</span>
+                    </div>
+                    <div :class="workspaceHubStepBadgeClass(item)">
+                      <CheckCircle2 v-if="item.done" class="size-4" />
+                      <span v-else class="text-xs font-bold leading-none">{{ item.step }}</span>
+                    </div>
+                  </div>
+                  <p class="text-xs leading-snug text-muted-foreground">{{ item.subtitle }}</p>
+                  <span
+                    class="text-xs font-medium"
+                    :class="
+                      item.tone === 'success'
+                        ? 'text-green-700 dark:text-green-400'
+                        : 'text-primary'
+                    "
+                  >
+                    {{ item.linkLabel }}
+                  </span>
+                </NuxtLink>
+                <div
+                  v-else
+                  class="flex flex-col gap-2 rounded-lg border border-dashed border-rose-200/80 bg-rose-500/[0.04] p-4 text-left text-muted-foreground dark:border-rose-900/40 dark:bg-rose-950/20"
+                  :title="item.lockedReason || 'Locked'"
+                >
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="flex min-w-0 flex-1 items-center gap-2">
+                      <Lock class="size-4 shrink-0 text-rose-700/70 dark:text-rose-400/80" />
+                      <span class="text-sm font-semibold leading-tight text-foreground/80">{{ item.title }}</span>
+                    </div>
+                    <div :class="workspaceHubStepBadgeClass(item)">
+                      <span class="text-xs font-bold leading-none">{{ item.step }}</span>
+                    </div>
+                  </div>
+                  <p class="text-xs leading-snug">{{ item.subtitle }}</p>
+                  <p class="text-xs text-rose-800/90 dark:text-rose-300/90">{{ item.lockedReason }}</p>
+                </div>
+              </template>
+            </div>
           </CardContent>
         </Card>
 
-        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <!-- Step cards: Data Sources, Graph Management, MutationLogs, Maintain -->
-          <Card
-            v-for="card in workspaceStepCards"
-            :key="card.id"
-            class="flex flex-col"
-            :class="stepStatusTintClass(card.status)"
-          >
-            <CardHeader class="pb-3">
-              <div class="flex items-center justify-between gap-2">
-                <CardTitle class="text-base">{{ card.title }}</CardTitle>
-                <Badge variant="outline">{{ card.status }}</Badge>
+        <div class="grid gap-4 md:grid-cols-4">
+          <Card>
+            <CardContent class="flex items-center gap-3 p-4">
+              <div class="rounded-md bg-muted p-2">
+                <GitBranch class="size-4 text-muted-foreground" />
               </div>
-              <CardDescription>{{ card.statusDetail }}</CardDescription>
-            </CardHeader>
-            <CardContent class="mt-auto">
-              <Button
-                class="w-full"
-                variant="outline"
-                tabindex="0"
-                @click="openWorkspaceStep(card.id)"
-                @keydown="onStepActionKeydown($event, card.id)"
+              <div>
+                <div class="text-2xl font-bold">{{ dataSourceCount }}</div>
+                <p class="text-xs text-muted-foreground">Data Sources</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent class="flex items-center gap-3 p-4">
+              <div class="rounded-md bg-muted p-2">
+                <Box class="size-4 text-muted-foreground" />
+              </div>
+              <div>
+                <div class="text-2xl font-bold">{{ entityTypeLabels.length }}</div>
+                <p class="text-xs text-muted-foreground">Entity Types</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent class="flex items-center gap-3 p-4">
+              <div class="rounded-md bg-muted p-2">
+                <Link2 class="size-4 text-muted-foreground" />
+              </div>
+              <div>
+                <div class="text-2xl font-bold">{{ relationshipTypeLabels.length }}</div>
+                <p class="text-xs text-muted-foreground">Relationship Types</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent class="flex items-center gap-3 p-4">
+              <div class="rounded-md bg-muted p-2">
+                <FileText class="size-4 text-muted-foreground" />
+              </div>
+              <div>
+                <div class="text-2xl font-bold">{{ mutationLogRuns.length }}</div>
+                <p class="text-xs text-muted-foreground">Mutation Runs</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Data Sources</CardTitle>
+            <CardDescription>Configured repositories for this knowledge graph</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div v-if="overviewSourceRows.length === 0" class="text-sm text-muted-foreground">
+              No data sources configured yet.
+            </div>
+            <div v-else class="space-y-3">
+              <div
+                v-for="source in overviewSourceRows"
+                :key="source.id"
+                class="flex items-center justify-between rounded-lg border p-3"
               >
-                {{ card.actionLabel }}
-              </Button>
+                <div class="flex min-w-0 items-center gap-3">
+                  <GitBranch class="size-4 shrink-0 text-muted-foreground" />
+                  <div class="min-w-0">
+                    <p class="font-medium">{{ source.name }}</p>
+                    <p class="truncate font-mono text-xs text-muted-foreground">{{ source.url }}</p>
+                  </div>
+                </div>
+                <Badge :variant="source.statusVariant">{{ source.status }}</Badge>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div class="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-base">Entity Types</CardTitle>
+              <CardDescription>Node types in the knowledge graph ontology</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div v-if="entityTypeLabels.length === 0" class="text-sm text-muted-foreground">
+                No entity types defined yet.
+              </div>
+              <div v-else class="flex flex-wrap gap-2">
+                <Badge v-for="label in entityTypeLabels" :key="label" variant="outline">
+                  {{ label }}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle class="text-base">Relationship Types</CardTitle>
+              <CardDescription>Edge types connecting entities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div v-if="relationshipTypeLabels.length === 0" class="text-sm text-muted-foreground">
+                No relationship types defined yet.
+              </div>
+              <div v-else class="flex flex-wrap gap-2">
+                <Badge v-for="label in relationshipTypeLabels" :key="label" variant="outline">
+                  {{ label }}
+                </Badge>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1638,5 +1960,25 @@ watch(selectedOpsDataSourceId, () => {
         </div>
       </section>
     </template>
+
+    <AlertDialog v-model:open="deleteKgDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this knowledge graph?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes
+            <span class="font-medium text-foreground">{{ kgIdentity?.name ?? kgId }}</span>
+            and its configuration. Data sources and sync history for this graph will be removed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="deletingKg">Cancel</AlertDialogCancel>
+          <AlertDialogAction :disabled="deletingKg" @click="handleDeleteKnowledgeGraph">
+            <Loader2 v-if="deletingKg" class="mr-2 size-4 animate-spin" />
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

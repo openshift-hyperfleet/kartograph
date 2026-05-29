@@ -251,7 +251,11 @@ class _SessionedIngestionEventHandler:
                 if ds is not None:
                     pipeline_mode = str(payload.get("pipeline_mode", "full"))
                     if pipeline_mode == "ingest_only":
-                        baseline_commit = ds.last_prepared_commit
+                        from management.domain.commit_pull_state import (
+                            resolve_ingested_head_commit,
+                        )
+
+                        baseline_commit = resolve_ingested_head_commit(ds)
                     else:
                         baseline_commit = ds.last_extraction_baseline_commit
                     if baseline_commit:

@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 
 from management.application.services.data_source_service import DataSourceWithLatestRun
 from management.domain.aggregates import DataSource
+from management.domain.commit_pull_state import (
+    resolve_ingested_head_commit,
+    resolve_newest_unpulled_commit,
+)
 from management.domain.entities import DataSourceSyncRun
 from management.domain.value_objects import Ontology, OntologyEdgeType, OntologyNodeType
 
@@ -205,6 +209,17 @@ class DataSourceResponse(BaseModel):
     last_prepared_file_count: int | None = Field(
         None, description="Number of files in the JobPackage from the last prepare"
     )
+    ingested_head_commit: str | None = Field(
+        None,
+        description="Commit we have ingested locally (clone head / last prepare)",
+    )
+    newest_unpulled_commit: str | None = Field(
+        None,
+        description=(
+            "Newest commit on the tracked branch we do not have yet; "
+            "null when up to date with branch tip"
+        ),
+    )
     connection_config: dict[str, str] = Field(
         default_factory=dict,
         description="Adapter connection configuration (non-secret)",
@@ -239,6 +254,8 @@ class DataSourceResponse(BaseModel):
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
             last_prepared_commit=ds.last_prepared_commit,
             last_prepared_file_count=ds.last_prepared_file_count,
+            ingested_head_commit=resolve_ingested_head_commit(ds),
+            newest_unpulled_commit=resolve_newest_unpulled_commit(ds),
             connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
@@ -490,6 +507,14 @@ class DataSourceWithSyncResponse(BaseModel):
     last_prepared_file_count: int | None = Field(
         None, description="Number of files in the JobPackage from the last prepare"
     )
+    ingested_head_commit: str | None = Field(
+        None,
+        description="Commit we have ingested locally (clone head / last prepare)",
+    )
+    newest_unpulled_commit: str | None = Field(
+        None,
+        description="Newest commit on branch we do not have yet; null if up to date",
+    )
     connection_config: dict[str, str] = Field(
         default_factory=dict,
         description="Adapter connection configuration (non-secret)",
@@ -531,6 +556,8 @@ class DataSourceWithSyncResponse(BaseModel):
             tracked_branch_head_commit=ds.tracked_branch_head_commit,
             last_prepared_commit=ds.last_prepared_commit,
             last_prepared_file_count=ds.last_prepared_file_count,
+            ingested_head_commit=resolve_ingested_head_commit(ds),
+            newest_unpulled_commit=resolve_newest_unpulled_commit(ds),
             connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,

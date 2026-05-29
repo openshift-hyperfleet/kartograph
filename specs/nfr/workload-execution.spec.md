@@ -57,3 +57,17 @@ The system SHALL provide required runtime context in workload containers.
 - THEN ingestion context resources and repository files needed for processing are available
 - AND the skills directory is available to the agent runtime
 
+#### Scenario: Sticky session Claude agent runtime
+- GIVEN a sticky session container for graph-management chat
+- WHEN the container starts
+- THEN it hosts a Claude Agent SDK agent instance isolated from the API process
+- AND JobPackage material may be mounted when ingestion context is required for the active graph-management mode
+
+### Requirement: Graph Management UI Mode Skills
+The system SHALL expose graph-management UI mode skill overlays in addition to workspace session mode skills.
+
+#### Scenario: UI mode overlays
+- GIVEN graph-management modes `Initial Schema Design`, `Extraction Jobs`, and `One-off Mutations`
+- WHEN skill instructions are resolved for a chat turn
+- THEN UI mode overlays adjust assistant framing while preserving workspace session mode guardrails
+

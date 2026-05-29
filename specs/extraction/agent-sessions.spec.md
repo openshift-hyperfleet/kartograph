@@ -27,6 +27,20 @@ The system SHALL keep sessions active until explicit reset.
 - WHEN the user sends follow-up messages over time
 - THEN prior session context remains available for continued conversation
 
+#### Scenario: Chat turn persistence
+- GIVEN a completed graph-management chat turn
+- WHEN the assistant reply is emitted
+- THEN user and assistant messages are persisted on the session
+- AND sticky runtime metadata is updated on the session runtime context
+
+### Requirement: Sticky Runtime Association
+The system SHALL associate active sessions with sticky container runtime leases.
+
+#### Scenario: Runtime metadata on session
+- GIVEN a chat turn starts a or reuses a sticky container
+- WHEN the turn is accepted
+- THEN session runtime context records sticky container identity and status
+
 ### Requirement: Clear Chat Reset
 The system SHALL provide an explicit "Clear chat" action that resets runtime context.
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.application.job_package_gate import resolve_job_package_gate
+from extraction.application.sticky_session_materialization import should_materialize_job_packages
 from extraction.application.skill_resolution_service import ExtractionSkillResolutionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import (
@@ -96,6 +97,20 @@ class StickySessionRuntimeService:
             mode=mode.value,
         )
         if lease is not None:
+            readiness = await self._ingestion_readiness_reader.read_for_knowledge_graph(
+                knowledge_graph_id=knowledge_graph_id,
+            )
+            gate = resolve_job_package_gate(ui_mode=ui_mode, readiness=readiness)
+            if self._runtime_backend == "container":
+                await self._bootstrap_builder.build(
+                    tenant_id=tenant_id,
+                    knowledge_graph_id=knowledge_graph_id,
+                    session_id=session.id,
+                    include_job_packages=should_materialize_job_packages(
+                        readiness=readiness,
+                        gate=gate,
+                    ),
+                )
             session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
             await self._session_service.save_session(session)
             return
@@ -207,7 +222,10 @@ class StickySessionRuntimeService:
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
             session_id=session.id,
-            include_job_packages=gate.phase != SessionJobPackagePhase.NOT_REQUIRED,
+            include_job_packages=should_materialize_job_packages(
+                readiness=readiness,
+                gate=gate,
+            ),
         )
         yield {
             "type": "thinking",

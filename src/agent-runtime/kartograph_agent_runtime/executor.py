@@ -14,14 +14,62 @@ from kartograph_agent_runtime.vertex import build_claude_agent_env
 _DEFAULT_TURN_TIMEOUT_SECONDS = 180.0
 
 
-def _build_system_prompt(agent_configuration: dict[str, Any]) -> str:
+def _build_system_prompt(
+    agent_configuration: dict[str, Any],
+    *,
+    workspace_appendix: str = "",
+) -> str:
     system_prompt = str(agent_configuration.get("system_prompt") or "").strip()
     guardrails = agent_configuration.get("guardrails") or []
     skills = agent_configuration.get("skills") or {}
     skill_lines = "\n".join(f"- {key}: {value}" for key, value in sorted(skills.items()))
     guardrail_lines = "\n".join(f"- {item}" for item in guardrails if str(item).strip())
-    sections = [section for section in (system_prompt, guardrail_lines, skill_lines) if section]
+    sections = [
+        section
+        for section in (system_prompt, guardrail_lines, skill_lines, workspace_appendix.strip())
+        if section
+    ]
     return "\n\n".join(sections) or "You are the Graph Management Assistant."
+
+
+def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
+    from pathlib import Path
+
+    root = Path(settings.workspace_dir)
+    repo_root = root / "repository-files"
+    if not repo_root.is_dir():
+        return (
+            f"## Session workspace\n"
+            f"Workspace mount: `{settings.workspace_dir}`\n"
+            "No prepared JobPackage repository files are materialized yet."
+        )
+
+    package_dirs = sorted(path for path in repo_root.iterdir() if path.is_dir())
+    if not package_dirs:
+        return (
+            f"## Session workspace\n"
+            f"Workspace mount: `{settings.workspace_dir}`\n"
+            "Prepared data sources exist, but repository files have not been extracted yet. "
+            "If the user asks about repository content, explain that ingestion context may "
+            "need to be re-prepared under Data sources."
+        )
+
+    lines = [
+        "## Session workspace",
+        f"Workspace mount: `{settings.workspace_dir}`",
+        (
+            "Prepared repository files live under "
+            "`repository-files/<job_package_id>/` relative to the workspace mount. "
+            "Use Read, Grep, and Glob tools against those paths."
+        ),
+    ]
+    for package_dir in package_dirs[:8]:
+        files = sorted(path for path in package_dir.rglob("*") if path.is_file())
+        lines.append(f"- `{package_dir.name}`: {len(files)} file(s)")
+        for file_path in files[:4]:
+            rel = file_path.relative_to(package_dir).as_posix()
+            lines.append(f"  - `{rel}`")
+    return "\n".join(lines)
 
 
 def _apply_model_env(settings: AgentRuntimeSettings) -> str:
@@ -135,7 +183,10 @@ async def _stream_with_claude_sdk(
 ) -> AsyncIterator[dict[str, Any]]:
     from claude_agent_sdk import ClaudeAgentOptions, query
 
-    system_prompt = _build_system_prompt(agent_configuration)
+    system_prompt = _build_system_prompt(
+        agent_configuration,
+        workspace_appendix=_build_workspace_prompt_appendix(settings),
+    )
     history_lines = [
         f"{entry.get('role', 'unknown')}: {entry.get('content', '')}"
         for entry in message_history[-6:]
@@ -155,12 +206,15 @@ async def _stream_with_claude_sdk(
     }
 
     sdk_env = _build_sdk_env(settings)
+    workspace_dir = settings.workspace_dir.strip() or "/workspace"
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         env=sdk_env,
         permission_mode="bypassPermissions",
         max_turns=8,
         setting_sources=[],
+        cwd=workspace_dir,
+        add_dirs=[workspace_dir],
     )
 
     reply: str | None = None

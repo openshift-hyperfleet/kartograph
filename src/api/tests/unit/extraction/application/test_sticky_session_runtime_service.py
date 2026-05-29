@@ -174,19 +174,34 @@ async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inac
     assert sticky.try_resolve_active_lease(session_id=session.id) is not None
 
 
+class _RecordingBootstrapBuilder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def build(self, **kwargs):
+        self.calls.append(kwargs)
+        return None
+
+
+class _PreparedIngestionReadinessReader:
+    async def read_for_knowledge_graph(self, *, knowledge_graph_id: str):
+        return IngestionReadinessSnapshot(data_source_count=1, prepared_source_count=1)
+
+
 @pytest.mark.asyncio
 async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepare() -> None:
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
     sticky = InMemoryStickySessionRuntimeManager()
+    bootstrap = _RecordingBootstrapBuilder()
     service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
-        ingestion_readiness_reader=_StaticIngestionReadinessReader(),
+        ingestion_readiness_reader=_PreparedIngestionReadinessReader(),
         sticky_runtime_manager=sticky,
-        bootstrap_builder=_StaticBootstrapBuilder(),
+        bootstrap_builder=bootstrap,
         health_checker=_InstantHealthChecker(),
-        runtime_backend="memory",
+        runtime_backend="container",
         sticky_health_timeout_seconds=5.0,
     )
     session = await session_service.get_or_create_active_session(
@@ -215,3 +230,11 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
 
     assert events == []
     assert session.runtime_context["sticky_runtime"]["phase"] == "ready"
+    assert bootstrap.calls == [
+        {
+            "tenant_id": "tenant-1",
+            "knowledge_graph_id": "kg-1",
+            "session_id": session.id,
+            "include_job_packages": True,
+        }
+    ]

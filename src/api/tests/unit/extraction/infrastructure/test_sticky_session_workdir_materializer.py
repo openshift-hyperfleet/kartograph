@@ -57,3 +57,17 @@ def test_materializer_extracts_job_package_into_session_workspace(tmp_path: Path
 
     repo_file = session_root / "repository-files" / package_id / "README.md"
     assert repo_file.read_text(encoding="utf-8") == "# hello\n"
+
+
+def test_materializer_does_not_discover_archives_when_package_ids_empty(tmp_path: Path) -> None:
+    package_id = "01JTESTPACK0000000000000001"
+    _build_package(tmp_path, package_id)
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    session_root = materializer.prepare(
+        session_id="session-2",
+        knowledge_graph_id="kg-1",
+        job_package_ids=(),
+    )
+
+    assert not any((session_root / "repository-files").iterdir())

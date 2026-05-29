@@ -36,6 +36,9 @@ dev: certs
 .PHONY: down
 down:
 	docker compose -f compose.yaml -f compose.dev.yaml down
+	@echo "Stopping Graph Management sticky and worker containers..."
+	-@docker ps -aq --filter name=kartograph-sticky- | xargs -r docker rm -f
+	-@docker ps -aq --filter name=kartograph-worker- | xargs -r docker rm -f
 
 
 .PHONY: run

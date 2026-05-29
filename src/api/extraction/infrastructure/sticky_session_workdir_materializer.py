@@ -33,7 +33,11 @@ class StickySessionWorkdirMaterializer:
         ingestion_context_dir.mkdir(parents=True, exist_ok=True)
         repository_files_dir.mkdir(parents=True, exist_ok=True)
 
-        discovered = job_package_ids or self._discover_job_package_ids()
+        discovered = (
+            self._discover_job_package_ids()
+            if job_package_ids is None
+            else job_package_ids
+        )
         for package_id in discovered:
             archive_path = self._job_package_work_dir / JobPackageId(value=package_id).archive_name()
             if not archive_path.exists():

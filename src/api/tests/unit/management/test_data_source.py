@@ -465,6 +465,13 @@ class TestDataSourceRecordIngestionPrepared:
         assert ds.last_prepared_commit == "abc123"
         assert ds.last_prepared_file_count == 10
 
+    def test_record_ingestion_prepared_updates_branch_file_count_on_incremental(self):
+        """Incremental prepares must store total branch files, not changeset size."""
+        ds = self._create_ds()
+        ds.last_prepared_file_count = 120
+        ds.record_ingestion_prepared(prepared_commit="def456", prepared_file_count=124)
+        assert ds.last_prepared_file_count == 124
+
 
 class TestDataSourceMarkForDeletion:
     """Tests for DataSource.mark_for_deletion() method."""

@@ -86,6 +86,7 @@ class _FakeIngestionService:
         return IngestionRunResult(
             job_package_id=JobPackageId(value="01HRZZZZZZZZZZZZZZZZZZZZZ0"),
             entry_count=42,
+            branch_file_count=99,
             prepared_commit_sha="abc123def456",
         )
 
@@ -258,7 +259,7 @@ class TestIngestionEventHandlerSuccess:
         assert event["event_type"] == "IngestionPrepared"
         assert event["payload"]["job_package_id"] is not None
         assert event["payload"]["prepared_commit_sha"] == "abc123def456"
-        assert event["payload"]["prepared_file_count"] == 42
+        assert event["payload"]["prepared_file_count"] == 99
 
     async def test_no_changes_ingest_only_emits_ingestion_prepared(
         self,

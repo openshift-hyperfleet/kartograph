@@ -13,4 +13,5 @@ class IngestionRunResult:
 
     job_package_id: JobPackageId
     entry_count: int
+    branch_file_count: int | None
     prepared_commit_sha: str | None

@@ -79,6 +79,14 @@ def _tree_response(
     return {"sha": HEAD_SHA, "tree": files, "truncated": False}
 
 
+def _head_tree_response(files: list[dict] | None = None) -> dict:
+    """Default tree at HEAD for incremental branch file count."""
+    return _tree_response(files)
+
+
+HEAD_TREE_PATH = f"/git/trees/{HEAD_SHA}"
+
+
 def _compare_response(
     changed_files: list[dict] | None = None,
 ) -> dict:
@@ -179,6 +187,26 @@ def incremental_transport() -> FakeGitHubTransport:
         {
             # Branch tip
             "/branches/main": _branch_response(HEAD_SHA),
+            # Tree at HEAD for branch file count (3 blobs on branch)
+            f"/git/trees/{HEAD_SHA}": _tree_response(
+                [
+                    {
+                        "path": "README.md",
+                        "type": "blob",
+                        "sha": BLOB_SHA_README,
+                    },
+                    {
+                        "path": "src/main.py",
+                        "type": "blob",
+                        "sha": BLOB_SHA_MAIN,
+                    },
+                    {
+                        "path": "src/utils.py",
+                        "type": "blob",
+                        "sha": BLOB_SHA_UTILS,
+                    },
+                ]
+            ),
             # Compare endpoint
             f"/compare/{BASE_SHA}...{HEAD_SHA}": _compare_response(
                 [
@@ -374,6 +402,29 @@ class TestIncrementalSync:
 
         assert len(result.changeset_entries) == 1
         assert result.changeset_entries[0].path == "src/utils.py"
+        assert result.branch_file_count == 3
+
+    @pytest.mark.asyncio
+    async def test_incremental_reports_branch_file_count_separate_from_changeset(
+        self, connection_config, credentials, incremental_transport
+    ):
+        """Branch file count reflects total blobs, not just changed files."""
+        client = httpx.AsyncClient(transport=incremental_transport)
+        adapter = GitHubAdapter(http_client=client)
+
+        checkpoint = AdapterCheckpoint(
+            schema_version="1.0.0", data={"commit_sha": BASE_SHA}
+        )
+
+        result = await adapter.extract(
+            connection_config=connection_config,
+            credentials=credentials,
+            checkpoint=checkpoint,
+            sync_mode=SyncMode.INCREMENTAL,
+        )
+
+        assert len(result.changeset_entries) == 1
+        assert result.branch_file_count == 3
 
     @pytest.mark.asyncio
     async def test_incremental_maps_added_status_to_add_operation(
@@ -405,6 +456,7 @@ class TestIncrementalSync:
         transport = FakeGitHubTransport(
             {
                 "/branches/main": _branch_response(HEAD_SHA),
+                HEAD_TREE_PATH: _head_tree_response(),
                 f"/compare/{BASE_SHA}...{HEAD_SHA}": _compare_response(
                     [
                         {
@@ -442,6 +494,7 @@ class TestIncrementalSync:
         transport = FakeGitHubTransport(
             {
                 "/branches/main": _branch_response(HEAD_SHA),
+                HEAD_TREE_PATH: _head_tree_response(),
                 f"/compare/{BASE_SHA}...{HEAD_SHA}": _compare_response(
                     [
                         {
@@ -482,6 +535,7 @@ class TestIncrementalSync:
         transport = FakeGitHubTransport(
             {
                 "/branches/main": _branch_response(HEAD_SHA),
+                HEAD_TREE_PATH: _head_tree_response(),
                 f"/compare/{BASE_SHA}...{HEAD_SHA}": _compare_response(
                     [
                         {
@@ -518,6 +572,7 @@ class TestIncrementalSync:
         transport = FakeGitHubTransport(
             {
                 "/branches/main": _branch_response(HEAD_SHA),
+                HEAD_TREE_PATH: _head_tree_response(),
                 f"/compare/{BASE_SHA}...{HEAD_SHA}": _compare_response([]),
             }
         )
@@ -722,6 +777,26 @@ class TestContentFetching:
                 url_path = request.url.path
                 if url_path.endswith("/branches/main"):
                     data: dict = _branch_response(HEAD_SHA)
+                elif f"/git/trees/{HEAD_SHA}" in url_path:
+                    data = _head_tree_response(
+                        [
+                            {
+                                "path": "README.md",
+                                "type": "blob",
+                                "sha": BLOB_SHA_README,
+                            },
+                            {
+                                "path": "src/main.py",
+                                "type": "blob",
+                                "sha": BLOB_SHA_MAIN,
+                            },
+                            {
+                                "path": "src/utils.py",
+                                "type": "blob",
+                                "sha": BLOB_SHA_UTILS,
+                            },
+                        ]
+                    )
                 elif f"/compare/{BASE_SHA}...{HEAD_SHA}" in url_path:
                     data = _compare_response(
                         [

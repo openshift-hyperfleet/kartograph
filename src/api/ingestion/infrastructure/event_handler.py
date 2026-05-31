@@ -173,7 +173,7 @@ class IngestionEventHandler:
                     "knowledge_graph_id": knowledge_graph_id,
                     "job_package_id": str(ingestion_result.job_package_id),
                     "prepared_commit_sha": ingestion_result.prepared_commit_sha,
-                    "prepared_file_count": ingestion_result.entry_count,
+                    "prepared_file_count": ingestion_result.branch_file_count,
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,

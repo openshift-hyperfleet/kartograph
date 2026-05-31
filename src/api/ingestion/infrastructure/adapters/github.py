@@ -183,11 +183,15 @@ class GitHubAdapter:
                 files_to_fetch = await self._get_all_tree_blobs(
                     client, headers, owner, repo, head_sha
                 )
+                branch_file_count = len(files_to_fetch)
             else:
                 assert checkpoint is not None  # narrowed above
                 base_sha = checkpoint.data[_COMMIT_SHA_KEY]
                 files_to_fetch = await self._get_changed_files(
                     client, headers, owner, repo, base_sha, head_sha
+                )
+                branch_file_count = await self._count_tree_blobs(
+                    client, headers, owner, repo, head_sha
                 )
 
             # Step 3: Fetch content for each file
@@ -209,6 +213,7 @@ class GitHubAdapter:
             changeset_entries=changeset_entries,
             content_blobs=content_blobs,
             new_checkpoint=new_checkpoint,
+            branch_file_count=branch_file_count,
         )
 
     # ------------------------------------------------------------------
@@ -287,6 +292,25 @@ class GitHubAdapter:
                 }
             )
         return result
+
+    async def _count_tree_blobs(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        owner: str,
+        repo: str,
+        tree_sha: str,
+    ) -> int:
+        """Count blob entries in the repository tree at a commit."""
+        url = (
+            f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
+        )
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        tree_data: dict[str, Any] = response.json()
+        return sum(
+            1 for item in tree_data.get("tree", []) if item.get("type") == "blob"
+        )
 
     async def _get_changed_files(
         self,

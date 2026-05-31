@@ -145,6 +145,7 @@ class IngestionService:
         return IngestionRunResult(
             job_package_id=builder._package_id,
             entry_count=len(result.changeset_entries),
+            branch_file_count=result.branch_file_count,
             prepared_commit_sha=(
                 str(prepared_commit_sha) if prepared_commit_sha is not None else None
             ),

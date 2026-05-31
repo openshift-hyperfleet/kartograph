@@ -45,6 +45,7 @@ def _make_extraction_result(
         changeset_entries=[entry],
         content_blobs={content_ref.hex_digest: content},
         new_checkpoint=checkpoint,
+        branch_file_count=1,
     )
 
 
@@ -108,6 +109,7 @@ class TestIngestionService:
         assert isinstance(result, IngestionRunResult)
         assert isinstance(result.job_package_id, JobPackageId)
         assert result.entry_count == 1
+        assert result.branch_file_count == 1
         assert result.prepared_commit_sha == "deadbeef"
 
     async def test_run_creates_zip_archive(self):

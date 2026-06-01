@@ -74,8 +74,18 @@ export function unpulledCommitStatusLabel(
   return 'new commit on branch (not ingested yet)'
 }
 
-export function needsIngestionPrepare(ds: Parameters<typeof hasUnpulledCommits>[0]): boolean {
-  return hasUnpulledCommits(ds)
+export function needsJobPackageRematerialize(ds: {
+  last_prepared_commit?: string | null
+  job_package_available?: boolean | null
+}): boolean {
+  return Boolean(ds.last_prepared_commit) && ds.job_package_available === false
+}
+
+export function needsIngestionPrepare(ds: Parameters<typeof hasUnpulledCommits>[0] & {
+  last_prepared_commit?: string | null
+  job_package_available?: boolean | null
+}): boolean {
+  return hasUnpulledCommits(ds) || needsJobPackageRematerialize(ds)
 }
 
 export function isIngestionPreparedAtHead(ds: Parameters<typeof hasUnpulledCommits>[0]): boolean {

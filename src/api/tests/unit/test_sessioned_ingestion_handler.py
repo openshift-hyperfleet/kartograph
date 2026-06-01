@@ -189,6 +189,7 @@ async def test_sessioned_ingestion_handler_uses_last_prepared_for_ingest_only():
     session_factory = _make_session_factory(session)
     handler = _SessionedIngestionEventHandler(session_factory=session_factory)
     handler._resolve_github_tracked_head_commit = AsyncMock(return_value="prepared123")  # type: ignore[attr-defined]
+    handler._ingest_only_archive_available = AsyncMock(return_value=True)  # type: ignore[attr-defined]
 
     outbox_repo = MagicMock()
     ds_repo = MagicMock()
@@ -244,4 +245,71 @@ async def test_sessioned_ingestion_handler_uses_last_prepared_for_ingest_only():
     call_payload = ingestion_handler.handle.call_args.args[1]
     assert call_payload["baseline_commit"] == "prepared123"
     assert call_payload["no_changes_detected"] is True
+
+
+@pytest.mark.asyncio
+async def test_sessioned_ingestion_handler_runs_ingest_only_when_archive_missing():
+    """ingest_only at branch head should still run when the JobPackage ZIP was lost."""
+    from main import _SessionedIngestionEventHandler
+
+    session = AsyncMock()
+    session_factory = _make_session_factory(session)
+    handler = _SessionedIngestionEventHandler(session_factory=session_factory)
+    handler._resolve_github_tracked_head_commit = AsyncMock(return_value="prepared123")  # type: ignore[attr-defined]
+    handler._ingest_only_archive_available = AsyncMock(return_value=False)  # type: ignore[attr-defined]
+
+    outbox_repo = MagicMock()
+    ds_repo = MagicMock()
+    secret_store = MagicMock()
+    ingestion_handler = MagicMock()
+    ingestion_handler.handle = AsyncMock()
+    ingestion_service = MagicMock()
+
+    ds = _make_data_source()
+    ds.last_prepared_commit = "prepared123"
+    ds_repo.get_by_id = AsyncMock(return_value=ds)
+    ds_repo.save = AsyncMock()
+    secret_store.retrieve = AsyncMock(return_value={"token": "tok"})
+
+    payload = {
+        "sync_run_id": "run-004",
+        "data_source_id": ds.id.value,
+        "knowledge_graph_id": ds.knowledge_graph_id,
+        "tenant_id": ds.tenant_id,
+        "adapter_type": "github",
+        "connection_config": ds.connection_config,
+        "credentials_path": ds.credentials_path,
+        "pipeline_mode": "ingest_only",
+    }
+
+    management_settings = MagicMock()
+    management_settings.encryption_key.get_secret_value.return_value = (
+        "WlAwWU83a2hSODl2SVY4MHBzQWpwaDBSUHhOU3NfQ3R6aXpvNTJfNE5odz0="
+    )
+
+    with (
+        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
+            return_value=ds_repo,
+        ),
+        patch(
+            "management.infrastructure.repositories.fernet_secret_store.FernetSecretStore",
+            return_value=secret_store,
+        ),
+        patch(
+            "ingestion.application.services.ingestion_service.IngestionService",
+            return_value=ingestion_service,
+        ),
+        patch(
+            "ingestion.infrastructure.event_handler.IngestionEventHandler",
+            return_value=ingestion_handler,
+        ),
+        patch("main.get_management_settings", return_value=management_settings),
+    ):
+        await handler.handle("SyncStarted", payload)
+
+    call_payload = ingestion_handler.handle.call_args.args[1]
+    assert call_payload["baseline_commit"] == "prepared123"
+    assert "no_changes_detected" not in call_payload
 

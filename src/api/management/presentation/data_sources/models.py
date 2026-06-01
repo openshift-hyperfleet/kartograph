@@ -207,7 +207,8 @@ class DataSourceResponse(BaseModel):
         None, description="Commit SHA captured during the last ingest-only prepare"
     )
     last_prepared_file_count: int | None = Field(
-        None, description="Number of files in the JobPackage from the last prepare"
+        None,
+        description="Total files on the tracked branch at the last prepare commit",
     )
     ingested_head_commit: str | None = Field(
         None,
@@ -219,6 +220,10 @@ class DataSourceResponse(BaseModel):
             "Newest commit on the tracked branch we do not have yet; "
             "null when up to date with branch tip"
         ),
+    )
+    job_package_available: bool | None = Field(
+        None,
+        description="Whether the latest prepared JobPackage archive exists on disk",
     )
     connection_config: dict[str, str] = Field(
         default_factory=dict,
@@ -505,7 +510,8 @@ class DataSourceWithSyncResponse(BaseModel):
         None, description="Commit SHA captured during the last ingest-only prepare"
     )
     last_prepared_file_count: int | None = Field(
-        None, description="Number of files in the JobPackage from the last prepare"
+        None,
+        description="Total files on the tracked branch at the last prepare commit",
     )
     ingested_head_commit: str | None = Field(
         None,

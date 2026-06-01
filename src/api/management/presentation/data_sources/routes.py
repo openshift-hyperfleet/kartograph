@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
+from infrastructure.database.dependencies import get_write_session
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
@@ -19,8 +25,10 @@ from management.infrastructure.git_commit_reference_service import (
     GitCommitReferenceService,
 )
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
+from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
+from shared_kernel.job_package.archive_availability import job_package_archive_exists
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
     DataSourceDiffSummaryResponse,
@@ -263,6 +271,7 @@ async def list_data_sources(
     kg_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
 ) -> list[DataSourceResponse]:
     """List all data sources for a knowledge graph.
 
@@ -272,6 +281,7 @@ async def list_data_sources(
         kg_id: Knowledge Graph ID to list data sources for
         current_user: Current authenticated user with tenant context
         service: Data source service for orchestration
+        session: Database session for JobPackage archive lookups
 
     Returns:
         List of DataSourceResponse objects for the knowledge graph
@@ -285,7 +295,20 @@ async def list_data_sources(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
         )
-        return [DataSourceResponse.from_domain(ds) for ds in data_sources]
+        archive_reader = SqlJobPackageArchiveReader(session=session)
+        work_dir = get_extraction_workload_runtime_settings().job_package_work_dir
+        responses: list[DataSourceResponse] = []
+        for ds in data_sources:
+            response = DataSourceResponse.from_domain(ds)
+            package_id = await archive_reader.latest_job_package_id_for_data_source(
+                data_source_id=ds.id.value,
+            )
+            response.job_package_available = job_package_archive_exists(
+                work_dir=Path(work_dir),
+                job_package_id=package_id,
+            )
+            responses.append(response)
+        return responses
 
     except UnauthorizedError:
         raise HTTPException(

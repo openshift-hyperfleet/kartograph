@@ -195,6 +195,29 @@ class _SessionedIngestionEventHandler:
         sha = payload.get("commit", {}).get("sha")
         return str(sha) if sha else None
 
+    async def _ingest_only_archive_available(
+        self,
+        *,
+        session: Any,
+        data_source_id: str,
+    ) -> bool:
+        """Return whether a previously prepared JobPackage archive still exists on disk."""
+        from management.infrastructure.job_package_archive_reader import (
+            SqlJobPackageArchiveReader,
+        )
+        from shared_kernel.job_package.archive_availability import (
+            job_package_archive_exists,
+        )
+
+        reader = SqlJobPackageArchiveReader(session=session)
+        package_id = await reader.latest_job_package_id_for_data_source(
+            data_source_id=data_source_id,
+        )
+        return job_package_archive_exists(
+            work_dir=_JOB_PACKAGE_WORK_DIR,
+            job_package_id=package_id,
+        )
+
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
         from ingestion.infrastructure.adapters.github import GitHubAdapter
         from ingestion.application.services.ingestion_service import IngestionService
@@ -283,7 +306,14 @@ class _SessionedIngestionEventHandler:
                             and baseline_commit
                             and baseline_commit == tracked_head
                         ):
-                            enriched_payload["no_changes_detected"] = True
+                            if pipeline_mode == "ingest_only":
+                                if await self._ingest_only_archive_available(
+                                    session=session,
+                                    data_source_id=data_source_id,
+                                ):
+                                    enriched_payload["no_changes_detected"] = True
+                            else:
+                                enriched_payload["no_changes_detected"] = True
 
             await ingestion_handler.handle(
                 event_type,

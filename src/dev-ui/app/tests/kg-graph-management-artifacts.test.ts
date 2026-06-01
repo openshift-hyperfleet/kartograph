@@ -13,6 +13,8 @@ describe('kgGraphManagementArtifacts', () => {
     transitionEligible: false,
     blockingReasonCount: 1,
     prepopulatedGapCount: 0,
+    hasMinimumEntityTypes: false,
+    hasMinimumRelationshipTypes: false,
     sessionUpdatedAt: '2026-01-01',
     hasActiveSession: true,
   })
@@ -26,7 +28,7 @@ describe('kgGraphManagementArtifacts', () => {
   it('resolves schema selection for the active mode', () => {
     expect(
       resolveSchemaRailSelection(null, 'initial-schema-design', items),
-    ).toBe('schema-readiness')
+    ).toBe('schema-entities')
     expect(
       resolveSchemaRailSelection('session-pointers', 'extraction-jobs', items),
     ).toBe('extraction-jobs-setup')

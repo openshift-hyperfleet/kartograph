@@ -6,6 +6,8 @@ export type GraphManagementMode =
   | 'one-off-mutations'
 
 export type GraphManagementRailItemId =
+  | 'schema-entities'
+  | 'schema-relationships'
   | 'schema-readiness'
   | 'validation-diagnostics'
   | 'session-pointers'
@@ -47,6 +49,8 @@ export interface GraphManagementRailInputs {
   transitionEligible: boolean
   blockingReasonCount: number
   prepopulatedGapCount: number
+  hasMinimumEntityTypes: boolean
+  hasMinimumRelationshipTypes: boolean
   sessionUpdatedAt: string | null
   hasActiveSession: boolean
 }
@@ -85,6 +89,22 @@ export function buildGraphManagementRailItems(
       : 'in_progress'
 
   return [
+    {
+      id: 'schema-entities',
+      label: 'Schema: Entities',
+      status: input.hasMinimumEntityTypes ? 'ready' : 'in_progress',
+      lastUpdated: sessionStamp,
+      detailHint: 'Entity type definitions and coverage snapshot.',
+      modes: ['initial-schema-design'],
+    },
+    {
+      id: 'schema-relationships',
+      label: 'Schema: Relationships',
+      status: input.hasMinimumRelationshipTypes ? 'ready' : 'in_progress',
+      lastUpdated: sessionStamp,
+      detailHint: 'Relationship type definitions and edge coverage snapshot.',
+      modes: ['initial-schema-design'],
+    },
     {
       id: 'schema-readiness',
       label: 'Schema readiness',

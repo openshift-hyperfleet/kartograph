@@ -363,6 +363,8 @@ const graphManagementRailItems = computed(() => {
     transitionEligible: statusProjection.value.transition_eligible,
     blockingReasonCount: statusProjection.value.readiness.blocking_reasons.length,
     prepopulatedGapCount: statusProjection.value.readiness.prepopulated_types_without_instances.length,
+    hasMinimumEntityTypes: statusProjection.value.readiness.has_minimum_entity_types,
+    hasMinimumRelationshipTypes: statusProjection.value.readiness.has_minimum_relationship_types,
     sessionUpdatedAt: extractionSession.value?.updated_at ?? null,
     hasActiveSession: Boolean(extractionSession.value?.id),
   })
@@ -1863,7 +1865,89 @@ watch(selectedOpsDataSourceId, () => {
           </Card>
 
           <div id="graph-management-artifact-detail" class="graph-management-detail scroll-mt-6 space-y-6">
-            <Card v-if="selectedRailItemId === 'schema-readiness'">
+            <Card v-if="selectedRailItemId === 'schema-entities'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <Box class="size-4" />
+                  Schema: Entities
+                </CardTitle>
+                <CardDescription>
+                  Entity type coverage snapshot for
+                  <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 text-sm">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" size="sm" as-child>
+                    <NuxtLink to="/graph/schema">Open schema browser</NuxtLink>
+                  </Button>
+                </div>
+                <div class="rounded-lg border bg-muted/30 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Entity type inventory
+                    </p>
+                    <Badge :variant="entityTypeLabels.length > 0 ? 'default' : 'secondary'">
+                      {{ entityTypeLabels.length }} type(s)
+                    </Badge>
+                  </div>
+                  <p
+                    v-if="entityTypeLabels.length === 0"
+                    class="mt-2 text-xs text-muted-foreground"
+                  >
+                    No entity types defined yet. Add at least one type to satisfy schema readiness.
+                  </p>
+                  <div v-else class="mt-2 flex flex-wrap gap-2">
+                    <Badge v-for="label in entityTypeLabels" :key="label" variant="outline">
+                      {{ label }}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card v-else-if="selectedRailItemId === 'schema-relationships'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <Link2 class="size-4" />
+                  Schema: Relationships
+                </CardTitle>
+                <CardDescription>
+                  Relationship type coverage snapshot for
+                  <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 text-sm">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" size="sm" as-child>
+                    <NuxtLink to="/graph/schema">Open schema browser</NuxtLink>
+                  </Button>
+                </div>
+                <div class="rounded-lg border bg-muted/30 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Relationship type inventory
+                    </p>
+                    <Badge :variant="relationshipTypeLabels.length > 0 ? 'default' : 'secondary'">
+                      {{ relationshipTypeLabels.length }} type(s)
+                    </Badge>
+                  </div>
+                  <p
+                    v-if="relationshipTypeLabels.length === 0"
+                    class="mt-2 text-xs text-muted-foreground"
+                  >
+                    No relationship types defined yet. Add at least one type to satisfy schema readiness.
+                  </p>
+                  <div v-else class="mt-2 flex flex-wrap gap-2">
+                    <Badge v-for="label in relationshipTypeLabels" :key="label" variant="outline">
+                      {{ label }}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card v-else-if="selectedRailItemId === 'schema-readiness'">
               <CardHeader>
                 <CardTitle class="text-base flex items-center gap-2">
                   <CheckCircle2 class="size-4" />

@@ -39,6 +39,12 @@ export function graphManagementArtifactRowClass(selected: boolean, done: boolean
 }
 
 export function graphManagementArtifactHint(item: GraphManagementRailItem): string {
+  if (item.id === 'schema-entities') {
+    return item.status === 'ready' ? 'Types available' : 'Define entities'
+  }
+  if (item.id === 'schema-relationships') {
+    return item.status === 'ready' ? 'Types available' : 'Define relationships'
+  }
   if (item.id === 'schema-readiness') {
     return item.status === 'ready' ? 'Ready to transition' : 'Bootstrap checklist'
   }

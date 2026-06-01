@@ -439,6 +439,8 @@ describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
       transitionEligible: false,
       blockingReasonCount: 1,
       prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: false,
+      hasMinimumRelationshipTypes: false,
       sessionUpdatedAt: '2026-05-22T12:00:00Z',
       hasActiveSession: true,
     })
@@ -466,6 +468,8 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
       transitionEligible: true,
       blockingReasonCount: 0,
       prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: true,
+      hasMinimumRelationshipTypes: true,
       sessionUpdatedAt: null,
       hasActiveSession: true,
     })
@@ -481,6 +485,10 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
 
 describe('KG-MANAGE-010 - schema design parity behavior', () => {
   it('exposes schema readiness and validation detail in initial schema design mode', () => {
+    expect(manageWorkspaceVue).toContain('Schema: Entities')
+    expect(manageWorkspaceVue).toContain('Schema: Relationships')
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-entities'")
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-relationships'")
     expect(manageWorkspaceVue).toContain('progressChecklist')
     expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')
     expect(manageWorkspaceVue).toContain('blocking_reasons')
@@ -530,6 +538,8 @@ describe('KG-MANAGE-016 - graph management top controls', () => {
       transitionEligible: true,
       blockingReasonCount: 0,
       prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: true,
+      hasMinimumRelationshipTypes: true,
       sessionUpdatedAt: '2026-05-22T12:00:00Z',
       hasActiveSession: true,
     })

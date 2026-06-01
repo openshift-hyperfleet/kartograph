@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared_kernel.job_package.reader import JobPackageReader
+from shared_kernel.job_package.value_objects import JobPackageId
+
 
 class SqlPreparedJobPackageReader:
-    """Reads latest prepared JobPackage ids from outbox events for one knowledge graph."""
+    """Reads latest materializable JobPackage ids from outbox events for one KG."""
 
-    def __init__(self, *, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        *,
+        session: AsyncSession,
+        job_package_work_dir: Path,
+    ) -> None:
         self._session = session
+        self._job_package_work_dir = job_package_work_dir
 
     async def list_latest_for_knowledge_graph(
         self, *, knowledge_graph_id: str
@@ -18,8 +29,10 @@ class SqlPreparedJobPackageReader:
         result = await self._session.execute(
             text(
                 """
-                SELECT DISTINCT ON (payload->>'data_source_id')
-                  payload->>'job_package_id' AS job_package_id
+                SELECT
+                  payload->>'data_source_id' AS data_source_id,
+                  payload->>'job_package_id' AS job_package_id,
+                  occurred_at
                 FROM outbox
                 WHERE event_type IN ('IngestionPrepared', 'JobPackageProduced')
                   AND payload->>'knowledge_graph_id' = :knowledge_graph_id
@@ -29,9 +42,42 @@ class SqlPreparedJobPackageReader:
             ),
             {"knowledge_graph_id": knowledge_graph_id},
         )
-        package_ids = tuple(
-            str(row.job_package_id)
-            for row in result
-            if row.job_package_id is not None and str(row.job_package_id).strip()
-        )
-        return package_ids
+        rows = result.fetchall()
+
+        by_source: dict[str, list] = {}
+        for row in rows:
+            data_source_id = str(row.data_source_id or "").strip()
+            if not data_source_id:
+                continue
+            by_source.setdefault(data_source_id, []).append(row)
+
+        selected: list[str] = []
+        for data_source_id in sorted(by_source):
+            package_id = self._first_materializable_package_id(
+                rows=by_source[data_source_id],
+            )
+            if package_id is not None:
+                selected.append(package_id)
+
+        return tuple(selected)
+
+    def _first_materializable_package_id(self, *, rows) -> str | None:
+        for row in rows:
+            package_id = str(row.job_package_id or "").strip()
+            if not package_id:
+                continue
+            if self._package_has_repository_content(package_id):
+                return package_id
+        return None
+
+    def _package_has_repository_content(self, package_id: str) -> bool:
+        archive_path = self._job_package_work_dir / JobPackageId(
+            value=package_id
+        ).archive_name()
+        if not archive_path.is_file():
+            return False
+        try:
+            manifest = JobPackageReader(archive_path).read_manifest()
+        except (OSError, ValueError):
+            return False
+        return manifest.entry_count > 0

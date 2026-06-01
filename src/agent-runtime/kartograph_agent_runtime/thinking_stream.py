@@ -170,6 +170,6 @@ def initial_sdk_thinking_lines(*, auth_mode: str, ui_mode: str) -> list[str]:
     return [
         f"Claude Agent SDK query started ({auth_mode})…",
         f"Mode overlay: {ui_mode}",
-        "Tools: graph read enclave, mutation emitter",
+        "Tools: Read, Grep, Glob on workspace repository-files",
         "Connected — working on your message…",
     ]

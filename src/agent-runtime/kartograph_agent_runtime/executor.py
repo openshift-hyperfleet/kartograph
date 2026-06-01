@@ -37,15 +37,54 @@ def _build_system_prompt(
 
 
 def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
+    import json
     from pathlib import Path
 
     root = Path(settings.workspace_dir)
+    index_path = root / "sources-index.json"
+    if index_path.is_file():
+        try:
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            index = None
+        sources = index.get("sources") if isinstance(index, dict) else None
+        if isinstance(sources, list) and sources:
+            lines = [
+                "## Session workspace",
+                f"Workspace mount: `{settings.workspace_dir}`",
+                (
+                    "Prepared repository files live under "
+                    "`repository-files/<job_package_id>/` relative to the workspace mount. "
+                    "Use Read, Grep, and Glob tools against those paths."
+                ),
+            ]
+            for source in sources[:12]:
+                if not isinstance(source, dict):
+                    continue
+                package_id = str(source.get("job_package_id") or "?")
+                entry_count = source.get("entry_count", 0)
+                repository_root = str(
+                    source.get("repository_root") or f"repository-files/{package_id}"
+                )
+                data_source_id = str(source.get("data_source_id") or "?")
+                lines.append(
+                    f"- `{repository_root}`: {entry_count} file(s) "
+                    f"(data source `{data_source_id}`)"
+                )
+                sample_paths = source.get("sample_paths")
+                if isinstance(sample_paths, list):
+                    for path in sample_paths[:6]:
+                        if path:
+                            lines.append(f"  - `{path}`")
+            return "\n".join(lines)
+
     repo_root = root / "repository-files"
     if not repo_root.is_dir():
         return (
             f"## Session workspace\n"
             f"Workspace mount: `{settings.workspace_dir}`\n"
-            "No prepared JobPackage repository files are materialized yet."
+            "No prepared JobPackage repository files are materialized yet. "
+            "Prepare data sources under Graph Management → Data sources."
         )
 
     package_dirs = sorted(path for path in repo_root.iterdir() if path.is_dir())
@@ -54,8 +93,7 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
             f"## Session workspace\n"
             f"Workspace mount: `{settings.workspace_dir}`\n"
             "Prepared data sources exist, but repository files have not been extracted yet. "
-            "If the user asks about repository content, explain that ingestion context may "
-            "need to be re-prepared under Data sources."
+            "Re-prepare data sources under Graph Management → Data sources."
         )
 
     lines = [

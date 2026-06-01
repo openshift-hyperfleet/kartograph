@@ -7,7 +7,7 @@ following the patterns established in tests/unit/iam/presentation/.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, status
@@ -105,15 +105,27 @@ def sample_sync_run(sample_data_source: DataSource) -> DataSourceSyncRun:
 
 
 @pytest.fixture
+def mock_write_session() -> AsyncMock:
+    """Mock write DB session for JobPackage archive lookups."""
+    session = AsyncMock()
+    result = MagicMock()
+    result.fetchall.return_value = []
+    session.execute = AsyncMock(return_value=result)
+    return session
+
+
+@pytest.fixture
 def test_client(
     mock_ds_service: AsyncMock,
     mock_sync_run_repo: AsyncMock,
     mock_diff_summary_service: AsyncMock,
     mock_commit_reference_service: AsyncMock,
     mock_current_user: CurrentUser,
+    mock_write_session: AsyncMock,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
     from iam.dependencies.user import get_current_user
+    from infrastructure.database.dependencies import get_write_session
     from management.dependencies.data_source import (
         get_data_source_service,
         get_git_commit_reference_service,
@@ -124,6 +136,9 @@ def test_client(
 
     app = FastAPI()
 
+    async def _override_write_session():
+        yield mock_write_session
+
     app.dependency_overrides[get_data_source_service] = lambda: mock_ds_service
     app.dependency_overrides[get_sync_run_repository] = lambda: mock_sync_run_repo
     app.dependency_overrides[get_git_diff_summary_service] = (
@@ -133,6 +148,7 @@ def test_client(
         lambda: mock_commit_reference_service
     )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_write_session] = _override_write_session
 
     app.include_router(router)
 

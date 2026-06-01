@@ -104,7 +104,10 @@ def get_extraction_chat_turn_service(
     )
     bootstrap_builder = StickySessionBootstrapBuilder(
         credential_issuer=get_workload_credential_issuer(),
-        prepared_job_package_reader=SqlPreparedJobPackageReader(session=session),
+        prepared_job_package_reader=SqlPreparedJobPackageReader(
+            session=session,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+        ),
         workdir_materializer=StickySessionWorkdirMaterializer(
             job_package_work_dir=Path(runtime_settings.job_package_work_dir),
         ),

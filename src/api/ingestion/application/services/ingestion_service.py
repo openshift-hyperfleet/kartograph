@@ -61,6 +61,7 @@ class IngestionService:
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
+        pipeline_mode: str = "full",
     ) -> IngestionRunResult:
         """Run the ingestion pipeline for a data source sync.
 
@@ -103,25 +104,30 @@ class IngestionService:
             )
 
         checkpoint = None
-        if baseline_commit:
+        sync_mode = SyncMode.INCREMENTAL
+        if pipeline_mode == "ingest_only":
+            # Graph-management prepare must snapshot the full branch so the sticky
+            # session workspace contains every repository file, not just deltas.
+            sync_mode = SyncMode.FULL_REFRESH
+        elif baseline_commit:
             checkpoint = AdapterCheckpoint(
                 schema_version="1.0.0",
                 data={"commit_sha": baseline_commit},
             )
-            
+
         # Extract raw items from the adapter using the new ExtractionResult API
         result = await adapter.extract(
             connection_config=connection_config,
             credentials=resolved_credentials,
             checkpoint=checkpoint,
-            sync_mode=SyncMode.INCREMENTAL,
+            sync_mode=sync_mode,
         )
 
         # Build the JobPackage
         builder = JobPackageBuilder(
             data_source_id=data_source_id,
             knowledge_graph_id=knowledge_graph_id,
-            sync_mode=SyncMode.INCREMENTAL,
+            sync_mode=sync_mode,
         )
 
         # Register content blobs (deduplication is handled by the builder)

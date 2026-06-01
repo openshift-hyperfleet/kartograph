@@ -8,9 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from extraction.infrastructure.workload_runtime_settings import (
-    get_extraction_workload_runtime_settings,
-)
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.database.dependencies import get_write_session
@@ -28,7 +25,10 @@ from management.infrastructure.git_diff_summary_service import GitDiffSummarySer
 from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
 from management.ports.exceptions import UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
-from shared_kernel.job_package.archive_availability import job_package_archive_exists
+from shared_kernel.job_package.archive_availability import (
+    job_package_archive_exists,
+    job_package_work_dir,
+)
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
     DataSourceDiffSummaryResponse,
@@ -295,8 +295,11 @@ async def list_data_sources(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
         )
-        archive_reader = SqlJobPackageArchiveReader(session=session)
-        work_dir = get_extraction_workload_runtime_settings().job_package_work_dir
+        archive_reader = SqlJobPackageArchiveReader(
+            session=session,
+            job_package_work_dir=job_package_work_dir(),
+        )
+        work_dir = job_package_work_dir()
         responses: list[DataSourceResponse] = []
         for ds in data_sources:
             response = DataSourceResponse.from_domain(ds)

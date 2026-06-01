@@ -142,6 +142,7 @@ class IngestionEventHandler:
                 tenant_id=payload.get("tenant_id"),
                 credentials=runtime_credentials or payload.get("credentials"),
                 baseline_commit=payload.get("baseline_commit"),
+                pipeline_mode=pipeline_mode,
             )
         except asyncio.CancelledError:
             # Propagate task cancellation so the event loop can shut down
@@ -165,6 +166,23 @@ class IngestionEventHandler:
         # Ingestion succeeded — append success event outside the try block so
         # that an outbox write failure is not misclassified as IngestionFailed.
         if ingest_only:
+            if ingestion_result.entry_count == 0:
+                await self._outbox.append(
+                    event_type="IngestionPrepared",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "prepared_commit_sha": ingestion_result.prepared_commit_sha,
+                        "changeset_entry_count": 0,
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
+                return
             await self._outbox.append(
                 event_type="IngestionPrepared",
                 payload={
@@ -174,6 +192,7 @@ class IngestionEventHandler:
                     "job_package_id": str(ingestion_result.job_package_id),
                     "prepared_commit_sha": ingestion_result.prepared_commit_sha,
                     "prepared_file_count": ingestion_result.branch_file_count,
+                    "changeset_entry_count": ingestion_result.entry_count,
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,

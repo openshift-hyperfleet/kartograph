@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from shared_kernel.job_package.builder import JobPackageBuilder
@@ -71,6 +72,56 @@ def test_materializer_does_not_discover_archives_when_package_ids_empty(tmp_path
     )
 
     assert not any((session_root / "repository-files").iterdir())
+
+
+def _build_empty_package(work_dir: Path, package_id: str) -> None:
+    builder = JobPackageBuilder(
+        data_source_id="ds-empty",
+        knowledge_graph_id="kg-1",
+        sync_mode=SyncMode.INCREMENTAL,
+        package_id=JobPackageId(value=package_id),
+    )
+    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.build(work_dir)
+
+
+def test_materializer_skips_empty_job_packages(tmp_path: Path) -> None:
+    empty_id = "01JEMPTY000000000000000000"
+    full_id = "01JTESTPACK0000000000000003"
+    _build_empty_package(tmp_path, empty_id)
+    _build_package(tmp_path, full_id)
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    session_root = materializer.prepare(
+        session_id="session-empty",
+        knowledge_graph_id="kg-1",
+        job_package_ids=(empty_id, full_id),
+    )
+
+    assert not (session_root / "repository-files" / empty_id).exists()
+    assert (session_root / "repository-files" / full_id / "README.md").exists()
+
+
+def test_materializer_writes_sources_index(tmp_path: Path) -> None:
+    package_id = "01JTESTPACK0000000000000004"
+    _build_package(tmp_path, package_id)
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    session_root = materializer.prepare(
+        session_id="session-index",
+        knowledge_graph_id="kg-1",
+        job_package_ids=(package_id,),
+    )
+
+    index_path = session_root / "sources-index.json"
+    assert index_path.is_file()
+    payload = json.loads(index_path.read_text(encoding="utf-8"))
+    assert payload["knowledge_graph_id"] == "kg-1"
+    assert len(payload["sources"]) == 1
+    source = payload["sources"][0]
+    assert source["job_package_id"] == package_id
+    assert source["entry_count"] == 1
+    assert source["sample_paths"] == ["README.md"]
 
 
 def test_materializer_refresh_preserves_session_root_directory(tmp_path: Path) -> None:

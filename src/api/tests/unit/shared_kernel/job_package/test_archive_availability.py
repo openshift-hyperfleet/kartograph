@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from shared_kernel.job_package.archive_availability import job_package_archive_exists
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
@@ -14,6 +16,14 @@ from shared_kernel.job_package.value_objects import (
     JobPackageId,
     SyncMode,
 )
+
+
+def test_job_package_work_dir_defaults_to_tmp_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR", raising=False)
+
+    from shared_kernel.job_package.archive_availability import job_package_work_dir
+
+    assert job_package_work_dir() == Path("/tmp/kartograph/job_packages")
 
 
 def test_job_package_archive_exists_when_file_present(tmp_path: Path) -> None:

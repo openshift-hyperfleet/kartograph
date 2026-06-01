@@ -70,6 +70,7 @@ class _FakeIngestionService:
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
+        pipeline_mode: str = "full",
     ) -> IngestionRunResult:
         self.calls.append(
             {
@@ -79,6 +80,7 @@ class _FakeIngestionService:
                 "adapter_type": adapter_type,
                 "credentials": credentials,
                 "baseline_commit": baseline_commit,
+                "pipeline_mode": pipeline_mode,
             }
         )
         if self._fail:
@@ -320,6 +322,7 @@ class TestIngestionEventHandlerFailure:
                 tenant_id: str | None = None,
                 credentials: dict[str, str] | None = None,
                 baseline_commit: str | None = None,
+                pipeline_mode: str = "full",
             ) -> JobPackageId:
                 raise RuntimeError(
                     "github auth failed for token ghp_1234567890abcdef1234567890abcdef1234"
@@ -439,6 +442,7 @@ class TestIngestionEventHandlerOutboxIsolation:
                 tenant_id: str | None = None,
                 credentials: dict[str, str] | None = None,
                 baseline_commit: str | None = None,
+                pipeline_mode: str = "full",
             ) -> JobPackageId:
                 raise asyncio.CancelledError()
 

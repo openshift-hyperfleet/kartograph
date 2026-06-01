@@ -1,16 +1,22 @@
-"""Read latest JobPackage identifiers for data source archive availability checks."""
+"""Read latest materializable JobPackage identifiers for archive availability checks."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared_kernel.job_package.reader import JobPackageReader
+from shared_kernel.job_package.value_objects import JobPackageId
+
 
 class SqlJobPackageArchiveReader:
-    """Resolve the latest JobPackage id emitted for one data source."""
+    """Resolve the latest non-empty JobPackage id emitted for one data source."""
 
-    def __init__(self, *, session: AsyncSession) -> None:
+    def __init__(self, *, session: AsyncSession, job_package_work_dir: Path) -> None:
         self._session = session
+        self._job_package_work_dir = job_package_work_dir
 
     async def latest_job_package_id_for_data_source(
         self, *, data_source_id: str
@@ -24,13 +30,24 @@ class SqlJobPackageArchiveReader:
                   AND payload->>'data_source_id' = :data_source_id
                   AND payload->>'job_package_id' IS NOT NULL
                 ORDER BY occurred_at DESC
-                LIMIT 1
                 """
             ),
             {"data_source_id": data_source_id},
         )
-        row = result.one_or_none()
-        if row is None or row.job_package_id is None:
-            return None
-        package_id = str(row.job_package_id).strip()
-        return package_id or None
+        for row in result.fetchall():
+            package_id = str(row.job_package_id or "").strip()
+            if package_id and self._package_has_repository_content(package_id):
+                return package_id
+        return None
+
+    def _package_has_repository_content(self, package_id: str) -> bool:
+        archive_path = self._job_package_work_dir / JobPackageId(
+            value=package_id
+        ).archive_name()
+        if not archive_path.is_file():
+            return False
+        try:
+            manifest = JobPackageReader(archive_path).read_manifest()
+        except (OSError, ValueError):
+            return False
+        return manifest.entry_count > 0

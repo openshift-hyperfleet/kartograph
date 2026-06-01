@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,39 @@ from kartograph_agent_runtime.executor import (
     stream_turn_events,
 )
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
+
+
+def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -> None:
+    package_id = "pkg-1"
+    package_root = tmp_path / "repository-files" / package_id / "pkg" / "api"
+    package_root.mkdir(parents=True)
+    (package_root / "adapter_status_types_test.go").write_text("package api\n", encoding="utf-8")
+    (tmp_path / "sources-index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "knowledge_graph_id": "kg-1",
+                "sources": [
+                    {
+                        "job_package_id": package_id,
+                        "data_source_id": "ds-hyperfleet-api",
+                        "entry_count": 142,
+                        "repository_root": f"repository-files/{package_id}",
+                        "sample_paths": ["pkg/api/adapter_status_types_test.go"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    appendix = _build_workspace_prompt_appendix(
+        AgentRuntimeSettings(KARTOGRAPH_WORKSPACE_DIR=str(tmp_path))
+    )
+
+    assert "ds-hyperfleet-api" in appendix
+    assert "142 file(s)" in appendix
+    assert "pkg/api/adapter_status_types_test.go" in appendix
 
 
 def test_build_workspace_prompt_appendix_lists_materialized_repository_files(

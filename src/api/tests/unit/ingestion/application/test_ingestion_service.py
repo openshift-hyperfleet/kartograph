@@ -60,6 +60,7 @@ class _FakeAdapter:
         self._result = result
         self._fail = fail
         self.last_checkpoint: AdapterCheckpoint | None = None
+        self.last_sync_mode: SyncMode | None = None
         self.last_credentials: dict[str, str] | None = None
 
     async def extract(
@@ -70,6 +71,7 @@ class _FakeAdapter:
         sync_mode: SyncMode,
     ) -> ExtractionResult:
         self.last_checkpoint = checkpoint
+        self.last_sync_mode = sync_mode
         self.last_credentials = credentials
         if self._fail:
             raise RuntimeError("credentials expired")
@@ -211,3 +213,27 @@ class TestIngestionService:
 
         assert adapter.last_checkpoint is not None
         assert adapter.last_checkpoint.data == {"commit_sha": "abc123"}
+
+    async def test_ingest_only_uses_full_refresh_and_ignores_baseline(self):
+        """Prepare-for-agent runs must snapshot the full branch, not an empty delta."""
+        result = _make_extraction_result()
+        adapter = _FakeAdapter(result=result)
+        registry: dict[str, IDatasourceAdapter] = {"github": adapter}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = IngestionService(
+                adapter_registry=registry,
+                work_dir=Path(tmpdir),
+            )
+            await service.run(
+                sync_run_id="run-001",
+                data_source_id="ds-001",
+                knowledge_graph_id="kg-001",
+                adapter_type="github",
+                connection_config={"repo": "org/repo"},
+                credentials_path=None,
+                baseline_commit="abc123",
+                pipeline_mode="ingest_only",
+            )
+
+        assert adapter.last_sync_mode == SyncMode.FULL_REFRESH
+        assert adapter.last_checkpoint is None

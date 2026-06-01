@@ -388,6 +388,10 @@ describe('KG-MANAGE-006 - graph management conversation-first layout', () => {
     expect(manageWorkspaceVue).toContain('graph-management-controls')
   })
 
+  it('uses a centered max-width page container like other KG workspace steps', () => {
+    expect(manageWorkspaceVue).toContain('mx-auto max-w-7xl')
+  })
+
   it('uses one shared session endpoint across UI mode changes', () => {
     expect(manageWorkspaceVue).toContain('sharedSessionMode')
     expect(manageWorkspaceVue).toContain('/sessions/${sharedSessionMode.value}/active')

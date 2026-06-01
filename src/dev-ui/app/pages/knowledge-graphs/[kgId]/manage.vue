@@ -1216,7 +1216,7 @@ watch(selectedOpsDataSourceId, () => {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="mx-auto max-w-7xl space-y-6">
     <template v-if="showOverview">
       <NuxtLink
         to="/knowledge-graphs"

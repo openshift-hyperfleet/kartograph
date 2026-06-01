@@ -972,7 +972,10 @@ async function warmupAssistantRuntime() {
     })) {
       if (generation !== runtimeWarmupGeneration) return
       if (event.type === 'thinking' && Array.isArray(event.recent)) {
-        sessionActivityLines.value = event.recent.filter(Boolean)
+        const recent = event.recent.filter(Boolean)
+        sessionActivityLines.value = recent.length > 0
+          ? recent
+          : sessionActivityLines.value
       }
       if (event.type === 'wait' && event.message) {
         sessionActivityLines.value = [event.message]
@@ -1047,7 +1050,10 @@ async function sendChatMessage(message: string) {
       message: trimmed,
     })) {
       if (event.type === 'thinking' && Array.isArray(event.recent)) {
-        sessionActivityLines.value = event.recent.filter(Boolean)
+        const recent = event.recent.filter(Boolean)
+        sessionActivityLines.value = recent.length > 0
+          ? recent
+          : sessionActivityLines.value
       }
       if (event.type === 'wait') {
         sessionActivityLines.value = event.message

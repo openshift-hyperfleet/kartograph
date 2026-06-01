@@ -8,6 +8,10 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
+from kartograph_agent_runtime.thinking_stream import (
+    initial_sdk_thinking_lines,
+    thinking_events_from_sdk_message,
+)
 from kartograph_agent_runtime.tools import RuntimeTooling
 from kartograph_agent_runtime.vertex import build_claude_agent_env
 
@@ -196,14 +200,8 @@ async def _stream_with_claude_sdk(
     if history_lines:
         prompt = "Recent conversation:\n" + "\n".join(history_lines) + f"\n\nUser: {message}"
 
-    yield {
-        "type": "thinking",
-        "recent": [
-            f"Claude Agent SDK query started ({auth_mode})…",
-            f"Mode overlay: {ui_mode}",
-            "Tools: graph read enclave, mutation emitter",
-        ],
-    }
+    recent = initial_sdk_thinking_lines(auth_mode=auth_mode, ui_mode=ui_mode)
+    yield {"type": "thinking", "recent": list(recent)}
 
     sdk_env = _build_sdk_env(settings)
     workspace_dir = settings.workspace_dir.strip() or "/workspace"
@@ -218,12 +216,25 @@ async def _stream_with_claude_sdk(
     )
 
     reply: str | None = None
+    reply_parts: list[str] = []
+    last_compose_at = 0
     try:
         async with asyncio.timeout(turn_timeout_seconds):
             async for sdk_message in query(prompt=prompt, options=options):
+                thinking_events, last_compose_at = thinking_events_from_sdk_message(
+                    sdk_message,
+                    recent=recent,
+                    reply_parts=reply_parts,
+                    last_compose_at=last_compose_at,
+                )
+                for event in thinking_events:
+                    yield event
+
                 extracted = _extract_sdk_reply(sdk_message)
                 if extracted:
                     reply = extracted
+                elif reply_parts:
+                    reply = "".join(reply_parts).strip() or None
     except TimeoutError:
         yield {
             "type": "done",

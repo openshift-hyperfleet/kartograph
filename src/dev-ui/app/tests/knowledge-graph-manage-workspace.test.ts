@@ -367,7 +367,7 @@ describe('Shared conversation panel - extraction UX contract', () => {
   })
 
   it('renders bubble chat, thinking state, and auto-scroll', () => {
-    expect(sharedConversationPanelVue).toContain('thinkingDisplaySlots')
+    expect(sharedConversationPanelVue).toContain('thinkingDisplayLines')
     expect(sharedConversationPanelVue).toContain('chatScrollRef')
     expect(sharedConversationPanelVue).toContain('renderAssistantHtml')
     expect(sharedConversationPanelVue).toContain('scrollToBottom')

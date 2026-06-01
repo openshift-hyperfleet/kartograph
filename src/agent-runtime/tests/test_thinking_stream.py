@@ -1,0 +1,104 @@
+"""Unit tests for rolling thinking-line stream helpers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from kartograph_agent_runtime.thinking_stream import (
+    initial_sdk_thinking_lines,
+    push_thinking,
+    thinking_events_from_sdk_message,
+)
+
+
+@dataclass
+class FakeToolUseBlock:
+    name: str
+    input: dict
+
+
+@dataclass
+class FakeThinkingBlock:
+    thinking: str
+
+
+@dataclass
+class FakeTextBlock:
+    text: str
+
+
+@dataclass
+class FakeAssistantMessage:
+    content: list
+
+
+@dataclass
+class FakeTaskProgressMessage:
+    task_id: str
+    description: str
+    last_tool_name: str | None = None
+    usage: dict | None = None
+
+
+def test_initial_sdk_thinking_lines_include_connected_message() -> None:
+    lines = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+
+    assert any("Claude Agent SDK query started" in line for line in lines)
+    assert any("Connected" in line for line in lines)
+
+
+def test_push_thinking_deduplicates_and_caps_recent_lines() -> None:
+    recent: list[str] = []
+    first = push_thinking(recent, "Reading schema.yaml")
+    second = push_thinking(recent, "Reading schema.yaml")
+    third = push_thinking(recent, "Running Grep…")
+
+    assert first is not None
+    assert second is None
+    assert third is not None
+    assert recent[-1] == "Running Grep…"
+
+
+def test_thinking_events_from_assistant_message_tool_and_reasoning_blocks() -> None:
+    recent = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+    message = FakeAssistantMessage(
+        content=[
+            FakeThinkingBlock(thinking="Need to inspect entity ontology first."),
+            FakeToolUseBlock(name="Read", input={"file_path": "/workspace/entity_ontology.json"}),
+            FakeTextBlock(text="I reviewed the ontology and found three entity types."),
+        ],
+    )
+
+    events, _ = thinking_events_from_sdk_message(
+        message,
+        recent=recent,
+        reply_parts=[],
+        last_compose_at=0,
+        compose_step=10,
+    )
+
+    assert events
+    assert any("Reasoning" in line for line in events[-1]["recent"])
+    assert any("Reading /workspace/entity_ontology.json" in line for line in events[-1]["recent"])
+
+
+def test_thinking_events_from_task_progress_message() -> None:
+    recent = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+    message = FakeTaskProgressMessage(
+        task_id="task-1",
+        description="Inspecting repository files",
+        last_tool_name="Grep",
+        usage={"total_tokens": 1, "tool_uses": 1, "duration_ms": 1},
+    )
+
+    events, _ = thinking_events_from_sdk_message(
+        message,
+        recent=recent,
+        reply_parts=[],
+        last_compose_at=0,
+    )
+
+    assert events
+    joined = "\n".join(events[-1]["recent"])
+    assert "Inspecting repository files" in joined
+    assert "Running Grep" in joined

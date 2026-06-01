@@ -91,10 +91,10 @@ const runtimeActivityTitle = computed(() =>
     : 'Thinking...',
 )
 
-const thinkingDisplaySlots = computed(() => {
+const thinkingDisplayLines = computed(() => {
   const src = props.activityLines.filter(Boolean)
   if (src.length === 0) return ['']
-  return src.slice(-3)
+  return src
 })
 
 function isUserRole(role: string | undefined): boolean {
@@ -323,9 +323,9 @@ onMounted(() => {
                 <Loader2 class="size-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
                 <span class="font-medium tracking-tight">{{ runtimeActivityTitle }}</span>
               </div>
-              <ol class="m-0 list-none space-y-2 border-l-2 border-primary/25 pl-3">
+              <ol class="m-0 max-h-48 list-none space-y-2 overflow-y-auto border-l-2 border-primary/25 pl-3">
                 <li
-                  v-for="(line, lineIdx) in thinkingDisplaySlots"
+                  v-for="(line, lineIdx) in thinkingDisplayLines"
                   :key="`${lineIdx}-${line || 'empty'}`"
                   class="flex gap-2 text-xs leading-snug"
                 >

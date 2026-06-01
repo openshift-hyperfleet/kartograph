@@ -97,23 +97,30 @@ class StickySessionRuntimeService:
             mode=mode.value,
         )
         if lease is not None:
+            runtime_base_url = lease.runtime_base_url or ""
             readiness = await self._ingestion_readiness_reader.read_for_knowledge_graph(
                 knowledge_graph_id=knowledge_graph_id,
             )
             gate = resolve_job_package_gate(ui_mode=ui_mode, readiness=readiness)
-            if self._runtime_backend == "container":
-                await self._bootstrap_builder.build(
-                    tenant_id=tenant_id,
-                    knowledge_graph_id=knowledge_graph_id,
-                    session_id=session.id,
-                    include_job_packages=should_materialize_job_packages(
-                        readiness=readiness,
-                        gate=gate,
-                    ),
+            include_job_packages = should_materialize_job_packages(
+                readiness=readiness,
+                gate=gate,
+            )
+            expected_package_ids = await self._bootstrap_builder.resolve_job_package_ids(
+                knowledge_graph_id=knowledge_graph_id,
+                include_job_packages=include_job_packages,
+            )
+            stored_materialization = session.runtime_context.get("workspace_materialization", {})
+            stored_package_ids = tuple(stored_materialization.get("job_package_ids") or ())
+            if (
+                await self._health_checker.is_healthy(runtime_base_url=runtime_base_url)
+                and stored_package_ids == expected_package_ids
+            ):
+                session.runtime_context["sticky_runtime"] = self._lease_context(
+                    lease, phase="ready"
                 )
-            session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
-            await self._session_service.save_session(session)
-            return
+                await self._session_service.save_session(session)
+                return
 
         async for event in self._stream_prepare_runtime(
             tenant_id=tenant_id,
@@ -218,15 +225,23 @@ class StickySessionRuntimeService:
                 "Materializing workspace and skills for sticky container",
             ],
         }
+        include_job_packages = should_materialize_job_packages(
+            readiness=readiness,
+            gate=gate,
+        )
+        package_ids = await self._bootstrap_builder.resolve_job_package_ids(
+            knowledge_graph_id=knowledge_graph_id,
+            include_job_packages=include_job_packages,
+        )
         bootstrap = await self._bootstrap_builder.build(
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
             session_id=session.id,
-            include_job_packages=should_materialize_job_packages(
-                readiness=readiness,
-                gate=gate,
-            ),
+            include_job_packages=include_job_packages,
         )
+        session.runtime_context["workspace_materialization"] = {
+            "job_package_ids": list(package_ids),
+        }
         yield {
             "type": "thinking",
             "recent": [

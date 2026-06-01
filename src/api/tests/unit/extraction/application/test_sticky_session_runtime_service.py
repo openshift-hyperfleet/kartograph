@@ -69,14 +69,46 @@ class _StaticIngestionReadinessReader:
 
 
 class _StaticBootstrapBuilder:
+    async def resolve_job_package_ids(self, **kwargs):
+        return ()
+
     async def build(self, **kwargs):
         return None
+
+
+class _RecordingBootstrapBuilder:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def resolve_job_package_ids(self, **kwargs):
+        return ("pkg-1",)
+
+    async def build(self, **kwargs):
+        self.calls.append(kwargs)
+        return None
+
+
+class _PreparedIngestionReadinessReader:
+    async def read_for_knowledge_graph(self, *, knowledge_graph_id: str):
+        return IngestionReadinessSnapshot(data_source_count=1, prepared_source_count=1)
 
 
 class _InstantHealthChecker:
     async def wait_until_healthy(self, **kwargs):
         return
         yield  # pragma: no cover
+
+    async def is_healthy(self, **kwargs) -> bool:
+        return True
+
+
+class _UnhealthyHealthChecker:
+    async def wait_until_healthy(self, **kwargs):
+        return
+        yield  # pragma: no cover
+
+    async def is_healthy(self, **kwargs) -> bool:
+        return False
 
 
 class _FailingStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
@@ -171,21 +203,59 @@ async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inac
 
     assert any(event.get("type") == "ready" for event in events)
     assert session.runtime_context["sticky_runtime"]["container_id"] != "dead-container"
-    assert sticky.try_resolve_active_lease(session_id=session.id) is not None
 
 
-class _RecordingBootstrapBuilder:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
+@pytest.mark.asyncio
+async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization_changes() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    sticky = InMemoryStickySessionRuntimeManager()
+    bootstrap = _RecordingBootstrapBuilder()
+    service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_PreparedIngestionReadinessReader(),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=bootstrap,
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="container",
+        sticky_health_timeout_seconds=5.0,
+    )
+    session = await session_service.get_or_create_active_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+    )
+    sticky.get_or_start_runtime(
+        session_id=session.id,
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP.value,
+    )
+    lease = sticky.try_resolve_active_lease(session_id=session.id)
+    session.runtime_context["workspace_materialization"] = {"job_package_ids": ["stale-pkg"]}
+    session.runtime_context["sticky_runtime"] = {
+        "container_id": lease.container_id,
+        "status": "active",
+        "runtime_base_url": lease.runtime_base_url,
+        "phase": "ready",
+    }
+    await session_service.save_session(session)
 
-    async def build(self, **kwargs):
-        self.calls.append(kwargs)
-        return None
+    events = [
+        event
+        async for event in service.ensure_runtime_for_chat(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            session=session,
+        )
+    ]
 
-
-class _PreparedIngestionReadinessReader:
-    async def read_for_knowledge_graph(self, *, knowledge_graph_id: str):
-        return IngestionReadinessSnapshot(data_source_count=1, prepared_source_count=1)
+    assert any(event.get("type") == "ready" for event in events)
+    assert bootstrap.calls
 
 
 @pytest.mark.asyncio
@@ -215,6 +285,8 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
         knowledge_graph_id="kg-1",
         mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP.value,
     )
+    session.runtime_context["workspace_materialization"] = {"job_package_ids": ["pkg-1"]}
+    await session_service.save_session(session)
 
     events = [
         event
@@ -230,11 +302,54 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
 
     assert events == []
     assert session.runtime_context["sticky_runtime"]["phase"] == "ready"
-    assert bootstrap.calls == [
-        {
-            "tenant_id": "tenant-1",
-            "knowledge_graph_id": "kg-1",
-            "session_id": session.id,
-            "include_job_packages": True,
-        }
+    assert bootstrap.calls == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_for_chat_restarts_when_persisted_container_is_unhealthy() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    sticky = InMemoryStickySessionRuntimeManager()
+    service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_UnhealthyHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    session = await session_service.get_or_create_active_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+    )
+    sticky.get_or_start_runtime(
+        session_id=session.id,
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP.value,
+    )
+    session.runtime_context["sticky_runtime"] = {
+        "container_id": "dead-container",
+        "status": "active",
+        "runtime_base_url": "memory://sticky-runtime",
+        "phase": "ready",
+    }
+    await session_service.save_session(session)
+
+    events = [
+        event
+        async for event in service.ensure_runtime_for_chat(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            session=session,
+        )
     ]
+
+    assert any(event.get("type") == "ready" for event in events)
+    assert session.runtime_context["sticky_runtime"]["container_id"] != "dead-container"

@@ -45,3 +45,15 @@ class StickyRuntimeHealthChecker:
         raise TimeoutError(
             f"Sticky session runtime did not become healthy within {int(timeout_seconds)}s"
         )
+
+    async def is_healthy(self, *, runtime_base_url: str) -> bool:
+        """Return whether the sticky runtime currently responds on /health."""
+        if runtime_base_url.startswith("memory://"):
+            return True
+        url = f"{runtime_base_url.rstrip('/')}/health"
+        try:
+            async with httpx.AsyncClient(timeout=self._request_timeout_seconds) as client:
+                response = await client.get(url)
+                return response.status_code == 200
+        except httpx.HTTPError:
+            return False

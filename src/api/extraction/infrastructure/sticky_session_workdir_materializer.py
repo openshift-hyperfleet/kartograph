@@ -11,6 +11,13 @@ from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
 
 
+def _replace_directory(path: Path) -> None:
+    """Replace a directory tree without removing its parent mount point."""
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
 class StickySessionWorkdirMaterializer:
     """Materialize JobPackage archives into a session-scoped work directory."""
 
@@ -26,12 +33,11 @@ class StickySessionWorkdirMaterializer:
     ) -> Path:
         """Create or refresh the host work directory for one sticky session."""
         session_root = self._job_package_work_dir / "sticky-sessions" / session_id
-        if session_root.exists():
-            shutil.rmtree(session_root)
+        session_root.mkdir(parents=True, exist_ok=True)
         ingestion_context_dir = session_root / "ingestion-context"
         repository_files_dir = session_root / "repository-files"
-        ingestion_context_dir.mkdir(parents=True, exist_ok=True)
-        repository_files_dir.mkdir(parents=True, exist_ok=True)
+        _replace_directory(ingestion_context_dir)
+        _replace_directory(repository_files_dir)
 
         discovered = (
             self._discover_job_package_ids()

@@ -125,10 +125,6 @@ class ExtractionChatTurnService:
             ],
         }
 
-        session.message_history.append({"role": "user", "content": trimmed})
-        session.updated_at = datetime.now(UTC)
-        await self._session_service.save_session(session)
-
         assistant_reply: str | None = None
         stream_failed = False
         async for event in self._chat_agent.stream_turn(
@@ -150,11 +146,13 @@ class ExtractionChatTurnService:
             yield event
 
         if assistant_reply:
+            session.message_history.append({"role": "user", "content": trimmed})
             session.message_history.append({"role": "assistant", "content": assistant_reply})
             session.updated_at = datetime.now(UTC)
             session.runtime_context.pop("activity_lines", None)
             await self._session_service.save_session(session)
         elif stream_failed:
+            session.message_history.append({"role": "user", "content": trimmed})
             session.updated_at = datetime.now(UTC)
             await self._session_service.save_session(session)
         else:

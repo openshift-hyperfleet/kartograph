@@ -71,3 +71,23 @@ def test_materializer_does_not_discover_archives_when_package_ids_empty(tmp_path
     )
 
     assert not any((session_root / "repository-files").iterdir())
+
+
+def test_materializer_refresh_preserves_session_root_directory(tmp_path: Path) -> None:
+    package_id = "01JTESTPACK0000000000000002"
+    _build_package(tmp_path, package_id)
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    first_root = materializer.prepare(
+        session_id="session-3",
+        knowledge_graph_id="kg-1",
+        job_package_ids=(package_id,),
+    )
+    second_root = materializer.prepare(
+        session_id="session-3",
+        knowledge_graph_id="kg-1",
+        job_package_ids=(package_id,),
+    )
+
+    assert first_root == second_root
+    assert (second_root / "repository-files" / package_id / "README.md").exists()

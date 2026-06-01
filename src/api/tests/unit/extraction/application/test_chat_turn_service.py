@@ -89,6 +89,9 @@ class _InstantHealthChecker:
         yield "Assistant container is healthy"
         return
 
+    async def is_healthy(self, **kwargs) -> bool:
+        return True
+
 
 def _build_chat_turn_service(
     *,

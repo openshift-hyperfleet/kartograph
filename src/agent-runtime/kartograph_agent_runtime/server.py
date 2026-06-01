@@ -7,8 +7,10 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from kartograph_agent_runtime.executor import stream_turn_events
@@ -27,8 +29,21 @@ class TurnRequest(BaseModel):
     message_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
+def _workspace_ready() -> bool:
+    marker = Path(settings.workspace_dir) / "knowledge-graph-id"
+    return marker.is_file()
+
+
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health():
+    if not _workspace_ready():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "workspace_unavailable",
+                "session_id": settings.session_id,
+            },
+        )
     return {"status": "ok", "session_id": settings.session_id}
 
 

@@ -17,3 +17,7 @@ class IStickyRuntimeHealthChecker(Protocol):
     ) -> AsyncIterator[str]:
         """Yield human-readable progress lines until healthy or timeout."""
         ...
+
+    async def is_healthy(self, *, runtime_base_url: str) -> bool:
+        """Return whether the sticky runtime currently responds on /health."""
+        ...

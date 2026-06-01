@@ -81,7 +81,7 @@ describe('Knowledge Graph Manage Workspace - graph management controls', () => {
     expect(manageWorkspaceVue).toContain('/sessions/${sharedSessionMode.value}/history')
     expect(manageWorkspaceVue).toContain('sessionHistory')
     expect(manageWorkspaceVue).toContain('run_metrics')
-    expect(manageWorkspaceVue).toContain('Session History')
+    expect(manageWorkspaceVue).toContain('Session history')
   })
 })
 
@@ -156,7 +156,7 @@ describe('KG-MANAGE-014 - no-preview fallback state', () => {
 
 describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () => {
   it('renders a bootstrap progress checklist section with explicit checks', () => {
-    expect(manageWorkspaceVue).toContain('Bootstrap Progress Checklist')
+    expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')
     expect(manageWorkspaceVue).toContain('progressChecklist')
     expect(manageWorkspaceVue).toContain('Minimum entity types')
     expect(manageWorkspaceVue).toContain('Minimum relationship types')
@@ -164,13 +164,13 @@ describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () =
   })
 
   it('renders diagnostics panel with prepopulated type failures and blocking reasons', () => {
-    expect(manageWorkspaceVue).toContain('Validation Diagnostics')
+    expect(manageWorkspaceVue).toContain('Validation diagnostics')
     expect(manageWorkspaceVue).toContain('prepopulated_types_without_instances')
     expect(manageWorkspaceVue).toContain('blocking_reasons')
   })
 
   it('renders explicit next steps guidance for transition readiness', () => {
-    expect(manageWorkspaceVue).toContain('Next Steps')
+    expect(manageWorkspaceVue).toContain('Next steps')
     expect(manageWorkspaceVue).toContain('Run Validate to refresh readiness signals')
     expect(manageWorkspaceVue).toContain('Transition is enabled')
   })
@@ -423,12 +423,14 @@ describe('KG-MANAGE-007 - graph management modes', () => {
 })
 
 describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
-  it('renders side-by-side schema artifacts and session pointers panels', () => {
+  it('renders artifact navigator and detail panel in k-extract-style layout', () => {
     expect(manageWorkspaceVue).toContain('graph-management-artifacts')
     expect(manageWorkspaceVue).toContain('Schema &amp; artifacts')
+    expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
     expect(manageWorkspaceVue).toContain('graph-management-session-pointers')
     expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
     expect(manageWorkspaceVue).toContain('schemaRailItems')
+    expect(manageWorkspaceVue).toContain('lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)]')
   })
 
   it('builds rail items with status and last-updated metadata', () => {
@@ -450,6 +452,7 @@ describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
 
 describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
   it('renders mode-specific detail panel content regions', () => {
+    expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
     expect(manageWorkspaceVue).toContain('graph-management-detail')
     expect(manageWorkspaceVue).toContain('selectedRailItemId')
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-readiness'")
@@ -479,7 +482,7 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
 describe('KG-MANAGE-010 - schema design parity behavior', () => {
   it('exposes schema readiness and validation detail in initial schema design mode', () => {
     expect(manageWorkspaceVue).toContain('progressChecklist')
-    expect(manageWorkspaceVue).toContain('Bootstrap Progress Checklist')
+    expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')
     expect(manageWorkspaceVue).toContain('blocking_reasons')
     expect(manageWorkspaceVue).toContain('prepopulated_types_without_instances')
   })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   ArrowLeft,
@@ -373,10 +373,6 @@ const visibleRailItems = computed(() =>
 )
 
 const schemaRailItems = computed(() => filterSchemaRailItems(visibleRailItems.value))
-
-const selectedSchemaRailItem = computed(() =>
-  schemaRailItems.value.find((item) => item.id === selectedRailItemId.value) ?? null,
-)
 
 const graphManagementModeGate = computed((): GraphManagementModeGateInput => ({
   workspaceMode: statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
@@ -915,6 +911,12 @@ function setGraphManagementMode(mode: GraphManagementMode) {
 
 function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
   selectedRailItemId.value = itemId
+  void nextTick(() => {
+    document.getElementById('graph-management-artifact-detail')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  })
 }
 
 function onSchemaRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailItemId) {
@@ -1815,20 +1817,21 @@ watch(selectedOpsDataSourceId, () => {
           @send-message="sendChatMessage"
         />
 
-        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-2 lg:items-start">
-          <Card id="graph-management-schema-artifacts" class="graph-management-schema-panel scroll-mt-6">
+        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)] lg:items-start">
+          <Card
+            id="graph-management-schema-artifacts"
+            class="graph-management-schema-panel lg:sticky lg:top-4 lg:self-start"
+          >
             <CardHeader class="pb-2">
               <CardTitle class="text-sm font-semibold">Schema &amp; artifacts</CardTitle>
               <CardDescription class="text-xs">
                 Workspace signals for
                 <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
-                <template v-if="schemaRailItems.length > 1">
-                  Select an artifact to inspect its detail below.
-                </template>
+                Select an artifact to open it in the detail panel to the right.
               </CardDescription>
             </CardHeader>
-            <CardContent class="space-y-4 p-3 pt-0 text-sm">
-              <div v-if="schemaRailItems.length > 1" class="space-y-1.5">
+            <CardContent class="space-y-1.5 p-3 pt-0">
+              <template v-if="schemaRailItems.length > 0">
                 <button
                   v-for="item in schemaRailItems"
                   :key="item.id"
@@ -1843,35 +1846,40 @@ watch(selectedOpsDataSourceId, () => {
                   <span class="font-medium leading-tight">{{ item.label }}</span>
                   <span class="text-xs text-muted-foreground">{{ graphManagementArtifactHint(item) }}</span>
                 </button>
-              </div>
+              </template>
               <p
-                v-else-if="schemaRailItems.length === 0"
+                v-else
                 class="rounded-lg border border-dashed p-3 text-xs text-muted-foreground"
               >
                 No schema artifacts for this mode.
               </p>
+            </CardContent>
+          </Card>
 
-              <div class="graph-management-detail space-y-4 border-t pt-4">
-                <div>
-                  <p class="text-sm font-semibold">
-                    {{ selectedSchemaRailItem?.label ?? 'Schema & artifacts' }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    Mode: {{ graphManagementModeLabel }}
-                  </p>
-                </div>
-              <template v-if="selectedRailItemId === 'schema-readiness'">
-                <div class="rounded border p-3">
-                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Bootstrap Progress Checklist
+          <div id="graph-management-artifact-detail" class="graph-management-detail scroll-mt-6 space-y-6">
+            <Card v-if="selectedRailItemId === 'schema-readiness'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <CheckCircle2 class="size-4" />
+                  Schema readiness
+                </CardTitle>
+                <CardDescription>
+                  Bootstrap checklist, validate, and transition controls for
+                  <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4 text-sm">
+                <div class="space-y-2 rounded-lg border bg-muted/30 p-3">
+                  <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Bootstrap progress checklist
                   </p>
                   <div class="space-y-2">
                     <div
                       v-for="item in progressChecklist"
                       :key="item.id"
-                      class="rounded border px-3 py-2"
+                      class="rounded-lg border bg-card px-3 py-2"
                     >
-                      <div class="flex items-center justify-between">
+                      <div class="flex items-center justify-between gap-2">
                         <p class="font-medium">{{ item.label }}</p>
                         <Badge :variant="item.passed ? 'default' : 'destructive'">
                           {{ item.passed ? 'Pass' : 'Fail' }}
@@ -1899,16 +1907,24 @@ watch(selectedOpsDataSourceId, () => {
                     Go to Extraction/Mutations
                   </Button>
                 </div>
-              </template>
+              </CardContent>
+            </Card>
 
-              <template v-else-if="selectedRailItemId === 'validation-diagnostics'">
-                <div class="rounded border p-3">
-                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Validation Diagnostics
-                  </p>
+            <Card v-else-if="selectedRailItemId === 'validation-diagnostics'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <ShieldAlert class="size-4" />
+                  Validation diagnostics
+                </CardTitle>
+                <CardDescription>
+                  Blocking reasons and prepopulated type gaps before transitioning to extraction.
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4 text-sm">
+                <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
                   <div
                     v-if="statusProjection.readiness.prepopulated_types_without_instances.length > 0"
-                    class="rounded border border-amber-400/60 bg-amber-50/60 p-2 text-xs dark:border-amber-800 dark:bg-amber-950/20"
+                    class="rounded-lg border border-amber-400/60 bg-amber-50/60 p-3 text-xs dark:border-amber-800 dark:bg-amber-950/20"
                   >
                     <p class="font-medium text-amber-800 dark:text-amber-300">
                       Prepopulated types missing instances
@@ -1924,7 +1940,7 @@ watch(selectedOpsDataSourceId, () => {
                   </div>
                   <div
                     v-if="statusProjection.readiness.blocking_reasons.length > 0"
-                    class="mt-2 rounded border border-destructive/50 p-3"
+                    class="rounded-lg border border-destructive/50 bg-card p-3"
                   >
                     <p class="mb-1 flex items-center gap-1.5 text-xs font-medium text-destructive">
                       <ShieldAlert class="size-3.5" />
@@ -1943,21 +1959,29 @@ watch(selectedOpsDataSourceId, () => {
                     No validation diagnostics are currently blocking transition.
                   </p>
                 </div>
-                <div class="rounded border p-3">
-                  <p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Next Steps
+                <div class="rounded-lg border bg-muted/30 p-3">
+                  <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Next steps
                   </p>
                   <ul class="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
                     <li v-for="step in nextSteps" :key="step">{{ step }}</li>
                   </ul>
                 </div>
-              </template>
+              </CardContent>
+            </Card>
 
-              <template v-else-if="selectedRailItemId === 'extraction-jobs-setup'">
-                <p class="text-muted-foreground">
+            <Card v-else-if="selectedRailItemId === 'extraction-jobs-setup'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <Wrench class="size-4" />
+                  Extraction jobs setup
+                </CardTitle>
+                <CardDescription>
                   Trigger extraction jobs, inspect run history, and view run logs without leaving this workspace.
-                </p>
-                <div class="space-y-3 rounded border p-3">
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-4 text-sm">
+                <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
                   <p class="text-xs font-medium text-muted-foreground">Data source</p>
                   <div
                     v-if="graphManagementDataSourcesLoading"
@@ -2007,7 +2031,7 @@ watch(selectedOpsDataSourceId, () => {
                   </Button>
                 </div>
                 <div class="grid gap-3 xl:grid-cols-[300px_1fr]">
-                  <div class="rounded border">
+                  <div class="rounded-lg border bg-card">
                     <div class="border-b px-3 py-2 text-xs font-medium text-muted-foreground">Sync runs</div>
                     <div
                       v-if="inlineSyncRunsLoading"
@@ -2026,7 +2050,7 @@ watch(selectedOpsDataSourceId, () => {
                       <button
                         v-for="run in inlineSyncRuns"
                         :key="run.id"
-                        class="w-full rounded border px-2 py-1.5 text-left text-xs transition-colors"
+                        class="w-full rounded-lg border px-2 py-1.5 text-left text-xs transition-colors"
                         :class="selectedInlineRunId === run.id ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'"
                         @click="loadInlineRunLogs(run.id)"
                       >
@@ -2040,7 +2064,7 @@ watch(selectedOpsDataSourceId, () => {
                       </button>
                     </div>
                   </div>
-                  <div class="rounded border p-3">
+                  <div class="rounded-lg border bg-muted/30 p-3">
                     <p class="mb-2 text-xs font-medium text-muted-foreground">
                       Run logs
                       <span v-if="selectedOpsDataSource" class="font-normal text-muted-foreground/80">
@@ -2059,24 +2083,32 @@ watch(selectedOpsDataSourceId, () => {
                     </div>
                     <pre
                       v-else
-                      class="max-h-72 overflow-auto rounded border bg-muted/20 p-2 text-[11px]"
+                      class="max-h-72 overflow-auto rounded-lg border bg-background p-2 text-[11px]"
                     >{{ inlineRunLogs.join('\n') }}</pre>
                   </div>
                 </div>
-              </template>
+              </CardContent>
+            </Card>
 
-              <template v-else-if="selectedRailItemId === 'mutation-authoring'">
-                <p class="text-muted-foreground">
+            <Card v-else-if="selectedRailItemId === 'mutation-authoring'">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <PencilRuler class="size-4" />
+                  Mutation authoring
+                </CardTitle>
+                <CardDescription>
                   Author and apply one-off JSONL mutations directly in this workspace.
-                </p>
-                <div class="space-y-3 rounded border p-3">
+                </CardDescription>
+              </CardHeader>
+              <CardContent class="space-y-3 text-sm">
+                <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
                   <p class="text-xs font-medium text-muted-foreground">Mutation payload (JSONL)</p>
                   <textarea
                     v-model="inlineMutationJsonl"
-                    class="min-h-44 w-full rounded border bg-background px-3 py-2 font-mono text-xs"
+                    class="min-h-44 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     placeholder='{"op":"CREATE","type":"node","label":"repo","id":"repo:example","set_properties":{"name":"example"}}'
                   />
-                  <div class="flex items-center gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
                     <Button size="sm" :disabled="inlineMutationApplying" @click="applyInlineMutations">
                       <Loader2 v-if="inlineMutationApplying" class="mr-1.5 size-3.5 animate-spin" />
                       Apply Mutations
@@ -2089,39 +2121,43 @@ watch(selectedOpsDataSourceId, () => {
                     {{ inlineMutationApplyError }}
                   </p>
                 </div>
-              </template>
+              </CardContent>
+            </Card>
 
-              <template v-else>
-                <p class="text-xs text-muted-foreground">
-                  Select a schema artifact to inspect mode-specific workspace content.
-                </p>
-              </template>
-              </div>
-            </CardContent>
-          </Card>
+            <Card v-else>
+              <CardHeader>
+                <CardTitle class="text-base">Schema &amp; artifacts</CardTitle>
+                <CardDescription>
+                  Select a schema artifact from the list to inspect mode-specific workspace content.
+                </CardDescription>
+              </CardHeader>
+            </Card>
 
-          <Card id="graph-management-session-pointers" class="graph-management-session-pointers scroll-mt-6 lg:sticky lg:top-4 lg:self-start">
-              <CardHeader class="pb-3">
-                <CardTitle class="text-base">Session pointers</CardTitle>
+            <Card id="graph-management-session-pointers" class="graph-management-session-pointers">
+              <CardHeader>
+                <CardTitle class="text-base flex items-center gap-2">
+                  <ScrollText class="size-4" />
+                  Session pointers
+                </CardTitle>
                 <CardDescription>
                   Active bootstrap and extraction sessions, plus archived history for this knowledge graph.
                 </CardDescription>
               </CardHeader>
               <CardContent class="space-y-4 text-sm">
                 <div class="grid gap-2 md:grid-cols-3 text-xs">
-                  <div class="rounded-lg border px-3 py-2">
+                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
                     <p class="text-muted-foreground">Active schema bootstrap session</p>
                     <p class="mt-1 break-all font-mono">
                       {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
                     </p>
                   </div>
-                  <div class="rounded-lg border px-3 py-2">
+                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
                     <p class="text-muted-foreground">Active extraction operations session</p>
                     <p class="mt-1 break-all font-mono">
                       {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
                     </p>
                   </div>
-                  <div class="rounded-lg border px-3 py-2">
+                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
                     <p class="text-muted-foreground">Most recent completed session</p>
                     <p class="mt-1 break-all font-mono">
                       {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
@@ -2130,8 +2166,8 @@ watch(selectedOpsDataSourceId, () => {
                 </div>
                 <div class="space-y-3 border-t pt-3">
                   <div class="flex items-center justify-between">
-                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Session History
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Session history
                     </p>
                     <Button
                       size="sm"
@@ -2160,7 +2196,7 @@ watch(selectedOpsDataSourceId, () => {
                     <div
                       v-for="entry in sessionHistory"
                       :key="entry.id"
-                      class="rounded-lg border px-3 py-2 text-xs"
+                      class="rounded-lg border bg-card px-3 py-2 text-xs"
                     >
                       <div class="flex flex-wrap items-center justify-between gap-2">
                         <p class="font-mono break-all">{{ entry.id }}</p>
@@ -2198,7 +2234,8 @@ watch(selectedOpsDataSourceId, () => {
                   </div>
                 </div>
               </CardContent>
-          </Card>
+            </Card>
+          </div>
         </div>
       </section>
     </template>

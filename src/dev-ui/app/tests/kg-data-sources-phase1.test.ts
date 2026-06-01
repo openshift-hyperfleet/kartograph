@@ -58,6 +58,12 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('formatPreparedFileCount')
   })
 
+  it('refreshes data sources silently while polling', () => {
+    expect(phase1Vue).toContain('loadDataSources({ silent: true })')
+    expect(phase1Vue).toContain('refreshing')
+    expect(phase1Vue).toContain('Updating…')
+  })
+
   it('shows unpulled commit columns', () => {
     expect(phase1Vue).toContain('Newest unpulled')
     expect(phase1Vue).toContain('Last extraction baseline')

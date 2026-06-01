@@ -127,6 +127,7 @@ const { apiFetch } = useApiClient()
 const kgName = ref('')
 const dataSources = ref<DataSourceItem[]>([])
 const loading = ref(false)
+const refreshing = ref(false)
 const expandedDiffLists = ref<Record<string, boolean>>({})
 const checkingAllCommits = ref(false)
 const preparingAll = ref(false)
@@ -187,7 +188,7 @@ function stopPolling() {
 function startPolling() {
   if (pollInterval.value !== null) return
   pollInterval.value = setInterval(async () => {
-    await loadDataSources()
+    await loadDataSources({ silent: true })
     if (!hasAnyActiveSync(dataSources.value)) {
       stopPolling()
     }
@@ -294,9 +295,14 @@ async function loadKnowledgeGraph() {
   }
 }
 
-async function loadDataSources() {
+async function loadDataSources(options: { silent?: boolean } = {}) {
   if (!hasTenant.value) return
-  loading.value = true
+  const silent = options.silent ?? dataSources.value.length > 0
+  if (silent) {
+    refreshing.value = true
+  } else {
+    loading.value = true
+  }
   try {
     const sources = await apiFetch<DataSourceItem[]>(
       `/management/knowledge-graphs/${kgId.value}/data-sources`,
@@ -319,9 +325,15 @@ async function loadDataSources() {
     }
     dataSources.value = sources
   } catch {
-    dataSources.value = []
+    if (!silent) {
+      dataSources.value = []
+    }
   } finally {
-    loading.value = false
+    if (silent) {
+      refreshing.value = false
+    } else {
+      loading.value = false
+    }
   }
 }
 
@@ -630,6 +642,13 @@ watch(tenantVersion, async () => {
                 <CardTitle class="flex items-center gap-2 text-base">
                   <GitBranch class="size-4 text-primary" />
                   Data sources overview
+                  <span
+                    v-if="refreshing"
+                    class="inline-flex items-center gap-1 text-xs font-normal text-muted-foreground"
+                  >
+                    <Loader2 class="size-3 animate-spin" />
+                    Updating…
+                  </span>
                 </CardTitle>
               </div>
               <div class="flex flex-wrap gap-2">

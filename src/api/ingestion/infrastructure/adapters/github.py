@@ -23,6 +23,7 @@ itself uses httpx directly to keep it independently testable.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import mimetypes
 from typing import Any
@@ -74,8 +75,16 @@ class GitHubAdapter:
             with a custom transport for testing.
     """
 
-    def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient | None = None,
+        *,
+        blob_fetch_max_concurrency: int = 16,
+    ) -> None:
+        if blob_fetch_max_concurrency <= 0:
+            raise ValueError("blob_fetch_max_concurrency must be positive")
         self._http_client = http_client
+        self._blob_fetch_max_concurrency = blob_fetch_max_concurrency
 
     @staticmethod
     def _parse_connection_config(
@@ -396,42 +405,50 @@ class GitHubAdapter:
         Returns:
             Tuple of (list of ChangesetEntry, content_blobs dict).
         """
-        changeset_entries: list[ChangesetEntry] = []
-        content_blobs: dict[str, bytes] = {}
+        semaphore = asyncio.Semaphore(self._blob_fetch_max_concurrency)
+        loaded: dict[int, tuple[ChangesetEntry, bytes]] = {}
 
-        for file_info in files:
+        async def _load_file(index: int, file_info: dict[str, Any]) -> None:
             path: str = file_info["path"]
             blob_sha: str = file_info["sha"]
             operation: ChangeOperation = file_info["operation"]
             previous_path: str | None = file_info.get("previous_path")
 
-            # Fetch raw content from blob
-            raw_bytes = await self._fetch_blob(client, headers, owner, repo, blob_sha)
+            async with semaphore:
+                raw_bytes = await self._fetch_blob(client, headers, owner, repo, blob_sha)
 
-            # Content-address the blob by its SHA-256 digest
             content_ref = ContentRef.from_bytes(raw_bytes)
-            content_blobs[content_ref.hex_digest] = raw_bytes
-
-            # Detect content MIME type; default to octet-stream for unknown
             content_type, _ = mimetypes.guess_type(path)
             if content_type is None:
                 content_type = "application/octet-stream"
 
-            # Build adapter-specific metadata
             metadata: dict[str, Any] = {}
             if previous_path:
                 metadata["previous_path"] = previous_path
 
-            entry = ChangesetEntry(
-                operation=operation,
-                id=blob_sha,
-                type=_ENTRY_TYPE_FILE,
-                path=path,
-                content_ref=content_ref,
-                content_type=content_type,
-                metadata=metadata,
+            loaded[index] = (
+                ChangesetEntry(
+                    operation=operation,
+                    id=blob_sha,
+                    type=_ENTRY_TYPE_FILE,
+                    path=path,
+                    content_ref=content_ref,
+                    content_type=content_type,
+                    metadata=metadata,
+                ),
+                raw_bytes,
             )
+
+        await asyncio.gather(
+            *(_load_file(index, file_info) for index, file_info in enumerate(files))
+        )
+
+        changeset_entries: list[ChangesetEntry] = []
+        content_blobs: dict[str, bytes] = {}
+        for index in range(len(files)):
+            entry, raw_bytes = loaded[index]
             changeset_entries.append(entry)
+            content_blobs[entry.content_ref.hex_digest] = raw_bytes
 
         return changeset_entries, content_blobs
 

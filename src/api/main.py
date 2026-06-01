@@ -209,7 +209,10 @@ class _SessionedIngestionEventHandler:
             job_package_archive_exists,
         )
 
-        reader = SqlJobPackageArchiveReader(session=session)
+        reader = SqlJobPackageArchiveReader(
+            session=session,
+            job_package_work_dir=_JOB_PACKAGE_WORK_DIR,
+        )
         package_id = await reader.latest_job_package_id_for_data_source(
             data_source_id=data_source_id,
         )
@@ -667,6 +670,7 @@ async def kartograph_lifespan(app: FastAPI):
             poll_interval_seconds=outbox_settings.poll_interval_seconds,
             batch_size=outbox_settings.batch_size,
             max_retries=outbox_settings.max_retries,
+            sync_started_max_concurrency=outbox_settings.sync_started_max_concurrency,
         )
         await worker.start()
         app.state.outbox_worker = worker

@@ -247,6 +247,8 @@ class OutboxWorkerSettings(BaseSettings):
         KARTOGRAPH_OUTBOX_ENABLED: Enable the outbox worker (default: true)
         KARTOGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: Poll interval in seconds (default: 30)
         KARTOGRAPH_OUTBOX_BATCH_SIZE: Maximum entries per batch (default: 100)
+        KARTOGRAPH_OUTBOX_SYNC_STARTED_MAX_CONCURRENCY: Maximum concurrent
+            SyncStarted handlers (default: 5)
     """
 
     model_config = SettingsConfigDict(
@@ -275,6 +277,12 @@ class OutboxWorkerSettings(BaseSettings):
     max_retries: int = Field(
         default=5,
         description="Maximum retry attempts before moving to DLQ",
+        ge=1,
+        le=100,
+    )
+    sync_started_max_concurrency: int = Field(
+        default=5,
+        description="Maximum concurrent SyncStarted handlers per outbox batch",
         ge=1,
         le=100,
     )

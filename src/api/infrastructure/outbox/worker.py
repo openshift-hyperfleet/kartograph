@@ -50,6 +50,7 @@ class OutboxWorker:
         poll_interval_seconds: int = 30,
         batch_size: int = 100,
         max_retries: int = 5,
+        sync_started_max_concurrency: int = 1,
     ) -> None:
         """Initialize the worker.
 
@@ -63,6 +64,8 @@ class OutboxWorker:
             poll_interval_seconds: How often to poll for missed events
             batch_size: Maximum entries to process per batch
             max_retries: Maximum retry attempts before moving to DLQ
+            sync_started_max_concurrency: Maximum parallel SyncStarted handlers
+                per batch. Other events remain serial to preserve lifecycle order.
         """
         if session_factory is None:
             raise ValueError("session_factory is required")
@@ -79,6 +82,11 @@ class OutboxWorker:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
         if max_retries < 0:
             raise ValueError(f"max_retries must be non-negative, got {max_retries}")
+        if sync_started_max_concurrency <= 0:
+            raise ValueError(
+                "sync_started_max_concurrency must be positive, "
+                f"got {sync_started_max_concurrency}"
+            )
 
         self._session_factory = session_factory
         self._handler = handler
@@ -87,6 +95,7 @@ class OutboxWorker:
         self._poll_interval = poll_interval_seconds
         self._batch_size = batch_size
         self._max_retries = max_retries
+        self._sync_started_max_concurrency = sync_started_max_concurrency
         self._running = False
         self._tasks: list[asyncio.Task[None]] = []
         # Used by stop() to interrupt the poll-loop's inter-batch sleep without
@@ -240,17 +249,58 @@ class OutboxWorker:
         session: AsyncSession,
     ) -> None:
         """Process a list of entries by delegating to the event handler."""
+        sync_started_block: list[OutboxEntry] = []
         for entry in entries:
-            try:
-                self._probe.event_dispatching(entry.id, entry.event_type)
-                await self._handler.handle(entry.event_type, entry.payload)
+            if (
+                entry.event_type == "SyncStarted"
+                and self._sync_started_max_concurrency > 1
+            ):
+                sync_started_block.append(entry)
+                continue
 
-                # Mark as processed
+            if sync_started_block:
+                await self._process_sync_started_block(sync_started_block, session)
+                sync_started_block = []
+
+            await self._process_entry(entry, session)
+
+        if sync_started_block:
+            await self._process_sync_started_block(sync_started_block, session)
+
+    async def _process_entry(self, entry: OutboxEntry, session: AsyncSession) -> None:
+        """Process one outbox entry serially."""
+        try:
+            self._probe.event_dispatching(entry.id, entry.event_type)
+            await self._handler.handle(entry.event_type, entry.payload)
+            await self._mark_processed(entry.id, session)
+            self._probe.event_processed(entry.id, entry.event_type)
+        except Exception as e:
+            await self._handle_processing_failure(entry, str(e), session)
+
+    async def _process_sync_started_block(
+        self,
+        entries: list[OutboxEntry],
+        session: AsyncSession,
+    ) -> None:
+        """Process contiguous SyncStarted entries with bounded parallelism."""
+        semaphore = asyncio.Semaphore(self._sync_started_max_concurrency)
+
+        async def _dispatch(entry: OutboxEntry) -> Exception | None:
+            self._probe.event_dispatching(entry.id, entry.event_type)
+            try:
+                async with semaphore:
+                    await self._handler.handle(entry.event_type, entry.payload)
+                return None
+            except Exception as exc:  # pragma: no cover - covered via caller paths
+                return exc
+
+        errors = await asyncio.gather(*(_dispatch(entry) for entry in entries))
+        for entry, error in zip(entries, errors, strict=True):
+            if error is None:
                 await self._mark_processed(entry.id, session)
                 self._probe.event_processed(entry.id, entry.event_type)
-
-            except Exception as e:
-                await self._handle_processing_failure(entry, str(e), session)
+            else:
+                await self._handle_processing_failure(entry, str(error), session)
 
     async def _mark_processed(self, entry_id: UUID, session: AsyncSession) -> None:
         """Mark an entry as successfully processed."""

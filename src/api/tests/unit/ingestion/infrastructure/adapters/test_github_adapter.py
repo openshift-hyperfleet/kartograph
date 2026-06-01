@@ -22,6 +22,7 @@ Spec scenarios covered:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 
@@ -881,3 +882,57 @@ class TestContentFetching:
 
         for entry in result.changeset_entries:
             assert entry.type == "io.kartograph.change.file"
+
+    @pytest.mark.asyncio
+    async def test_full_refresh_fetches_blobs_with_parallelism(
+        self, connection_config, credentials
+    ):
+        """Blob fetches should run concurrently for better throughput."""
+        max_in_flight = 0
+        in_flight = 0
+
+        files = [
+            {
+                "path": f"src/file_{i}.py",
+                "type": "blob",
+                "sha": f"blob{i:02d}" * 5,
+            }
+            for i in range(4)
+        ]
+
+        class ConcurrentBlobTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(
+                self, request: httpx.Request
+            ) -> httpx.Response:
+                nonlocal max_in_flight, in_flight
+                url_path = request.url.path
+                if url_path.endswith("/branches/main"):
+                    data: dict = _branch_response(HEAD_SHA)
+                elif f"/git/trees/{HEAD_SHA}" in url_path:
+                    data = _tree_response(files)
+                elif "/git/blobs/" in url_path:
+                    in_flight += 1
+                    max_in_flight = max(max_in_flight, in_flight)
+                    await asyncio.sleep(0.03)
+                    in_flight -= 1
+                    data = _blob_response(b"print('hi')\n")
+                else:
+                    raise RuntimeError(f"Unexpected URL: {url_path}")
+                return httpx.Response(
+                    200,
+                    content=json.dumps(data).encode(),
+                    headers={"content-type": "application/json"},
+                )
+
+        client = httpx.AsyncClient(transport=ConcurrentBlobTransport())
+        adapter = GitHubAdapter(http_client=client)
+
+        result = await adapter.extract(
+            connection_config=connection_config,
+            credentials=credentials,
+            checkpoint=None,
+            sync_mode=SyncMode.FULL_REFRESH,
+        )
+
+        assert len(result.changeset_entries) == 4
+        assert max_in_flight >= 2

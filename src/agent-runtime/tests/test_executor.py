@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from kartograph_agent_runtime.executor import (
     _build_system_prompt,
     _build_workspace_prompt_appendix,
     _extract_sdk_reply,
+    _iter_sdk_messages_with_heartbeat,
     finalize_sdk_turn_reply,
     stream_turn_events,
 )
@@ -131,6 +133,25 @@ def test_finalize_sdk_turn_reply_returns_none_when_nothing_available() -> None:
     )
 
     assert reply is None
+
+
+@pytest.mark.asyncio
+async def test_sdk_message_heartbeat_does_not_cancel_pending_read() -> None:
+    async def delayed_messages():
+        await asyncio.sleep(0.01)
+        yield "first"
+        await asyncio.sleep(0.05)
+        yield "second"
+
+    collected: list[str] = []
+    async for item in _iter_sdk_messages_with_heartbeat(
+        delayed_messages().__aiter__(),
+        heartbeat_seconds=0.02,
+    ):
+        if item is not None:
+            collected.append(str(item))
+
+    assert collected == ["first", "second"]
 
 
 @pytest.mark.asyncio

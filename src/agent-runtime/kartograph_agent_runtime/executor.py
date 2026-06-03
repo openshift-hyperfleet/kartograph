@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from collections.abc import AsyncIterator
@@ -244,6 +245,39 @@ def _timeout_error_message(
     return " ".join(parts)
 
 
+async def _iter_sdk_messages_with_heartbeat(
+    sdk_iter: AsyncIterator[Any],
+    *,
+    heartbeat_seconds: float,
+) -> AsyncIterator[Any | None]:
+    """Yield SDK messages, or ``None`` when a heartbeat tick is due.
+
+    Unlike ``asyncio.wait_for`` on ``__anext__()``, this never cancels a pending
+    SDK read — cancelling mid-stream drops messages and prevents ResultMessage delivery.
+    """
+    pending = asyncio.create_task(sdk_iter.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {pending},
+                timeout=heartbeat_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if pending in done:
+                try:
+                    yield pending.result()
+                except StopAsyncIteration:
+                    return
+                pending = asyncio.create_task(sdk_iter.__anext__())
+            else:
+                yield None
+    finally:
+        if not pending.done():
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                await pending
+
+
 async def stream_turn_events(
     *,
     settings: AgentRuntimeSettings,
@@ -347,15 +381,11 @@ async def _stream_with_claude_sdk(
     try:
         async with asyncio.timeout(turn_timeout_seconds):
             sdk_iter = query(prompt=prompt, options=options).__aiter__()
-            while True:
-                try:
-                    sdk_message = await asyncio.wait_for(
-                        sdk_iter.__anext__(),
-                        timeout=_SDK_HEARTBEAT_SECONDS,
-                    )
-                except StopAsyncIteration:
-                    break
-                except TimeoutError:
+            async for sdk_message in _iter_sdk_messages_with_heartbeat(
+                sdk_iter,
+                heartbeat_seconds=_SDK_HEARTBEAT_SECONDS,
+            ):
+                if sdk_message is None:
                     elapsed_seconds += int(_SDK_HEARTBEAT_SECONDS)
                     heartbeat = replace_last_thinking(
                         recent,

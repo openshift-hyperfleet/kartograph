@@ -147,12 +147,15 @@ function adjustTextareaHeight() {
   const lh = parseFloat(getComputedStyle(el).lineHeight)
   const line = Number.isFinite(lh) && lh > 0 ? lh : 21
   const minH = Math.round(line * 2.5)
-  const maxH = Math.round(line * 14)
   el.style.height = '0'
-  const scrollH = el.scrollHeight
-  const h = Math.min(Math.max(scrollH, minH), maxH)
-  el.style.height = `${h}px`
-  el.style.overflowY = scrollH > maxH ? 'auto' : 'hidden'
+  el.style.height = `${Math.max(el.scrollHeight, minH)}px`
+  el.style.overflowY = 'hidden'
+}
+
+function onComposerInput(event: Event) {
+  const target = event.target as HTMLTextAreaElement
+  emit('update:draftMessage', target.value)
+  adjustTextareaHeight()
 }
 
 function handleComposerEnter(event: KeyboardEvent) {
@@ -404,7 +407,7 @@ onMounted(() => {
             :disabled="composerBlocked"
             :placeholder="inputPlaceholder"
             class="w-full flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-            @input="emit('update:draftMessage', ($event.target as HTMLTextAreaElement).value)"
+            @input="onComposerInput"
             @keydown.enter="handleComposerEnter"
           />
           <Button

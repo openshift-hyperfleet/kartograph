@@ -18,7 +18,6 @@ import {
   MessageSquare,
   PencilRuler,
   PlayCircle,
-  RefreshCw,
   ScrollText,
   ShieldAlert,
   Trash2,
@@ -946,9 +945,9 @@ function setGraphManagementMode(mode: GraphManagementMode) {
 function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
   selectedRailItemId.value = itemId
   void nextTick(() => {
-    document.getElementById('graph-management-artifact-detail')?.scrollIntoView({
+    document.querySelector<HTMLElement>('.graph-management-detail')?.scrollTo({
+      top: 0,
       behavior: 'smooth',
-      block: 'start',
     })
   })
 }
@@ -1868,33 +1867,18 @@ watch(selectedOpsDataSourceId, () => {
           @send-message="sendChatMessage"
         />
 
-        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)] lg:items-start">
+        <div class="graph-management-artifacts flex flex-col gap-6 lg:relative">
           <Card
             id="graph-management-schema-artifacts"
-            class="graph-management-schema-panel lg:sticky lg:top-4 lg:self-start"
+            class="graph-management-schema-panel w-full shrink-0 lg:absolute lg:left-0 lg:top-0 lg:z-10 lg:w-[15.5rem]"
           >
             <CardHeader class="pb-2">
-              <div class="flex items-start justify-between gap-2">
-                <div>
-                  <CardTitle class="text-sm font-semibold">Design Artifacts</CardTitle>
-                  <CardDescription class="text-xs">
-                    Live schema and instances from the platform database for
-                    <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
-                    Select an artifact to open it in the detail panel to the right.
-                  </CardDescription>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  class="shrink-0"
-                  :disabled="designArtifactsRefreshing"
-                  @click="refreshDesignArtifacts()"
-                >
-                  <Loader2 v-if="designArtifactsRefreshing" class="mr-1.5 size-3.5 animate-spin" />
-                  <RefreshCw v-else class="mr-1.5 size-3.5" />
-                  Refresh
-                </Button>
-              </div>
+              <CardTitle class="text-sm font-semibold">Design Artifacts</CardTitle>
+              <CardDescription class="text-xs">
+                Live schema and instances from the platform database for
+                <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                Select an artifact to open it in the detail panel to the right.
+              </CardDescription>
             </CardHeader>
             <CardContent class="space-y-1.5 p-3 pt-0">
               <template v-if="schemaRailItems.length > 0">
@@ -1922,7 +1906,10 @@ watch(selectedOpsDataSourceId, () => {
             </CardContent>
           </Card>
 
-          <div id="graph-management-artifact-detail" class="graph-management-detail scroll-mt-6 space-y-6">
+          <div
+            id="graph-management-artifact-detail"
+            class="graph-management-detail min-w-0 space-y-6 overscroll-contain lg:pl-[calc(15.5rem+1.5rem)] lg:max-h-[min(70vh,calc(100vh-18rem))] lg:overflow-y-auto"
+          >
             <div v-if="selectedRailItemId === 'schema-entities'" class="min-w-0 space-y-2">
               <GraphDesignEntitiesPanel
                 :kg-id="kgId"

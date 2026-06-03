@@ -435,10 +435,9 @@ describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
     expect(manageWorkspaceVue).toContain('graph-management-session-pointers')
     expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
     expect(manageWorkspaceVue).toContain('schemaRailItems')
-    expect(manageWorkspaceVue).toContain('lg:absolute lg:left-0 lg:top-0')
-    expect(manageWorkspaceVue).toContain('graph-management-detail min-h-0 min-w-0 flex-1')
-    expect(manageWorkspaceVue).toContain('overflow-y-auto overscroll-contain')
-    expect(manageWorkspaceVue).toContain('lg:h-[calc(100dvh-11.5rem)]')
+    expect(manageWorkspaceVue).toContain('lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)]')
+    expect(manageWorkspaceVue).toContain('lg:sticky lg:top-4')
+    expect(manageWorkspaceVue).toContain('scrollIntoView')
   })
 
   it('builds rail items with status and last-updated metadata', () => {

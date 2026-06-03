@@ -800,7 +800,7 @@ watch(() => route.path, () => { closeMobile() })
       </Sheet>
 
       <!-- Main Content Area -->
-      <div class="flex flex-1 flex-col overflow-hidden">
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <!-- Header -->
         <header class="flex h-14 items-center gap-4 border-b border-border bg-background px-4">
           <!-- Mobile menu button -->
@@ -895,7 +895,7 @@ watch(() => route.path, () => { closeMobile() })
         </header>
 
         <!-- Page Content -->
-        <main class="flex-1 overflow-y-auto p-6">
+        <main class="min-h-0 flex-1 overflow-y-auto p-6">
           <slot />
         </main>
       </div>

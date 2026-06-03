@@ -945,9 +945,9 @@ function setGraphManagementMode(mode: GraphManagementMode) {
 function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
   selectedRailItemId.value = itemId
   void nextTick(() => {
-    document.querySelector<HTMLElement>('.graph-management-detail')?.scrollTo({
-      top: 0,
+    document.getElementById('graph-management-artifact-detail')?.scrollIntoView({
       behavior: 'smooth',
+      block: 'start',
     })
   })
 }
@@ -1268,14 +1268,7 @@ watch(selectedOpsDataSourceId, () => {
 </script>
 
 <template>
-  <div
-    class="mx-auto max-w-7xl"
-    :class="
-      activeStep === 'graph-management' && !showOverview
-        ? 'flex flex-col gap-4 lg:min-h-0 lg:h-[calc(100dvh-11.5rem)] lg:max-h-[calc(100dvh-11.5rem)] lg:overflow-hidden'
-        : 'space-y-6'
-    "
-  >
+  <div class="mx-auto max-w-7xl space-y-6">
     <template v-if="showOverview">
       <NuxtLink
         to="/knowledge-graphs"
@@ -1287,29 +1280,27 @@ watch(selectedOpsDataSourceId, () => {
     </template>
 
     <template v-else>
-      <div :class="activeStep === 'graph-management' ? 'shrink-0 space-y-4' : 'space-y-4'">
-        <div class="flex items-center justify-between">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
-              <Badge variant="secondary">{{ stepBadgeLabel }}</Badge>
-            </div>
-            <p class="text-sm text-muted-foreground">
-              <template v-if="activeStep === 'graph-management'">
-                Conversation-first graph management with shared session and mode-specific workspace panels.
-              </template>
-              <template v-else>
-                Knowledge-graph scoped mutation run visibility and run metrics.
-              </template>
-            </p>
+      <div class="flex items-center justify-between">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-semibold tracking-tight">{{ graphHeaderTitle }}</h1>
+            <Badge variant="secondary">{{ stepBadgeLabel }}</Badge>
           </div>
-          <Button variant="outline" size="sm" @click="returnToWorkspaceOverview()">
-            <ArrowLeft class="mr-1.5 size-3.5" />
-            Back to workspace overview
-          </Button>
+          <p class="text-sm text-muted-foreground">
+            <template v-if="activeStep === 'graph-management'">
+              Conversation-first graph management with shared session and mode-specific workspace panels.
+            </template>
+            <template v-else>
+              Knowledge-graph scoped mutation run visibility and run metrics.
+            </template>
+          </p>
         </div>
-        <Separator />
+        <Button variant="outline" size="sm" @click="returnToWorkspaceOverview()">
+          <ArrowLeft class="mr-1.5 size-3.5" />
+          Back to workspace overview
+        </Button>
       </div>
+      <Separator />
     </template>
 
     <div v-if="!hasTenant" class="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
@@ -1776,10 +1767,7 @@ watch(selectedOpsDataSourceId, () => {
         </Card>
       </section>
 
-      <section
-        v-else-if="activeStep === 'graph-management'"
-        class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden"
-      >
+      <section v-else-if="activeStep === 'graph-management'" class="space-y-4">
         <div
           v-if="graphManagementSectionState.phase === 'error'"
           class="rounded-lg border border-dashed p-4 text-sm"
@@ -1792,7 +1780,7 @@ watch(selectedOpsDataSourceId, () => {
           </Button>
         </div>
 
-        <Card class="graph-management-controls shrink-0 overflow-hidden">
+        <Card class="graph-management-controls overflow-hidden">
           <CardHeader class="space-y-4 pb-4">
             <div class="flex flex-wrap items-start gap-3">
               <div
@@ -1858,8 +1846,7 @@ watch(selectedOpsDataSourceId, () => {
           </CardHeader>
         </Card>
 
-        <div class="shrink-0">
-          <SharedConversationPanel
+        <SharedConversationPanel
           v-model:draft-message="draftMessage"
           :mode-label="graphManagementModeLabel"
           :description="graphManagementChatDescription"
@@ -1878,13 +1865,12 @@ watch(selectedOpsDataSourceId, () => {
           @refresh="refreshGraphManagementSession"
           @clear-chat="clearChat"
           @send-message="sendChatMessage"
-          />
-        </div>
+        />
 
-        <div class="graph-management-artifacts flex min-h-0 flex-1 flex-col gap-4 overflow-hidden lg:relative">
+        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)] lg:items-start">
           <Card
             id="graph-management-schema-artifacts"
-            class="graph-management-schema-panel w-full shrink-0 lg:absolute lg:left-0 lg:top-0 lg:z-10 lg:w-[15.5rem]"
+            class="graph-management-schema-panel lg:sticky lg:top-4 lg:self-start"
           >
             <CardHeader class="pb-2">
               <CardTitle class="text-sm font-semibold">Design Artifacts</CardTitle>
@@ -1922,7 +1908,7 @@ watch(selectedOpsDataSourceId, () => {
 
           <div
             id="graph-management-artifact-detail"
-            class="graph-management-detail min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overscroll-contain lg:pl-[calc(15.5rem+1.5rem)]"
+            class="graph-management-detail min-w-0 space-y-6"
           >
             <div v-if="selectedRailItemId === 'schema-entities'" class="min-w-0 space-y-2">
               <GraphDesignEntitiesPanel

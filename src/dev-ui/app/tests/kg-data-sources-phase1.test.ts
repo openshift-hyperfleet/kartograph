@@ -40,7 +40,9 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('step=graph-management')
   })
 
-  it('renders bulk commit check and prepare actions', () => {
+  it('renders bulk refresh, commit check, and prepare actions', () => {
+    expect(phase1Vue).toContain('Refresh data')
+    expect(phase1Vue).toContain('refreshDataSources')
     expect(phase1Vue).toContain('Check for new commits')
     expect(phase1Vue).toContain('Prepare data sources')
     expect(phase1Vue).toContain('prepareAllDataSources')
@@ -62,6 +64,10 @@ describe('KG data sources phase1 layout', () => {
     expect(phase1Vue).toContain('loadDataSources({ silent: true })')
     expect(phase1Vue).toContain('refreshing')
     expect(phase1Vue).toContain('Updating…')
+  })
+
+  it('shows error toast when manual refresh fails', () => {
+    expect(phase1Vue).toContain("toast.error('Failed to refresh data sources')")
   })
 
   it('shows unpulled commit columns', () => {

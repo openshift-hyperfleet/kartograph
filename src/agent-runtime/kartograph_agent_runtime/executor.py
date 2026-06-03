@@ -55,22 +55,32 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 f"Workspace mount: `{settings.workspace_dir}`",
                 (
                     "Prepared repository files live under "
-                    "`repository-files/<job_package_id>/` relative to the workspace mount. "
+                    "`repository-files/<data_source_name>/` relative to the workspace mount "
+                    "(one folder per data source for this session's knowledge graph; folder "
+                    "names are slugified data source names such as `hyperfleet-api`). "
                     "Use Read, Grep, and Glob tools against those paths."
                 ),
             ]
             for source in sources[:12]:
                 if not isinstance(source, dict):
                     continue
-                package_id = str(source.get("job_package_id") or "?")
-                entry_count = source.get("entry_count", 0)
-                repository_root = str(
-                    source.get("repository_root") or f"repository-files/{package_id}"
-                )
+                data_source_name = str(source.get("data_source_name") or "?")
                 data_source_id = str(source.get("data_source_id") or "?")
+                entry_count = source.get("entry_count", 0)
+                repository_folder = str(source.get("repository_folder") or "").strip()
+                repository_root = str(
+                    source.get("repository_root")
+                    or (
+                        f"repository-files/{repository_folder}"
+                        if repository_folder
+                        else f"repository-files/{data_source_name}"
+                    )
+                )
+                package_id = str(source.get("job_package_id") or "?")
                 lines.append(
                     f"- `{repository_root}`: {entry_count} file(s) "
-                    f"(data source `{data_source_id}`)"
+                    f"(data source `{data_source_name}`, id `{data_source_id}`, "
+                    f"JobPackage `{package_id}`)"
                 )
                 sample_paths = source.get("sample_paths")
                 if isinstance(sample_paths, list):
@@ -102,13 +112,14 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
         f"Workspace mount: `{settings.workspace_dir}`",
         (
             "Prepared repository files live under "
-            "`repository-files/<job_package_id>/` relative to the workspace mount. "
+            "`repository-files/<data_source_name>/` relative to the workspace mount "
+            "(one folder per data source; names are slugified data source names). "
             "Use Read, Grep, and Glob tools against those paths."
         ),
     ]
     for package_dir in package_dirs[:8]:
         files = sorted(path for path in package_dir.rglob("*") if path.is_file())
-        lines.append(f"- `{package_dir.name}`: {len(files)} file(s)")
+        lines.append(f"- `repository-files/{package_dir.name}`: {len(files)} file(s)")
         for file_path in files[:4]:
             rel = file_path.relative_to(package_dir).as_posix()
             lines.append(f"  - `{rel}`")
@@ -274,6 +285,16 @@ async def _iter_sdk_messages_with_heartbeat(
                 await pending
 
 
+def _tooling_settings(
+    settings: AgentRuntimeSettings,
+    workload_token: str | None = None,
+) -> AgentRuntimeSettings:
+    token = (workload_token or "").strip()
+    if not token:
+        return settings
+    return settings.model_copy(update={"workload_token": token})
+
+
 async def stream_turn_events(
     *,
     settings: AgentRuntimeSettings,
@@ -282,8 +303,10 @@ async def stream_turn_events(
     agent_configuration: dict[str, Any],
     message_history: list[dict[str, Any]],
     turn_timeout_seconds: float = _DEFAULT_TURN_TIMEOUT_SECONDS,
+    workload_token: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    auth_mode = _apply_model_env(settings)
+    effective_settings = _tooling_settings(settings, workload_token)
+    auth_mode = _apply_model_env(effective_settings)
     yield {
         "type": "thinking",
         "recent": [
@@ -293,9 +316,9 @@ async def stream_turn_events(
         ],
     }
 
-    if settings.model_configured():
+    if effective_settings.model_configured():
         async for event in _stream_with_claude_sdk(
-            settings=settings,
+            settings=effective_settings,
             message=message,
             ui_mode=ui_mode,
             agent_configuration=agent_configuration,
@@ -306,7 +329,7 @@ async def stream_turn_events(
             yield event
         return
 
-    tooling = RuntimeTooling(settings=settings)
+    tooling = RuntimeTooling(settings=effective_settings)
     skill_keys = ", ".join(sorted(agent_configuration.get("skills", {}).keys())[:4]) or "default"
     reply = (
         f"**Graph Management Assistant ({ui_mode})**\n\n"
@@ -315,7 +338,7 @@ async def stream_turn_events(
         "Configure Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID`, "
         "`CLOUD_ML_REGION`) or `ANTHROPIC_API_KEY` to enable live model execution. "
         "Graph and mutation tools are wired via "
-        f"`{settings.api_base_url}` using the injected workload token."
+        f"`{effective_settings.api_base_url}` using the injected workload token."
     )
     if message.lower().startswith("search graph:"):
         slug = message.split(":", 1)[1].strip()

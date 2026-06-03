@@ -83,6 +83,8 @@ Bootstrap transition needs:
 
 ## Repository context
 
-Use Read/Grep/Glob on prepared JobPackage files under `repository-files/<job_package_id>/`
-to infer domain concepts — then model them as ontology types, not as ad-hoc API discoveries.
+Use Read/Grep/Glob on prepared JobPackage files under `repository-files/<data_source_name>/`
+(one folder per connected data source for this knowledge graph; folder names are slugified
+data source names such as `hyperfleet-api`, not other knowledge graphs) to infer domain
+concepts — then model them as ontology types, not as ad-hoc API discoveries.
 """.strip()

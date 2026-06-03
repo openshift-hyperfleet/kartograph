@@ -18,6 +18,7 @@ class DeterministicExtractionChatAgent:
         session: ExtractionAgentSession,
         user_message: str,
         ui_mode: GraphManagementUiMode,
+        workload_token: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         yield {
             "type": "thinking",

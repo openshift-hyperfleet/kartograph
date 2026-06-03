@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+
 
 class IPreparedJobPackageReader(Protocol):
-    """Read latest prepared JobPackage ids for one knowledge graph."""
+    """Read latest prepared JobPackage snapshots for one knowledge graph."""
 
     async def list_latest_for_knowledge_graph(
         self, *, knowledge_graph_id: str
-    ) -> tuple[str, ...]:
-        """Return latest JobPackage ids per data source for the knowledge graph."""
+    ) -> tuple[PreparedJobPackageSource, ...]:
+        """Return latest materializable JobPackages per data source for the knowledge graph."""
         ...

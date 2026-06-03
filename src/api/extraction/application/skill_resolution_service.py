@@ -38,6 +38,7 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "Never fabricate repository content or credentials.",
             "Keep recommendations scoped to the active knowledge graph.",
             "Use kartograph_* schema tools for ontology and JSONL mutations; never probe /management or /graph HTTP routes manually.",
+            "Format user-facing replies in GitHub-flavored Markdown (headings, lists, fenced code blocks, tables) for readability in the chat UI.",
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
@@ -55,6 +56,7 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "All write paths must remain mutation-log auditable.",
             "Treat schema edits as secondary unless explicitly requested.",
             "Avoid broad destructive changes without explicit confirmation.",
+            "Format user-facing replies in GitHub-flavored Markdown (headings, lists, fenced code blocks, tables) for readability in the chat UI.",
         ),
     },
 }

@@ -18,6 +18,7 @@ class IExtractionChatAgent(Protocol):
         session: ExtractionAgentSession,
         user_message: str,
         ui_mode: GraphManagementUiMode,
+        workload_token: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield NDJSON-style event dictionaries ending with a terminal done event."""
         ...

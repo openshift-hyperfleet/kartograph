@@ -12,7 +12,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@cosmograph/cosmograph": "2.0.1",
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.2",
     "@codemirror/lang-json": "^6.0.2",
@@ -21,6 +20,7 @@
     "@codemirror/search": "^6.6.0",
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.14",
+    "@cosmograph/cosmograph": "2.0.1",
     "@lezer/common": "^1.5.1",
     "@lezer/highlight": "^1.2.3",
     "@tailwindcss/vite": "^4.1.18",
@@ -33,7 +33,9 @@
     "cytoscape": "^3.33.1",
     "cytoscape-cise": "^2.0.1",
     "cytoscape-fcose": "^2.2.0",
+    "isomorphic-dompurify": "^2.36.0",
     "lucide-vue-next": "^0.563.0",
+    "marked": "^15.0.12",
     "nuxt": "^4.3.1",
     "oidc-client-ts": "^3.4.1",
     "reka-ui": "^2.8.0",

@@ -127,3 +127,98 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  .chat-md {
+    @apply text-sm leading-relaxed text-foreground;
+  }
+
+  .chat-md > :first-child {
+    margin-top: 0;
+  }
+
+  .chat-md > :last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-md h1,
+  .chat-md h2,
+  .chat-md h3,
+  .chat-md h4 {
+    @apply font-semibold tracking-tight text-foreground;
+  }
+
+  .chat-md h1 {
+    @apply mt-4 mb-2 text-lg;
+  }
+
+  .chat-md h2 {
+    @apply mt-4 mb-2 text-base;
+  }
+
+  .chat-md h3 {
+    @apply mt-3 mb-1.5 text-sm;
+  }
+
+  .chat-md h4 {
+    @apply mt-2 mb-1 text-sm;
+  }
+
+  .chat-md p {
+    @apply my-2;
+  }
+
+  .chat-md ul,
+  .chat-md ol {
+    @apply my-2 ml-5 space-y-1;
+  }
+
+  .chat-md ul {
+    @apply list-disc;
+  }
+
+  .chat-md ol {
+    @apply list-decimal;
+  }
+
+  .chat-md li > p {
+    @apply my-1;
+  }
+
+  .chat-md blockquote {
+    @apply my-3 border-l-2 border-amber-500/60 pl-3 text-muted-foreground italic;
+  }
+
+  .chat-md hr {
+    @apply my-4 border-border;
+  }
+
+  .chat-md a {
+    @apply font-medium text-primary underline underline-offset-2 hover:text-primary/90;
+  }
+
+  .chat-md code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-foreground;
+  }
+
+  .chat-md pre {
+    @apply my-3 overflow-x-auto rounded-lg border border-border/80 bg-muted/60 p-3;
+  }
+
+  .chat-md pre code {
+    @apply bg-transparent p-0 text-xs leading-relaxed;
+  }
+
+  .chat-md table {
+    @apply my-3 w-full border-collapse text-left text-xs;
+  }
+
+  .chat-md th,
+  .chat-md td {
+    @apply border border-border px-2 py-1 align-top;
+  }
+
+  .chat-md th {
+    @apply bg-muted/50 font-semibold;
+  }
+}

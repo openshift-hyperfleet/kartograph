@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import zipfile
 
+from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from shared_kernel.job_package.path_safety import validate_zip_entry_name
 from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
@@ -32,7 +33,7 @@ class StickySessionWorkdirMaterializer:
         *,
         session_id: str,
         knowledge_graph_id: str,
-        job_package_ids: tuple[str, ...] = (),
+        job_packages: tuple[PreparedJobPackageSource, ...] = (),
     ) -> Path:
         """Create or refresh the host work directory for one sticky session."""
         session_root = self._job_package_work_dir / "sticky-sessions" / session_id
@@ -42,14 +43,11 @@ class StickySessionWorkdirMaterializer:
         _replace_directory(ingestion_context_dir)
         _replace_directory(repository_files_dir)
 
-        discovered = (
-            self._discover_job_package_ids()
-            if job_package_ids is None
-            else job_package_ids
-        )
         index_sources: list[dict[str, object]] = []
-        for package_id in discovered:
-            archive_path = self._job_package_work_dir / JobPackageId(value=package_id).archive_name()
+        for source in job_packages:
+            archive_path = self._job_package_work_dir / JobPackageId(
+                value=source.package_id
+            ).archive_name()
             if not archive_path.exists():
                 continue
             reader = JobPackageReader(archive_path)
@@ -57,19 +55,20 @@ class StickySessionWorkdirMaterializer:
             if manifest.entry_count <= 0:
                 continue
 
-            package_dir = ingestion_context_dir / package_id
+            package_dir = ingestion_context_dir / source.package_id
             package_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(archive_path) as archive:
                 for entry_name in archive.namelist():
                     validate_zip_entry_name(entry_name)
                     archive.extract(entry_name, path=package_dir)
 
+            repository_folder = source.repository_folder
             sample_paths: list[str] = []
             for change in reader.iter_changeset():
                 if change.content_ref is None or not change.path:
                     continue
                 validate_zip_entry_name(change.path)
-                output_path = repository_files_dir / package_id / change.path
+                output_path = repository_files_dir / repository_folder / change.path
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_path.write_bytes(reader.read_content(change.content_ref))
                 if len(sample_paths) < 8:
@@ -77,11 +76,13 @@ class StickySessionWorkdirMaterializer:
 
             index_sources.append(
                 {
-                    "job_package_id": package_id,
-                    "data_source_id": manifest.data_source_id,
+                    "job_package_id": source.package_id,
+                    "data_source_id": source.data_source_id,
+                    "data_source_name": source.data_source_name,
+                    "repository_folder": repository_folder,
                     "entry_count": manifest.entry_count,
                     "sync_mode": str(manifest.sync_mode),
-                    "repository_root": f"repository-files/{package_id}",
+                    "repository_root": f"repository-files/{repository_folder}",
                     "sample_paths": sample_paths,
                 }
             )
@@ -94,14 +95,6 @@ class StickySessionWorkdirMaterializer:
             sources=index_sources,
         )
         return session_root
-
-    def _discover_job_package_ids(self) -> tuple[str, ...]:
-        package_ids: list[str] = []
-        for archive in sorted(self._job_package_work_dir.glob("job-package-*.zip")):
-            stem = archive.stem.removeprefix("job-package-")
-            if stem:
-                package_ids.append(stem)
-        return tuple(package_ids)
 
     def _write_workspace_index(
         self,

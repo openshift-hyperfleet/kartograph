@@ -69,7 +69,7 @@ class _StaticIngestionReadinessReader:
 
 
 class _StaticBootstrapBuilder:
-    async def resolve_job_package_ids(self, **kwargs):
+    async def resolve_job_packages(self, **kwargs):
         return ()
 
     async def build(self, **kwargs):
@@ -80,8 +80,17 @@ class _RecordingBootstrapBuilder:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    async def resolve_job_package_ids(self, **kwargs):
-        return ("pkg-1",)
+    async def resolve_job_packages(self, **kwargs):
+        from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+
+        return (
+            PreparedJobPackageSource(
+                package_id="pkg-1",
+                data_source_id="ds-1",
+                data_source_name="hyperfleet-api",
+                repository_folder="hyperfleet-api",
+            ),
+        )
 
     async def build(self, **kwargs):
         self.calls.append(kwargs)

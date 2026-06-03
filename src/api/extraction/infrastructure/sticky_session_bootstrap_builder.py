@@ -10,6 +10,7 @@ from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
     get_extraction_workload_runtime_settings,
 )
+from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from extraction.ports.prepared_job_packages import IPreparedJobPackageReader
 from extraction.ports.runtime import StickySessionRuntimeBootstrap
 
@@ -30,13 +31,13 @@ class StickySessionBootstrapBuilder:
         self._workdir_materializer = workdir_materializer
         self._runtime_settings = runtime_settings or get_extraction_workload_runtime_settings()
 
-    async def resolve_job_package_ids(
+    async def resolve_job_packages(
         self,
         *,
         knowledge_graph_id: str,
         include_job_packages: bool,
-    ) -> tuple[str, ...]:
-        """Return JobPackage IDs that would be materialized for one session."""
+    ) -> tuple[PreparedJobPackageSource, ...]:
+        """Return JobPackage snapshots that would be materialized for one session."""
         if not include_job_packages:
             return ()
         return await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
@@ -54,15 +55,15 @@ class StickySessionBootstrapBuilder:
         if self._runtime_settings.backend != "container":
             return None
 
-        package_ids: tuple[str, ...] = ()
+        job_packages: tuple[PreparedJobPackageSource, ...] = ()
         if include_job_packages:
-            package_ids = await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
+            job_packages = await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
                 knowledge_graph_id=knowledge_graph_id,
             )
         host_session_work_dir = self._workdir_materializer.prepare(
             session_id=session_id,
             knowledge_graph_id=knowledge_graph_id,
-            job_package_ids=package_ids,
+            job_packages=job_packages,
         )
         credentials = self._credential_issuer.issue_for_sticky_session(
             tenant_id=tenant_id,

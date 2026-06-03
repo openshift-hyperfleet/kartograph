@@ -114,12 +114,13 @@ class StickySessionRuntimeService:
                 readiness=readiness,
                 gate=gate,
             )
-            expected_package_ids = await self._bootstrap_builder.resolve_job_package_ids(
+            expected_packages = await self._bootstrap_builder.resolve_job_packages(
                 knowledge_graph_id=knowledge_graph_id,
                 include_job_packages=include_job_packages,
             )
             stored_materialization = session.runtime_context.get("workspace_materialization", {})
             stored_package_ids = tuple(stored_materialization.get("job_package_ids") or ())
+            expected_package_ids = tuple(source.package_id for source in expected_packages)
             if (
                 await self._health_checker.is_healthy(runtime_base_url=runtime_base_url)
                 and stored_package_ids == expected_package_ids
@@ -232,7 +233,7 @@ class StickySessionRuntimeService:
             readiness=readiness,
             gate=gate,
         )
-        package_ids = await self._bootstrap_builder.resolve_job_package_ids(
+        job_packages = await self._bootstrap_builder.resolve_job_packages(
             knowledge_graph_id=knowledge_graph_id,
             include_job_packages=include_job_packages,
         )
@@ -243,7 +244,8 @@ class StickySessionRuntimeService:
             include_job_packages=include_job_packages,
         )
         session.runtime_context["workspace_materialization"] = {
-            "job_package_ids": list(package_ids),
+            "job_package_ids": [source.package_id for source in job_packages],
+            "repository_folders": [source.repository_folder for source in job_packages],
         }
         recent, event = thinking_event(recent, "Starting isolated Claude Agent SDK container")
         yield event

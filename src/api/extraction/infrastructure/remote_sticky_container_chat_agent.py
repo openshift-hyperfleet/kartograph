@@ -33,6 +33,7 @@ class RemoteStickyContainerChatAgent:
         session: ExtractionAgentSession,
         user_message: str,
         ui_mode: GraphManagementUiMode,
+        workload_token: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         sticky_runtime = session.runtime_context.get("sticky_runtime", {})
         runtime_base_url = sticky_runtime.get("runtime_base_url")
@@ -47,12 +48,14 @@ class RemoteStickyContainerChatAgent:
             }
             return
 
-        payload = {
+        payload: dict[str, Any] = {
             "message": user_message,
             "ui_mode": ui_mode.value,
             "agent_configuration": session.runtime_context.get("agent_configuration", {}),
             "message_history": session.message_history[-20:],
         }
+        if workload_token and workload_token.strip():
+            payload["workload_token"] = workload_token.strip()
         url = f"{runtime_base_url.rstrip('/')}/v1/turn"
 
         try:

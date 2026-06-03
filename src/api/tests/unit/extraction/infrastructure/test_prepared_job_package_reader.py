@@ -65,11 +65,13 @@ class TestSqlPreparedJobPackageReader:
         rows = [
             MagicMock(
                 data_source_id="ds-1",
+                data_source_name="Hyperfleet API",
                 job_package_id=empty_id,
                 occurred_at="2026-05-31T12:00:00Z",
             ),
             MagicMock(
                 data_source_id="ds-1",
+                data_source_name="Hyperfleet API",
                 job_package_id=full_id,
                 occurred_at="2026-05-31T11:00:00Z",
             ),
@@ -79,11 +81,14 @@ class TestSqlPreparedJobPackageReader:
             job_package_work_dir=tmp_path,
         )
 
-        package_ids = await reader.list_latest_for_knowledge_graph(
+        sources = await reader.list_latest_for_knowledge_graph(
             knowledge_graph_id="kg-1",
         )
 
-        assert package_ids == (full_id,)
+        assert len(sources) == 1
+        assert sources[0].package_id == full_id
+        assert sources[0].data_source_name == "Hyperfleet API"
+        assert sources[0].repository_folder == "hyperfleet-api"
 
     async def test_skips_data_source_when_all_packages_are_empty(self, tmp_path: Path) -> None:
         empty_id = "01JEMPTY000000000000000000"
@@ -91,6 +96,7 @@ class TestSqlPreparedJobPackageReader:
         rows = [
             MagicMock(
                 data_source_id="ds-1",
+                data_source_name="Hyperfleet API",
                 job_package_id=empty_id,
                 occurred_at="2026-05-31T12:00:00Z",
             ),
@@ -100,8 +106,8 @@ class TestSqlPreparedJobPackageReader:
             job_package_work_dir=tmp_path,
         )
 
-        package_ids = await reader.list_latest_for_knowledge_graph(
+        sources = await reader.list_latest_for_knowledge_graph(
             knowledge_graph_id="kg-1",
         )
 
-        assert package_ids == ()
+        assert sources == ()

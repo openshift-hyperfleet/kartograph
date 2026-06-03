@@ -21,7 +21,7 @@ from kartograph_agent_runtime.settings import AgentRuntimeSettings
 
 def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -> None:
     package_id = "pkg-1"
-    package_root = tmp_path / "repository-files" / package_id / "pkg" / "api"
+    package_root = tmp_path / "repository-files" / "hyperfleet-api" / "pkg" / "api"
     package_root.mkdir(parents=True)
     (package_root / "adapter_status_types_test.go").write_text("package api\n", encoding="utf-8")
     (tmp_path / "sources-index.json").write_text(
@@ -33,8 +33,10 @@ def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -
                     {
                         "job_package_id": package_id,
                         "data_source_id": "ds-hyperfleet-api",
+                        "data_source_name": "Hyperfleet API",
+                        "repository_folder": "hyperfleet-api",
                         "entry_count": 142,
-                        "repository_root": f"repository-files/{package_id}",
+                        "repository_root": "repository-files/hyperfleet-api",
                         "sample_paths": ["pkg/api/adapter_status_types_test.go"],
                     }
                 ],
@@ -47,7 +49,8 @@ def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -
         AgentRuntimeSettings(KARTOGRAPH_WORKSPACE_DIR=str(tmp_path))
     )
 
-    assert "ds-hyperfleet-api" in appendix
+    assert "hyperfleet-api" in appendix
+    assert "Hyperfleet API" in appendix
     assert "142 file(s)" in appendix
     assert "pkg/api/adapter_status_types_test.go" in appendix
 
@@ -55,7 +58,7 @@ def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -
 def test_build_workspace_prompt_appendix_lists_materialized_repository_files(
     tmp_path: Path,
 ) -> None:
-    package_root = tmp_path / "repository-files" / "pkg-1" / "pkg" / "api"
+    package_root = tmp_path / "repository-files" / "hyperfleet-api" / "pkg" / "api"
     package_root.mkdir(parents=True)
     (package_root / "adapter_status_types_test.go").write_text("package api\n", encoding="utf-8")
 
@@ -63,7 +66,8 @@ def test_build_workspace_prompt_appendix_lists_materialized_repository_files(
         AgentRuntimeSettings(KARTOGRAPH_WORKSPACE_DIR=str(tmp_path))
     )
 
-    assert "repository-files/<job_package_id>/" in appendix
+    assert "repository-files/<data_source_name>/" in appendix
+    assert "hyperfleet-api" in appendix
     assert "pkg/api/adapter_status_types_test.go" in appendix
 
 

@@ -7,12 +7,14 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from extraction.application.repository_workspace_paths import repository_folder_for_data_source
+from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
 
 
 class SqlPreparedJobPackageReader:
-    """Reads latest materializable JobPackage ids from outbox events for one KG."""
+    """Reads latest materializable JobPackage snapshots from outbox events for one KG."""
 
     def __init__(
         self,
@@ -25,19 +27,21 @@ class SqlPreparedJobPackageReader:
 
     async def list_latest_for_knowledge_graph(
         self, *, knowledge_graph_id: str
-    ) -> tuple[str, ...]:
+    ) -> tuple[PreparedJobPackageSource, ...]:
         result = await self._session.execute(
             text(
                 """
                 SELECT
                   payload->>'data_source_id' AS data_source_id,
                   payload->>'job_package_id' AS job_package_id,
+                  ds.name AS data_source_name,
                   occurred_at
-                FROM outbox
-                WHERE event_type IN ('IngestionPrepared', 'JobPackageProduced')
+                FROM outbox o
+                LEFT JOIN data_sources ds ON ds.id = payload->>'data_source_id'
+                WHERE o.event_type IN ('IngestionPrepared', 'JobPackageProduced')
                   AND payload->>'knowledge_graph_id' = :knowledge_graph_id
                   AND payload->>'job_package_id' IS NOT NULL
-                ORDER BY payload->>'data_source_id', occurred_at DESC
+                ORDER BY payload->>'data_source_id', o.occurred_at DESC
                 """
             ),
             {"knowledge_graph_id": knowledge_graph_id},
@@ -51,23 +55,36 @@ class SqlPreparedJobPackageReader:
                 continue
             by_source.setdefault(data_source_id, []).append(row)
 
-        selected: list[str] = []
+        selected: list[PreparedJobPackageSource] = []
         for data_source_id in sorted(by_source):
-            package_id = self._first_materializable_package_id(
+            source = self._first_materializable_source(
+                data_source_id=data_source_id,
                 rows=by_source[data_source_id],
             )
-            if package_id is not None:
-                selected.append(package_id)
+            if source is not None:
+                selected.append(source)
 
         return tuple(selected)
 
-    def _first_materializable_package_id(self, *, rows) -> str | None:
+    def _first_materializable_source(
+        self, *, data_source_id: str, rows
+    ) -> PreparedJobPackageSource | None:
         for row in rows:
             package_id = str(row.job_package_id or "").strip()
             if not package_id:
                 continue
-            if self._package_has_repository_content(package_id):
-                return package_id
+            if not self._package_has_repository_content(package_id):
+                continue
+            data_source_name = str(row.data_source_name or "").strip() or data_source_id
+            return PreparedJobPackageSource(
+                package_id=package_id,
+                data_source_id=data_source_id,
+                data_source_name=data_source_name,
+                repository_folder=repository_folder_for_data_source(
+                    name=data_source_name,
+                    data_source_id=data_source_id,
+                ),
+            )
         return None
 
     def _package_has_repository_content(self, package_id: str) -> bool:

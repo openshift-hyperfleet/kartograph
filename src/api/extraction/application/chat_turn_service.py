@@ -13,6 +13,7 @@ from extraction.domain.value_objects import (
     GraphManagementUiMode,
     SessionJobPackagePhase,
 )
+from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.ports.chat_agent import IExtractionChatAgent
 
 
@@ -25,10 +26,12 @@ class ExtractionChatTurnService:
         session_service: ExtractionAgentSessionService,
         runtime_service: IStickySessionRuntimeService,
         chat_agent: IExtractionChatAgent,
+        credential_issuer: ScopedWorkloadCredentialIssuer | None = None,
     ) -> None:
         self._session_service = session_service
         self._runtime_service = runtime_service
         self._chat_agent = chat_agent
+        self._credential_issuer = credential_issuer
 
     async def stream_runtime_warmup(
         self,
@@ -125,12 +128,20 @@ class ExtractionChatTurnService:
             ],
         }
 
+        workload_token: str | None = None
+        if self._credential_issuer is not None:
+            workload_token = self._credential_issuer.issue_for_sticky_session(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+            ).token
+
         assistant_reply: str | None = None
         stream_failed = False
         async for event in self._chat_agent.stream_turn(
             session=session,
             user_message=trimmed,
             ui_mode=ui_mode,
+            workload_token=workload_token,
         ):
             if event.get("type") == "thinking":
                 recent = event.get("recent")

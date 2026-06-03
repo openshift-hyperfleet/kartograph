@@ -28,6 +28,10 @@ class TurnRequest(BaseModel):
     ui_mode: str = Field(default="initial-schema-design")
     agent_configuration: dict[str, Any] = Field(default_factory=dict)
     message_history: list[dict[str, Any]] = Field(default_factory=list)
+    workload_token: str | None = Field(
+        default=None,
+        description="Fresh scoped JWT for Kartograph schema/mutation tools (preferred over container env).",
+    )
 
 
 def _workspace_ready() -> bool:
@@ -66,6 +70,7 @@ async def stream_turn(request: TurnRequest) -> StreamingResponse:
                 agent_configuration=request.agent_configuration,
                 message_history=request.message_history,
                 turn_timeout_seconds=settings.turn_timeout_seconds,
+                workload_token=request.workload_token,
             ):
                 if event.get("type") == "done":
                     logger.info(

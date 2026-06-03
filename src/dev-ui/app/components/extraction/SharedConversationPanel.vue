@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import DOMPurify from 'isomorphic-dompurify'
+import { marked } from 'marked'
 import { Bot, Loader2, RefreshCw, RotateCcw, Send, Sparkles, User } from 'lucide-vue-next'
 import {
   normalizeThinkingActivityLines,
@@ -79,11 +81,32 @@ const chatScrollRef = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const composerInputId = 'graph-management-chat-input'
 
+marked.setOptions({ gfm: true, breaks: true })
+
 const messageHistory = computed(() => props.session?.message_history ?? [])
 
-const chatInputDisabled = computed(
-  () => props.loading || props.clearing || props.sending || props.inputDisabled || props.forbidden,
+const showInitialConversationLoading = computed(
+  () => props.loading && messageHistory.value.length === 0,
 )
+
+const showConversationRefreshIndicator = computed(
+  () => props.loading && messageHistory.value.length > 0,
+)
+
+const composerBlocked = computed(
+  () => props.loading || props.clearing || props.inputDisabled || props.forbidden,
+)
+
+const chatSendDisabled = computed(
+  () => composerBlocked.value || props.sending || !props.draftMessage.trim(),
+)
+
+const sendDisabledReason = computed(() => {
+  if (props.sending) {
+    return 'Wait for the assistant to finish this turn before sending.'
+  }
+  return props.inputDisabledReason ?? undefined
+})
 
 const showRuntimeActivity = computed(
   () => props.preparingRuntime || props.sending,
@@ -108,10 +131,14 @@ function messageText(entry: ConversationEntry): string {
 }
 
 function scrollToBottom() {
-  const el = chatScrollRef.value
-  if (el) {
-    el.scrollTop = el.scrollHeight
-  }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = chatScrollRef.value
+      if (el) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  })
 }
 
 function adjustTextareaHeight() {
@@ -130,32 +157,19 @@ function adjustTextareaHeight() {
 
 function handleComposerEnter(event: KeyboardEvent) {
   if (event.shiftKey) return
-  if (chatInputDisabled.value || !props.draftMessage.trim()) return
+  if (chatSendDisabled.value) return
   event.preventDefault()
   sendDraftMessage()
 }
 
-function renderAssistantHtml(text: string): string {
-  let s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
-  s = s.replace(
-    /`([^`]+)`/g,
-    '<code class="rounded bg-muted px-1 py-0.5 text-xs font-mono text-foreground">$1</code>',
-  )
-  s = s.replace(
-    /^> (.+)$/gm,
-    '<p class="my-2 border-l-2 border-amber-500/60 pl-3 text-sm text-muted-foreground italic">$1</p>',
-  )
-  s = s.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a class="text-primary font-medium underline underline-offset-2 hover:text-primary/90" href="$2">$1</a>',
-  )
-  s = s.replace(/## (.+)$/gm, '<h3 class="text-base font-semibold mt-3 mb-1 text-foreground">$1</h3>')
-  s = s.replace(/### (.+)$/gm, '<h4 class="text-sm font-semibold mt-2 text-foreground">$1</h4>')
-  s = s.replace(/^---$/gm, '<hr class="my-3 border-border" />')
-  s = s.replace(/\n\n+/g, '<br /><br />')
-  s = s.replace(/\n/g, '<br />')
-  return s
+function renderAssistantMarkdown(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const raw = marked.parse(trimmed, { async: false }) as string
+  return DOMPurify.sanitize(raw, {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ['target', 'rel', 'class'],
+  })
 }
 
 function confirmClearChat() {
@@ -165,19 +179,28 @@ function confirmClearChat() {
 
 function sendDraftMessage() {
   const trimmed = props.draftMessage.trim()
-  if (!trimmed || chatInputDisabled.value) return
+  if (!trimmed || chatSendDisabled.value) return
   emit('sendMessage', trimmed)
   emit('update:draftMessage', '')
   void nextTick(() => adjustTextareaHeight())
 }
 
 watch(
-  () => [messageHistory.value.length, props.activityLines, props.sending],
+  () => props.session,
   async () => {
     await nextTick()
     scrollToBottom()
   },
-  { deep: true },
+  { deep: true, flush: 'post' },
+)
+
+watch(
+  () => [props.activityLines, props.sending, props.loading, showRuntimeActivity.value],
+  async () => {
+    await nextTick()
+    scrollToBottom()
+  },
+  { deep: true, flush: 'post' },
 )
 
 watch(
@@ -195,7 +218,10 @@ watch(
 )
 
 onMounted(() => {
-  void nextTick(() => adjustTextareaHeight())
+  void nextTick(() => {
+    adjustTextareaHeight()
+    scrollToBottom()
+  })
 })
 </script>
 
@@ -265,7 +291,7 @@ onMounted(() => {
         class="min-h-[14rem] max-h-[min(32rem,60vh)] space-y-4 overflow-y-auto bg-muted/10 px-4 py-4 sm:px-6"
       >
         <div
-          v-if="loading"
+          v-if="showInitialConversationLoading"
           class="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground"
           aria-busy="true"
           aria-live="polite"
@@ -274,6 +300,15 @@ onMounted(() => {
           <p class="text-center text-sm text-foreground/80">Loading conversation session…</p>
         </div>
         <template v-else>
+          <div
+            v-if="showConversationRefreshIndicator"
+            class="flex items-center justify-center gap-2 py-1 text-xs text-muted-foreground"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <Loader2 class="size-3.5 shrink-0 animate-spin" />
+            <span>Refreshing conversation…</span>
+          </div>
           <div
             v-for="(entry, idx) in messageHistory"
             :key="`msg-${idx}-${entry.role ?? 'unknown'}`"
@@ -305,7 +340,7 @@ onMounted(() => {
               <div
                 v-else
                 class="chat-md space-y-1 break-words [&_a]:break-all [&_code]:break-all"
-                v-html="renderAssistantHtml(messageText(entry))"
+                v-html="renderAssistantMarkdown(messageText(entry))"
               />
             </div>
           </div>
@@ -366,7 +401,7 @@ onMounted(() => {
             ref="textareaRef"
             :value="draftMessage"
             rows="1"
-            :disabled="chatInputDisabled"
+            :disabled="composerBlocked"
             :placeholder="inputPlaceholder"
             class="w-full flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             @input="emit('update:draftMessage', ($event.target as HTMLTextAreaElement).value)"
@@ -375,8 +410,8 @@ onMounted(() => {
           <Button
             type="button"
             class="h-10 min-h-10 w-full shrink-0 sm:w-auto sm:px-6"
-            :disabled="chatInputDisabled || !draftMessage.trim()"
-            :title="inputDisabledReason ?? undefined"
+            :disabled="chatSendDisabled"
+            :title="sendDisabledReason"
             @click="sendDraftMessage"
           >
             <Loader2 v-if="sending" class="size-4 animate-spin" />

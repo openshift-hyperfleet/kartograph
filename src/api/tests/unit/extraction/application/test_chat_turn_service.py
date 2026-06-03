@@ -16,6 +16,7 @@ from extraction.domain.value_objects import (
     IngestionReadinessSnapshot,
 )
 from extraction.infrastructure.deterministic_chat_agent import DeterministicExtractionChatAgent
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
 
 
@@ -141,6 +142,55 @@ async def test_stream_chat_turn_persists_assistant_reply() -> None:
     assert active.message_history[-2]["role"] == "user"
     assert active.message_history[-1]["role"] == "assistant"
     assert active.runtime_context["sticky_runtime"]["container_id"]
+
+
+class _TokenCapturingChatAgent(DeterministicExtractionChatAgent):
+    def __init__(self) -> None:
+        self.last_workload_token: str | None = None
+
+    async def stream_turn(self, **kwargs):
+        self.last_workload_token = kwargs.get("workload_token")
+        async for event in super().stream_turn(**kwargs):
+            yield event
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    sticky = InMemoryStickySessionRuntimeManager()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    runtime_service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(IngestionReadinessSnapshot(1, 1)),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    chat_agent = _TokenCapturingChatAgent()
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=chat_agent,
+        credential_issuer=ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=5)),
+    )
+
+    events = [
+        event
+        async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            message="Design entity types",
+        )
+    ]
+
+    assert events[-1]["ok"] is True
+    assert chat_agent.last_workload_token
 
 
 @pytest.mark.asyncio

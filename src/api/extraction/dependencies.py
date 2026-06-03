@@ -127,4 +127,5 @@ def get_extraction_chat_turn_service(
         session_service=session_service,
         runtime_service=runtime_service,
         chat_agent=create_extraction_chat_agent(runtime_settings),
+        credential_issuer=get_workload_credential_issuer(),
     )

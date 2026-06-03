@@ -295,8 +295,8 @@ async function loadKnowledgeGraph() {
   }
 }
 
-async function loadDataSources(options: { silent?: boolean } = {}) {
-  if (!hasTenant.value) return
+async function loadDataSources(options: { silent?: boolean } = {}): Promise<boolean> {
+  if (!hasTenant.value) return true
   const silent = options.silent ?? dataSources.value.length > 0
   if (silent) {
     refreshing.value = true
@@ -324,16 +324,25 @@ async function loadDataSources(options: { silent?: boolean } = {}) {
       }
     }
     dataSources.value = sources
+    return true
   } catch {
     if (!silent) {
       dataSources.value = []
     }
+    return false
   } finally {
     if (silent) {
       refreshing.value = false
     } else {
       loading.value = false
     }
+  }
+}
+
+async function refreshDataSources() {
+  const ok = await loadDataSources({ silent: true })
+  if (!ok) {
+    toast.error('Failed to refresh data sources')
   }
 }
 
@@ -652,6 +661,16 @@ watch(tenantVersion, async () => {
                 </CardTitle>
               </div>
               <div class="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="refreshing || checkingAllCommits || preparingAll"
+                  @click="refreshDataSources"
+                >
+                  <Loader2 v-if="refreshing" class="mr-2 size-4 animate-spin" />
+                  <RefreshCw v-else class="mr-2 size-4" />
+                  Refresh data
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"

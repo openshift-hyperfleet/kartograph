@@ -23,6 +23,14 @@ from extraction.ports.sticky_runtime_health import IStickyRuntimeHealthChecker
 from extraction.ports.sticky_session_bootstrap import IStickySessionBootstrapBuilder
 from shared_kernel.container_runtime.ports import ContainerRuntimeError
 
+from extraction.application.thinking_activity import thinking_event
+
+NDJSON_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
 
 class StickySessionRuntimeService:
     """Starts sticky containers and streams transparent readiness progress."""
@@ -146,10 +154,9 @@ class StickySessionRuntimeService:
         persist_session: bool,
         emit_terminal: bool,
     ) -> AsyncIterator[dict[str, Any]]:
-        yield {
-            "type": "thinking",
-            "recent": ["Preparing Graph Management Assistant runtime…"],
-        }
+        recent: list[str] = []
+        recent, event = thinking_event(recent, "Preparing Graph Management Assistant runtime…")
+        yield event
 
         resolved_skills = await self._skill_resolution_service.resolve_for_graph_management_turn(
             knowledge_graph_id=knowledge_graph_id,
@@ -184,10 +191,10 @@ class StickySessionRuntimeService:
             if persist_session:
                 await self._session_service.save_session(session)
             yield {"type": "wait", "phase": gate.phase.value, "message": wait_message}
-            yield {
-                "type": "thinking",
-                "recent": ["Waiting for JobPackage ingestion context…", wait_message],
-            }
+            recent, event = thinking_event(recent, "Waiting for JobPackage ingestion context…")
+            yield event
+            recent, event = thinking_event(recent, wait_message)
+            yield event
             if emit_terminal:
                 yield {
                     "type": "done",
@@ -210,21 +217,17 @@ class StickySessionRuntimeService:
             session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
             if persist_session:
                 await self._session_service.save_session(session)
-            yield {
-                "type": "thinking",
-                "recent": ["In-memory assistant runtime ready"],
-            }
+            recent, event = thinking_event(recent, "In-memory assistant runtime ready")
+            yield event
             yield {"type": "ready", "runtime_base_url": lease.runtime_base_url}
             yield {"type": "done", "ok": True, "ready": True}
             return
 
-        yield {
-            "type": "thinking",
-            "recent": [
-                "Preparing Graph Management Assistant runtime…",
-                "Materializing workspace and skills for sticky container",
-            ],
-        }
+        recent, event = thinking_event(
+            recent,
+            "Materializing workspace and skills for sticky container",
+        )
+        yield event
         include_job_packages = should_materialize_job_packages(
             readiness=readiness,
             gate=gate,
@@ -242,13 +245,8 @@ class StickySessionRuntimeService:
         session.runtime_context["workspace_materialization"] = {
             "job_package_ids": list(package_ids),
         }
-        yield {
-            "type": "thinking",
-            "recent": [
-                "Materializing workspace and skills for sticky container",
-                "Starting isolated Claude Agent SDK container",
-            ],
-        }
+        recent, event = thinking_event(recent, "Starting isolated Claude Agent SDK container")
+        yield event
         lease: StickySessionRuntimeLease
         try:
             lease = await asyncio.to_thread(
@@ -278,13 +276,11 @@ class StickySessionRuntimeService:
             return
 
         session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="starting")
-        yield {
-            "type": "thinking",
-            "recent": [
-                "Starting isolated Claude Agent SDK container",
-                f"Container {lease.container_id[:8]} launched",
-            ],
-        }
+        recent, event = thinking_event(
+            recent,
+            f"Container {lease.container_id[:8]} launched",
+        )
+        yield event
 
         runtime_base_url = lease.runtime_base_url or ""
         try:
@@ -292,7 +288,8 @@ class StickySessionRuntimeService:
                 runtime_base_url=runtime_base_url,
                 timeout_seconds=self._sticky_health_timeout_seconds,
             ):
-                yield {"type": "thinking", "recent": [line]}
+                recent, event = thinking_event(recent, line)
+                yield event
         except TimeoutError as exc:
             session.runtime_context["sticky_runtime"]["phase"] = "unhealthy"
             session.runtime_context["sticky_runtime"]["status"] = "unhealthy"

@@ -76,6 +76,7 @@ def create_sticky_session_runtime_manager(
         gcloud_config_container_path=resolved.gcloud_config_container_path,
         container_run_uid=resolved.container_run_uid,
         container_run_gid=resolved.container_run_gid,
+        agent_turn_timeout_seconds=resolved.sticky_turn_timeout_seconds,
     )
 
 

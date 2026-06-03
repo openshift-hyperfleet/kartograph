@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Bot, Loader2, RefreshCw, RotateCcw, Send, Sparkles, User } from 'lucide-vue-next'
+import {
+  normalizeThinkingActivityLines,
+  THINKING_DISPLAY_LINE_COUNT,
+} from '@/utils/thinkingActivityLines'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
@@ -91,11 +95,9 @@ const runtimeActivityTitle = computed(() =>
     : 'Thinking...',
 )
 
-const thinkingDisplayLines = computed(() => {
-  const src = props.activityLines.filter(Boolean)
-  if (src.length === 0) return ['']
-  return src
-})
+const thinkingDisplayLines = computed(() =>
+  normalizeThinkingActivityLines(props.activityLines, THINKING_DISPLAY_LINE_COUNT),
+)
 
 function isUserRole(role: string | undefined): boolean {
   return role === 'user' || role === 'human'
@@ -170,11 +172,12 @@ function sendDraftMessage() {
 }
 
 watch(
-  () => [messageHistory.value.length, props.activityLines.length, props.sending],
+  () => [messageHistory.value.length, props.activityLines, props.sending],
   async () => {
     await nextTick()
     scrollToBottom()
   },
+  { deep: true },
 )
 
 watch(

@@ -64,6 +64,7 @@ async def stream_turn(request: TurnRequest) -> StreamingResponse:
                 ui_mode=request.ui_mode,
                 agent_configuration=request.agent_configuration,
                 message_history=request.message_history,
+                turn_timeout_seconds=settings.turn_timeout_seconds,
             ):
                 if event.get("type") == "done":
                     logger.info(
@@ -91,4 +92,12 @@ async def stream_turn(request: TurnRequest) -> StreamingResponse:
                 + "\n"
             )
 
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

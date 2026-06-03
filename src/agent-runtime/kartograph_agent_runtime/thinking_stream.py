@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-_MAX_THINKING_LINES = 8
+# Rolling window surfaced to the Graph Management Assistant UI (last N thoughts).
+_MAX_THINKING_LINES = 3
 
 
 def normalize_activity_line(text: str) -> str:
@@ -170,6 +171,5 @@ def initial_sdk_thinking_lines(*, auth_mode: str, ui_mode: str) -> list[str]:
     return [
         f"Claude Agent SDK query started ({auth_mode})…",
         f"Mode overlay: {ui_mode}",
-        "Tools: Read, Grep, Glob on workspace repository-files",
         "Connected — working on your message…",
     ]

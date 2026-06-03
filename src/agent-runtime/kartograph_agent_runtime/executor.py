@@ -10,12 +10,14 @@ from typing import Any
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
 from kartograph_agent_runtime.thinking_stream import (
     initial_sdk_thinking_lines,
+    push_thinking,
     thinking_events_from_sdk_message,
 )
 from kartograph_agent_runtime.tools import RuntimeTooling
 from kartograph_agent_runtime.vertex import build_claude_agent_env
 
-_DEFAULT_TURN_TIMEOUT_SECONDS = 180.0
+_DEFAULT_TURN_TIMEOUT_SECONDS = 600.0
+_SDK_HEARTBEAT_SECONDS = 8.0
 
 
 def _build_system_prompt(
@@ -159,6 +161,43 @@ def _build_sdk_env(settings: AgentRuntimeSettings) -> dict[str, str]:
     return env
 
 
+def _timeout_error_message(
+    *,
+    settings: AgentRuntimeSettings,
+    auth_mode: str,
+    turn_timeout_seconds: float,
+) -> str:
+    parts = [
+        f"Claude Agent SDK did not complete within {int(turn_timeout_seconds)}s.",
+    ]
+    if auth_mode == "Vertex AI":
+        creds_path = settings.google_application_credentials.strip()
+        creds_present = bool(creds_path)
+        parts.append(
+            "Vertex AI "
+            f"project={settings.vertex_project_id.strip() or '(missing)'}, "
+            f"region={settings.vertex_region.strip() or '(missing)'}, "
+            f"ADC={'configured' if creds_present else 'missing'}."
+        )
+        if creds_present:
+            from pathlib import Path
+
+            creds_readable = Path(creds_path).is_file()
+            parts.append(
+                f"Credentials file {'readable' if creds_readable else 'not found'} at {creds_path}."
+            )
+    else:
+        parts.append(
+            "Direct Anthropic API "
+            f"{'configured' if settings.anthropic_api_key.strip() else 'missing ANTHROPIC_API_KEY'}."
+        )
+    parts.append(
+        "The model may still be running in the container — check sticky container logs "
+        "for Vertex auth or quota errors."
+    )
+    return " ".join(parts)
+
+
 async def stream_turn_events(
     *,
     settings: AgentRuntimeSettings,
@@ -175,7 +214,6 @@ async def stream_turn_events(
             "Starting Claude Agent SDK runtime…",
             f"Model backend: {auth_mode}",
             f"Applying {ui_mode} skill overlay",
-            f"Workspace mounted at {settings.workspace_dir}",
         ],
     }
 
@@ -256,9 +294,28 @@ async def _stream_with_claude_sdk(
     reply: str | None = None
     reply_parts: list[str] = []
     last_compose_at = 0
+    elapsed_seconds = 0
     try:
         async with asyncio.timeout(turn_timeout_seconds):
-            async for sdk_message in query(prompt=prompt, options=options):
+            sdk_iter = query(prompt=prompt, options=options).__aiter__()
+            while True:
+                try:
+                    sdk_message = await asyncio.wait_for(
+                        sdk_iter.__anext__(),
+                        timeout=_SDK_HEARTBEAT_SECONDS,
+                    )
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    elapsed_seconds += int(_SDK_HEARTBEAT_SECONDS)
+                    heartbeat = push_thinking(
+                        recent,
+                        f"Waiting for model response… ({elapsed_seconds}s)",
+                    )
+                    if heartbeat:
+                        yield heartbeat
+                    continue
+
                 thinking_events, last_compose_at = thinking_events_from_sdk_message(
                     sdk_message,
                     recent=recent,
@@ -279,9 +336,10 @@ async def _stream_with_claude_sdk(
             "ok": False,
             "error": {
                 "code": "AGENT_TURN_TIMEOUT",
-                "message": (
-                    f"Claude Agent SDK did not complete within {int(turn_timeout_seconds)}s. "
-                    "Check Vertex credentials and model access for this project."
+                "message": _timeout_error_message(
+                    settings=settings,
+                    auth_mode=auth_mode,
+                    turn_timeout_seconds=turn_timeout_seconds,
                 ),
             },
         }

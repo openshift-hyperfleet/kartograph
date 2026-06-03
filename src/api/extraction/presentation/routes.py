@@ -38,6 +38,12 @@ from shared_kernel.authorization.types import (
 
 router = APIRouter(tags=["extraction-sessions"])
 
+NDJSON_STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
 
 async def _assert_kg_edit_permission(
     *,
@@ -192,7 +198,11 @@ async def stream_runtime_warmup(
         ):
             yield json.dumps(event) + "\n"
 
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers=NDJSON_STREAM_HEADERS,
+    )
 
 
 @router.post(
@@ -223,7 +233,11 @@ async def stream_chat_turn(
         ):
             yield json.dumps(event) + "\n"
 
-    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers=NDJSON_STREAM_HEADERS,
+    )
 
 
 @router.post(

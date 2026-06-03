@@ -49,14 +49,9 @@ def test_initial_sdk_thinking_lines_include_connected_message() -> None:
 
 def test_push_thinking_deduplicates_and_caps_recent_lines() -> None:
     recent: list[str] = []
-    first = push_thinking(recent, "Reading schema.yaml")
-    second = push_thinking(recent, "Reading schema.yaml")
-    third = push_thinking(recent, "Running Grep…")
-
-    assert first is not None
-    assert second is None
-    assert third is not None
-    assert recent[-1] == "Running Grep…"
+    for index in range(5):
+        push_thinking(recent, f"line-{index}")
+    assert recent == ["line-2", "line-3", "line-4"]
 
 
 def test_thinking_events_from_assistant_message_tool_and_reasoning_blocks() -> None:

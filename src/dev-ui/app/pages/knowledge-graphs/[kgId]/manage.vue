@@ -97,6 +97,7 @@ import {
   type MutationLogRunRecord,
 } from '@/utils/kgMutationLogs'
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
+import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
 import { useGraphApi } from '@/composables/api/useGraphApi'
 
 const runtimeConfig = useRuntimeConfig()
@@ -937,13 +938,20 @@ function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
   handleActivatableKeydown(event, () => selectMutationLogRun(runId))
 }
 
+function applySessionThinkingRecent(recent: string[]) {
+  sessionActivityLines.value = applyThinkingRecentUpdate(sessionActivityLines.value, recent)
+}
+
 function syncActivityLinesFromSession() {
   if (runtimeWarming.value || showRuntimeWarmupProgress.value) return
   const context = extractionSession.value?.runtime_context ?? {}
   const candidate = context.activity_lines ?? context.ndjson_activity_lines ?? context.thinking_lines
   if (Array.isArray(candidate)) {
-    sessionActivityLines.value = candidate.filter(
-      (line): line is string => typeof line === 'string' && line.trim().length > 0,
+    sessionActivityLines.value = applyThinkingRecentUpdate(
+      [],
+      candidate.filter(
+        (line): line is string => typeof line === 'string' && line.trim().length > 0,
+      ),
     )
   } else if (!runtimeWarming.value) {
     sessionActivityLines.value = []
@@ -974,16 +982,13 @@ async function warmupAssistantRuntime() {
     })) {
       if (generation !== runtimeWarmupGeneration) return
       if (event.type === 'thinking' && Array.isArray(event.recent)) {
-        const recent = event.recent.filter(Boolean)
-        sessionActivityLines.value = recent.length > 0
-          ? recent
-          : sessionActivityLines.value
+        applySessionThinkingRecent(event.recent)
       }
       if (event.type === 'wait' && event.message) {
-        sessionActivityLines.value = [event.message]
+        applySessionThinkingRecent([event.message])
       }
       if (event.type === 'ready') {
-        sessionActivityLines.value = ['Assistant container ready']
+        applySessionThinkingRecent(['Assistant container ready'])
       }
       if (event.type === 'done') {
         if (event.ok !== true) {
@@ -1041,6 +1046,7 @@ async function sendChatMessage(message: string) {
     updated_at: new Date().toISOString(),
   }
 
+  let chatSucceeded = false
   try {
     for await (const event of streamExtractionChatTurn({
       apiBaseUrl: String(runtimeConfig.public.apiBaseUrl ?? ''),
@@ -1052,29 +1058,32 @@ async function sendChatMessage(message: string) {
       message: trimmed,
     })) {
       if (event.type === 'thinking' && Array.isArray(event.recent)) {
-        const recent = event.recent.filter(Boolean)
-        sessionActivityLines.value = recent.length > 0
-          ? recent
-          : sessionActivityLines.value
+        applySessionThinkingRecent(event.recent)
       }
       if (event.type === 'wait') {
-        sessionActivityLines.value = event.message
-          ? [event.message]
-          : ['Waiting for JobPackage ingestion context…']
+        sessionActivityLines.value = applyThinkingRecentUpdate(
+          [],
+          event.message ? [event.message] : ['Waiting for JobPackage ingestion context…'],
+        )
       }
       if (event.type === 'done' && event.ok !== true) {
         throw new Error(event.error?.message ?? 'Graph Management Assistant returned an error.')
       }
     }
+    chatSucceeded = true
     await loadExtractionSession()
   } catch (err) {
+    const message = extractErrorMessage(err)
+    applySessionThinkingRecent([`Error: ${message}`])
     toast.error('Failed to send message', {
-      description: extractErrorMessage(err),
+      description: message,
     })
     await loadExtractionSession()
   } finally {
     sendingChat.value = false
-    syncActivityLinesFromSession()
+    if (chatSucceeded) {
+      syncActivityLinesFromSession()
+    }
   }
 }
 

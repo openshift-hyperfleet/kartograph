@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
     EphemeralWorkerLaunchResult,
@@ -130,56 +131,6 @@ class InMemoryStickySessionRuntimeManager(IStickySessionRuntimeManager):
             )
             is not None
         )
-
-
-class ScopedWorkloadCredentialIssuer:
-    """Issues short-lived tenant/KG scoped credentials for extraction workloads."""
-
-    def __init__(self, *, default_ttl: timedelta = timedelta(minutes=15)) -> None:
-        self._default_ttl = default_ttl
-        self._issued: dict[str, ScopedWorkloadCredentials] = {}
-
-    def issue(
-        self,
-        *,
-        tenant_id: str,
-        knowledge_graph_id: str,
-        extra_scopes: tuple[str, ...] = (),
-    ) -> ScopedWorkloadCredentials:
-        now = datetime.now(UTC)
-        scopes = (
-            f"tenant:{tenant_id}",
-            f"knowledge_graph:{knowledge_graph_id}",
-            "workload:extraction",
-            *extra_scopes,
-        )
-        credentials = ScopedWorkloadCredentials(
-            token=str(ULID()),
-            expires_at=now + self._default_ttl,
-            scopes=scopes,
-        )
-        self._issued[credentials.token] = credentials
-        return credentials
-
-    def issue_for_sticky_session(
-        self, *, tenant_id: str, knowledge_graph_id: str
-    ) -> ScopedWorkloadCredentials:
-        """Issue chat-scoped credentials for sticky session agent containers."""
-        return self.issue(
-            tenant_id=tenant_id,
-            knowledge_graph_id=knowledge_graph_id,
-            extra_scopes=("workload:chat",),
-        )
-
-    def verify(self, token: str) -> ScopedWorkloadCredentials | None:
-        """Return credentials when token is known and not expired."""
-        credentials = self._issued.get(token)
-        if credentials is None:
-            return None
-        if credentials.expires_at <= datetime.now(UTC):
-            self._issued.pop(token, None)
-            return None
-        return credentials
 
 
 class InMemoryEphemeralExtractionWorkerLauncher(IEphemeralExtractionWorkerLauncher):

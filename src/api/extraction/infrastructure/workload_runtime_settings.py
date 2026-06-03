@@ -42,6 +42,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     job_package_work_dir: str = Field(default="/tmp/kartograph/job_packages")
     skills_dir: str = Field(default="/app/skills")
     api_base_url: str = Field(default="http://api:8000")
+    workload_token_signing_key: str = Field(
+        default="",
+        description=(
+            "HMAC secret for signing extraction workload JWTs. Must be stable across "
+            "API reloads so sticky containers can authenticate after hot reload."
+        ),
+    )
     sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
     sticky_turn_timeout_seconds: float = Field(default=600.0, ge=30.0, le=900.0)
     sticky_max_turns: int = Field(default=500, ge=1, le=1000)

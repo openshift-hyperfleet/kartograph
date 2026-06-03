@@ -13,10 +13,13 @@ from extraction.infrastructure.deterministic_chat_agent import DeterministicExtr
 from extraction.infrastructure.remote_sticky_container_chat_agent import (
     RemoteStickyContainerChatAgent,
 )
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+    ScopedWorkloadCredentialIssuer,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     InMemoryStickySessionRuntimeManager,
-    ScopedWorkloadCredentialIssuer,
 )
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
@@ -30,12 +33,24 @@ from extraction.ports.runtime import (
 from shared_kernel.container_runtime.factory import create_container_runtime
 
 
+def resolve_workload_token_signing_key(
+    settings: ExtractionWorkloadRuntimeSettings | None = None,
+) -> str:
+    """Return the HMAC key used to sign and verify workload JWTs."""
+    resolved = settings or get_extraction_workload_runtime_settings()
+    configured = resolved.workload_token_signing_key.strip()
+    if configured:
+        return configured
+    return DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+
+
 @lru_cache
 def get_workload_credential_issuer() -> ScopedWorkloadCredentialIssuer:
     """Return shared workload credential issuer for runtime containers."""
     settings = get_extraction_workload_runtime_settings()
     return ScopedWorkloadCredentialIssuer(
-        default_ttl=timedelta(minutes=settings.session_ttl_minutes)
+        signing_key=resolve_workload_token_signing_key(settings),
+        default_ttl=timedelta(minutes=settings.session_ttl_minutes),
     )
 
 

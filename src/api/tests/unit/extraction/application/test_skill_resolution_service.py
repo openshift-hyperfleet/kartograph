@@ -35,6 +35,11 @@ class TestExtractionSkillResolutionService:
         )
 
         assert "schema_modeling" in resolved.skills
+        assert "entity_type_authoring" in resolved.skills
+        assert "relationship_type_authoring" in resolved.skills
+        assert "instance_authoring" in resolved.skills
+        assert "schema_tools" in resolved.skills
+        assert "kartograph_get_schema_ontology" in resolved.skills["schema_tools"]
         assert "prepopulation_validation" in resolved.skills
         assert "capabilities_intake" in resolved.skills
         assert "goal" in resolved.system_prompt.lower()

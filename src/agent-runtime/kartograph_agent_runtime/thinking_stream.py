@@ -82,6 +82,9 @@ def _tool_use_line(name: str, tool_input: dict[str, Any]) -> str:
     if name == "Bash":
         command = tool_input.get("command") or ""
         return f"Running {command}" if command else "Running shell command…"
+    if name.startswith("kartograph_"):
+        readable = name.removeprefix("kartograph_").replace("_", " ")
+        return f"Schema tool · {readable}"
     return f"Running {name}…"
 
 
@@ -332,5 +335,5 @@ def initial_sdk_thinking_lines(*, auth_mode: str, ui_mode: str) -> list[str]:
     return [
         f"Claude Agent SDK query started ({auth_mode})…",
         f"Mode overlay: {ui_mode}",
-        "Connected — working on your message…",
+        "Schema tools: ontology read/save, JSONL mutations, graph search",
     ]

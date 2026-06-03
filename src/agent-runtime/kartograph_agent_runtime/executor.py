@@ -362,6 +362,18 @@ async def _stream_with_claude_sdk(
 
     sdk_env = _build_sdk_env(settings)
     workspace_dir = settings.workspace_dir.strip() or "/workspace"
+    tooling = RuntimeTooling(settings=settings)
+    options_kwargs: dict[str, Any] = {}
+    if settings.workload_token.strip():
+        from kartograph_agent_runtime.schema_tools import (
+            KARTOGRAPH_SCHEMA_TOOL_NAMES,
+            build_kartograph_schema_mcp_server,
+        )
+
+        options_kwargs["mcp_servers"] = {
+            "kartograph": build_kartograph_schema_mcp_server(tooling),
+        }
+        options_kwargs["allowed_tools"] = list(KARTOGRAPH_SCHEMA_TOOL_NAMES)
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         env=sdk_env,
@@ -370,6 +382,7 @@ async def _stream_with_claude_sdk(
         setting_sources=[],
         cwd=workspace_dir,
         add_dirs=[workspace_dir],
+        **options_kwargs,
     )
 
     reply: str | None = None

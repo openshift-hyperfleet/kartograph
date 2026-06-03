@@ -50,7 +50,7 @@ def test_initial_sdk_thinking_lines_include_connected_message() -> None:
     lines = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
 
     assert any("Claude Agent SDK query started" in line for line in lines)
-    assert any("Connected" in line for line in lines)
+    assert any("Schema tools" in line for line in lines)
 
 
 def test_agent_runtime_settings_default_max_turns() -> None:

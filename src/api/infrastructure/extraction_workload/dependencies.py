@@ -10,10 +10,15 @@ from fastapi import Depends
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
 from extraction.ports.workload_graph import IWorkloadGraphReader
+from extraction.ports.workload_schema import IWorkloadSchemaService
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.extraction_workload.graph_reader import GraphWorkloadGraphReader
+from infrastructure.extraction_workload.schema_service import GraphWorkloadSchemaService
 from infrastructure.settings import get_database_settings
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.database.dependencies import get_write_session
 
 
 @lru_cache
@@ -29,3 +34,9 @@ def get_workload_graph_reader(
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
 ) -> IWorkloadGraphReader:
     return GraphWorkloadGraphReader(pool=pool, settings=get_database_settings())
+
+
+def get_workload_schema_service(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> IWorkloadSchemaService:
+    return GraphWorkloadSchemaService(session=session)

@@ -113,6 +113,9 @@ class WorkspaceReadinessResponse(BaseModel):
     has_minimum_relationship_types: bool
     prepopulated_types_ready: bool
     prepopulated_types_without_instances: list[str] = Field(default_factory=list)
+    prepopulated_relationship_types_without_instances: list[str] = Field(
+        default_factory=list
+    )
     blocking_reasons: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -123,6 +126,9 @@ class WorkspaceReadinessResponse(BaseModel):
             prepopulated_types_ready=readiness.prepopulated_types_ready,
             prepopulated_types_without_instances=list(
                 readiness.prepopulated_types_without_instances
+            ),
+            prepopulated_relationship_types_without_instances=list(
+                readiness.prepopulated_relationship_types_without_instances
             ),
             blocking_reasons=list(readiness.blocking_reasons),
         )
@@ -307,6 +313,18 @@ class EdgeTypeDefinitionModel(BaseModel):
         default_factory=list,
         description="Properties this edge type may carry",
     )
+    prepopulated: bool = Field(
+        default=False,
+        description=(
+            "Whether this relationship type must have instances before transition; "
+            "requires all source and target entity types to be prepopulated"
+        ),
+    )
+    prepopulated_instance_count: int = Field(
+        default=0,
+        ge=0,
+        description="Current known instance count used for readiness evaluation",
+    )
 
     def to_domain(self) -> EdgeTypeDefinition:
         """Convert to domain EdgeTypeDefinition value object."""
@@ -316,6 +334,8 @@ class EdgeTypeDefinitionModel(BaseModel):
             source_labels=tuple(self.source_labels),
             target_labels=tuple(self.target_labels),
             properties=tuple(self.properties),
+            prepopulated=self.prepopulated,
+            prepopulated_instance_count=self.prepopulated_instance_count,
         )
 
     @classmethod
@@ -327,6 +347,8 @@ class EdgeTypeDefinitionModel(BaseModel):
             source_labels=list(et.source_labels),
             target_labels=list(et.target_labels),
             properties=list(et.properties),
+            prepopulated=et.prepopulated,
+            prepopulated_instance_count=et.prepopulated_instance_count,
         )
 
 

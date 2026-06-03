@@ -37,15 +37,20 @@ Each entry in `edge_types`:
 
 ```json
 {
-  "label": "depends_on",
-  "description": "Service dependency",
-  "source_labels": ["service"],
-  "target_labels": ["service"],
-  "properties": []
+  "label": "contains",
+  "description": "Test exercises an API endpoint",
+  "source_labels": ["test"],
+  "target_labels": ["api_endpoint"],
+  "properties": [],
+  "prepopulated": true,
+  "prepopulated_instance_count": 0
 }
 ```
 
 - `source_labels` / `target_labels`: allowed node type labels for edge endpoints.
+- `prepopulated`: when true, bootstrap transition requires at least one instance of this
+  relationship type. Every listed source and target entity type must also have
+  `prepopulated: true`.
 
 ## Instance mutations (JSONL)
 
@@ -80,6 +85,10 @@ Rules:
 Bootstrap transition needs:
 - At least one entity type and one relationship type.
 - Every `prepopulated=true` entity type must have instances (use CREATE lines).
+- Every `prepopulated=true` relationship type must have instances (use CREATE edge lines).
+- A prepopulated relationship type may only reference entity types that are also
+  prepopulated (for example `contains` from `test` to `api_endpoint` when both are
+  prepopulated).
 
 ## Repository context
 

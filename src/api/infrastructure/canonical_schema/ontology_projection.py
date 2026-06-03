@@ -41,6 +41,10 @@ def stored_definitions_to_ontology_config(
                     source_labels=tuple(stored.metadata.get("source_labels", [])),
                     target_labels=tuple(stored.metadata.get("target_labels", [])),
                     properties=tuple(stored.metadata.get("properties", [])),
+                    prepopulated=bool(stored.metadata.get("prepopulated", False)),
+                    prepopulated_instance_count=int(
+                        stored.metadata.get("prepopulated_instance_count", 0)
+                    ),
                 )
             )
 

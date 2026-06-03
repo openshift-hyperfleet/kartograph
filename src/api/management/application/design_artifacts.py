@@ -164,7 +164,7 @@ def build_design_artifacts(
                     "relationship_type": edge_type.label,
                     "reverse_relationship_type": None,
                     "reverse_relationship_description": None,
-                    "prepopulated_instances": False,
+                    "prepopulated_instances": edge_type.prepopulated,
                     "description": edge_type.description or None,
                     "instance_count": len(type_instances),
                     "instances": type_instances,

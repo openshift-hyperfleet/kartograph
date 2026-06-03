@@ -12,6 +12,7 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.dependencies.knowledge_graph import get_knowledge_graph_service
+from management.domain.ontology_prepopulation import PrepopulationValidationError
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -723,6 +724,11 @@ async def save_knowledge_graph_ontology(
     except KnowledgeGraphNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PrepopulationValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
     except HTTPException:

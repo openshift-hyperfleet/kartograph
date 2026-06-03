@@ -53,4 +53,6 @@ def edge_type_metadata(edge_type) -> dict:
         "source_labels": list(edge_type.source_labels),
         "target_labels": list(edge_type.target_labels),
         "properties": list(edge_type.properties),
+        "prepopulated": edge_type.prepopulated,
+        "prepopulated_instance_count": edge_type.prepopulated_instance_count,
     }

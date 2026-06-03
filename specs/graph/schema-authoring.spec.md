@@ -39,15 +39,32 @@ The system SHALL allow schema updates during `extraction_operations` mode.
 - AND extraction operations continue using the updated schema
 
 ### Requirement: Prepopulated Type Semantics
-The system SHALL enforce `prepopulated=true` as a transition-blocking readiness constraint.
+The system SHALL enforce `prepopulated=true` as a transition-blocking readiness constraint for entity and relationship types.
 
-#### Scenario: Prepopulated type with instances
-- GIVEN a type marked `prepopulated=true`
+#### Scenario: Prepopulated entity type with instances
+- GIVEN an entity type marked `prepopulated=true`
 - WHEN readiness is evaluated
 - THEN the type passes only if it has one or more instances
 
-#### Scenario: Prepopulated type without instances
-- GIVEN a type marked `prepopulated=true` with zero instances
+#### Scenario: Prepopulated entity type without instances
+- GIVEN an entity type marked `prepopulated=true` with zero instances
+- WHEN readiness is evaluated
+- THEN validation fails and transition to extraction mode is blocked
+
+#### Scenario: Prepopulated relationship type with prepopulated endpoints
+- GIVEN a relationship type marked `prepopulated=true`
+- AND every listed source and target entity type is marked `prepopulated=true`
+- WHEN the ontology is saved
+- THEN the save succeeds
+
+#### Scenario: Prepopulated relationship type without prepopulated endpoints
+- GIVEN a relationship type marked `prepopulated=true`
+- AND at least one source or target entity type is not marked `prepopulated=true`
+- WHEN the ontology is saved
+- THEN validation fails with a clear error
+
+#### Scenario: Prepopulated relationship type without instances
+- GIVEN a relationship type marked `prepopulated=true` with zero instances
 - WHEN readiness is evaluated
 - THEN validation fails and transition to extraction mode is blocked
 

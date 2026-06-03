@@ -23,6 +23,7 @@ from infrastructure.canonical_schema.ontology_mutation_builder import (
 from infrastructure.canonical_schema.ontology_projection import (
     stored_definitions_to_ontology_config,
 )
+from management.domain.ontology_prepopulation import validate_ontology_prepopulation
 from management.domain.value_objects import OntologyConfig
 from management.ports.canonical_schema import ICanonicalSchemaRepository
 from management.ports.exceptions import CanonicalSchemaMutationError
@@ -48,6 +49,7 @@ class GraphCanonicalSchemaRepository(ICanonicalSchemaRepository):
         return stored_definitions_to_ontology_config(rows)
 
     async def replace_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        validate_ontology_prepopulation(config)
         await self._store.delete_all_for_kg(kg_id)
         await self._apply_operations(
             kg_id, ontology_config_to_define_operations(config), config

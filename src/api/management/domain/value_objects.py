@@ -109,6 +109,9 @@ class WorkspaceReadinessStatus:
     has_minimum_relationship_types: bool
     prepopulated_types_ready: bool
     prepopulated_types_without_instances: tuple[str, ...] = field(default_factory=tuple)
+    prepopulated_relationship_types_without_instances: tuple[str, ...] = field(
+        default_factory=tuple
+    )
     blocking_reasons: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -119,6 +122,7 @@ class WorkspaceReadinessStatus:
             and self.has_minimum_relationship_types
             and self.prepopulated_types_ready
             and not self.prepopulated_types_without_instances
+            and not self.prepopulated_relationship_types_without_instances
         )
 
 
@@ -459,11 +463,15 @@ class EdgeTypeDefinition:
     source_labels: tuple[str, ...] = field(default_factory=tuple)
     target_labels: tuple[str, ...] = field(default_factory=tuple)
     properties: tuple[str, ...] = field(default_factory=tuple)
+    prepopulated: bool = False
+    prepopulated_instance_count: int = 0
 
     def __post_init__(self) -> None:
         """Validate that label is non-empty."""
         if not self.label or not self.label.strip():
             raise ValueError("EdgeTypeDefinition label must not be empty")
+        if self.prepopulated_instance_count < 0:
+            raise ValueError("prepopulated_instance_count must be >= 0")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON persistence."""
@@ -473,6 +481,8 @@ class EdgeTypeDefinition:
             "source_labels": list(self.source_labels),
             "target_labels": list(self.target_labels),
             "properties": list(self.properties),
+            "prepopulated": self.prepopulated,
+            "prepopulated_instance_count": self.prepopulated_instance_count,
         }
 
     @classmethod
@@ -484,6 +494,8 @@ class EdgeTypeDefinition:
             source_labels=tuple(data.get("source_labels", [])),
             target_labels=tuple(data.get("target_labels", [])),
             properties=tuple(data.get("properties", [])),
+            prepopulated=bool(data.get("prepopulated", False)),
+            prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
         )
 
 

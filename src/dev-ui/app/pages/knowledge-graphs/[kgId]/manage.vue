@@ -111,6 +111,7 @@ interface WorkspaceReadinessStatus {
   has_minimum_relationship_types: boolean
   prepopulated_types_ready: boolean
   prepopulated_types_without_instances: string[]
+  prepopulated_relationship_types_without_instances: string[]
   blocking_reasons: string[]
 }
 
@@ -368,7 +369,9 @@ const graphManagementRailItems = computed(() => {
     workspaceMode: statusProjection.value.workspace_mode,
     transitionEligible: statusProjection.value.transition_eligible,
     blockingReasonCount: statusProjection.value.readiness.blocking_reasons.length,
-    prepopulatedGapCount: statusProjection.value.readiness.prepopulated_types_without_instances.length,
+    prepopulatedGapCount:
+      statusProjection.value.readiness.prepopulated_types_without_instances.length
+      + statusProjection.value.readiness.prepopulated_relationship_types_without_instances.length,
     hasMinimumEntityTypes: statusProjection.value.readiness.has_minimum_entity_types,
     hasMinimumRelationshipTypes: statusProjection.value.readiness.has_minimum_relationship_types,
     sessionUpdatedAt: extractionSession.value?.updated_at ?? null,
@@ -1986,7 +1989,7 @@ watch(selectedOpsDataSourceId, () => {
                     class="rounded-lg border border-amber-400/60 bg-amber-50/60 p-3 text-xs dark:border-amber-800 dark:bg-amber-950/20"
                   >
                     <p class="font-medium text-amber-800 dark:text-amber-300">
-                      Prepopulated types missing instances
+                      Prepopulated entity types missing instances
                     </p>
                     <ul class="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
                       <li
@@ -1994,6 +1997,26 @@ watch(selectedOpsDataSourceId, () => {
                         :key="typeLabel"
                       >
                         {{ typeLabel }}
+                      </li>
+                    </ul>
+                  </div>
+                  <div
+                    v-if="
+                      statusProjection.readiness.prepopulated_relationship_types_without_instances
+                        .length > 0
+                    "
+                    class="rounded-lg border border-amber-400/60 bg-amber-50/60 p-3 text-xs dark:border-amber-800 dark:bg-amber-950/20"
+                  >
+                    <p class="font-medium text-amber-800 dark:text-amber-300">
+                      Prepopulated relationship types missing instances
+                    </p>
+                    <ul class="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                      <li
+                        v-for="relKey in statusProjection.readiness
+                          .prepopulated_relationship_types_without_instances"
+                        :key="relKey"
+                      >
+                        {{ relKey }}
                       </li>
                     </ul>
                   </div>
@@ -2012,7 +2035,12 @@ watch(selectedOpsDataSourceId, () => {
                     </ul>
                   </div>
                   <p
-                    v-else-if="statusProjection.readiness.prepopulated_types_without_instances.length === 0"
+                    v-else-if="
+                      statusProjection.readiness.prepopulated_types_without_instances.length === 0
+                        && statusProjection.readiness.prepopulated_relationship_types_without_instances
+                          .length === 0
+                        && statusProjection.readiness.blocking_reasons.length === 0
+                    "
                     class="text-xs text-muted-foreground"
                   >
                     No validation diagnostics are currently blocking transition.

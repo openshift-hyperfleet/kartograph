@@ -41,9 +41,14 @@ The system SHALL define schema bootstrap readiness checks for transition eligibi
 - THEN validation fails unless there is at least one entity type and at least one relationship type
 
 #### Scenario: Prepopulated instance readiness
-- GIVEN one or more types marked `prepopulated=true`
+- GIVEN one or more entity or relationship types marked `prepopulated=true`
 - WHEN readiness is evaluated
 - THEN validation fails if any such type has zero instances
+
+#### Scenario: Prepopulated relationship endpoint constraint
+- GIVEN a relationship type marked `prepopulated=true`
+- WHEN the ontology is saved
+- THEN every listed source and target entity type must also be marked `prepopulated=true`
 
 ### Requirement: Transition Authorization
 The system SHALL require `edit` permission on the knowledge graph for bootstrap validation and mode transition.

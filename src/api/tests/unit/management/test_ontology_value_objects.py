@@ -130,6 +130,8 @@ class TestEdgeTypeDefinition:
         assert et.source_labels == ()
         assert et.target_labels == ()
         assert et.properties == ()
+        assert et.prepopulated is False
+        assert et.prepopulated_instance_count == 0
 
     def test_source_labels_default_empty(self):
         """source_labels defaults to an empty tuple."""
@@ -191,6 +193,16 @@ class TestEdgeTypeDefinition:
         assert "source_labels" in d
         assert "target_labels" in d
         assert "properties" in d
+        assert "prepopulated" in d
+        assert "prepopulated_instance_count" in d
+
+    def test_prepopulated_instance_count_must_be_non_negative_for_edges(self) -> None:
+        with pytest.raises(ValueError, match="prepopulated_instance_count"):
+            EdgeTypeDefinition(
+                label="contains",
+                prepopulated=True,
+                prepopulated_instance_count=-1,
+            )
 
 
 class TestOntologyConfig:

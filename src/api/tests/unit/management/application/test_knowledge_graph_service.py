@@ -523,6 +523,43 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         assert result.transition_eligible is False
 
     @pytest.mark.asyncio
+    async def test_workspace_status_fails_for_prepopulated_relationship_without_instances(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        """Should block transition when prepopulated relationship has zero instances."""
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(label="test", prepopulated=True, prepopulated_instance_count=1),
+                NodeTypeDefinition(
+                    label="api_endpoint",
+                    prepopulated=True,
+                    prepopulated_instance_count=1,
+                ),
+            ),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="contains",
+                    source_labels=("test",),
+                    target_labels=("api_endpoint",),
+                    prepopulated=True,
+                    prepopulated_instance_count=0,
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.prepopulated_types_ready is False
+        assert result.readiness.prepopulated_relationship_types_without_instances == (
+            "test|contains|api_endpoint",
+        )
+        assert result.transition_eligible is False
+
+    @pytest.mark.asyncio
     async def test_workspace_status_fails_for_prepopulated_type_without_instances(
         self, service, authz, kg_repo, canonical_schema_repo, user_id
     ):

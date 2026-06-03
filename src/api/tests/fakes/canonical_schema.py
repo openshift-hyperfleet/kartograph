@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from management.domain.ontology_prepopulation import validate_ontology_prepopulation
 from management.domain.value_objects import OntologyConfig
 
 
@@ -17,6 +18,7 @@ class InMemoryCanonicalSchemaRepository:
         return self._store.get(kg_id)
 
     async def replace_ontology(self, kg_id: str, config: OntologyConfig) -> None:
+        validate_ontology_prepopulation(config)
         self.replaced.append((kg_id, config))
         self._store[kg_id] = config
 

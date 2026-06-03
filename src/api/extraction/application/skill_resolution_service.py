@@ -81,8 +81,9 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         ),
         "relationship_type_authoring": (
             "Create or edit relationship types by updating edge_types entries: label, "
-            "description, source_labels, target_labels, properties. Ensure endpoints "
-            "reference existing entity type labels."
+            "description, source_labels, target_labels, properties, optional prepopulated "
+            "and prepopulated_instance_count. When prepopulated is true, every source and "
+            "target entity type label must already be prepopulated on node_types."
         ),
         "instance_authoring": (
             "Create entity or relationship instances with kartograph_apply_graph_mutations "
@@ -90,8 +91,10 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "and source_path in set_properties. Use ids like label:16hex."
         ),
         "prepopulation_validation": (
-            "Prioritize prepopulated type coverage and highlight any missing "
-            "instances required before extraction-mode transition."
+            "Prioritize prepopulated entity and relationship type coverage. Entity types "
+            "and relationship types marked prepopulated must have instances before "
+            "extraction-mode transition. Relationship types may only be prepopulated when "
+            "their source and target entity types are prepopulated too."
         ),
         "schema_tools": (
             "Available MCP tools (call by exact name): kartograph_get_schema_authoring_guide, "

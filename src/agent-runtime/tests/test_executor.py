@@ -122,6 +122,17 @@ def test_finalize_sdk_turn_reply_uses_tool_only_completion_summary() -> None:
     assert "without a final written reply" in reply
 
 
+def test_finalize_sdk_turn_reply_returns_none_when_nothing_available() -> None:
+    reply = finalize_sdk_turn_reply(
+        reply=None,
+        reply_parts=[],
+        last_result=None,
+        notification_summaries=[],
+    )
+
+    assert reply is None
+
+
 @pytest.mark.asyncio
 async def test_stream_turn_events_without_api_key_returns_done_reply(
     monkeypatch: pytest.MonkeyPatch,

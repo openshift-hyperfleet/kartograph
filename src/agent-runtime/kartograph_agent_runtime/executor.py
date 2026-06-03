@@ -162,7 +162,7 @@ def finalize_sdk_turn_reply(
     reply_parts: list[str],
     last_result: Any | None,
     notification_summaries: list[str],
-) -> str:
+) -> str | None:
     """Build the best available assistant reply after an SDK turn completes."""
     if isinstance(reply, str) and reply.strip():
         return reply.strip()
@@ -188,10 +188,7 @@ def finalize_sdk_turn_reply(
             "to summarize what it changed."
         )
 
-    return (
-        "Claude Agent SDK completed without a textual response. "
-        "Retry with a more specific graph-management request."
-    )
+    return None
 
 
 def _build_sdk_env(settings: AgentRuntimeSettings) -> dict[str, str]:
@@ -442,4 +439,17 @@ async def _stream_with_claude_sdk(
         last_result=last_result,
         notification_summaries=notification_summaries,
     )
+    if not reply:
+        yield {
+            "type": "done",
+            "ok": False,
+            "error": {
+                "code": "AGENT_NO_TEXTUAL_REPLY",
+                "message": (
+                    "The Graph Management Assistant finished without a reply. "
+                    "Check sticky container logs for SDK output, then retry."
+                ),
+            },
+        }
+        return
     yield {"type": "done", "ok": True, "reply": reply}

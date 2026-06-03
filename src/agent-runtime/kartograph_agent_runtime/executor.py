@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -132,6 +133,15 @@ def _extract_sdk_reply(message: Any) -> str | None:
     if isinstance(result, str) and result.strip():
         return result.strip()
 
+    structured = getattr(message, "structured_output", None)
+    if structured is not None:
+        if isinstance(structured, str) and structured.strip():
+            return structured.strip()
+        try:
+            return json.dumps(structured, indent=2)
+        except TypeError:
+            return str(structured)
+
     content = getattr(message, "content", None)
     if isinstance(content, str) and content.strip():
         return content.strip()
@@ -140,10 +150,48 @@ def _extract_sdk_reply(message: Any) -> str | None:
         for block in content:
             text = getattr(block, "text", None)
             if isinstance(text, str) and text.strip():
-                parts.append(text.strip())
+                parts.append(text)
         if parts:
-            return parts[-1]
+            return "".join(parts).strip()
     return None
+
+
+def finalize_sdk_turn_reply(
+    *,
+    reply: str | None,
+    reply_parts: list[str],
+    last_result: Any | None,
+    notification_summaries: list[str],
+) -> str:
+    """Build the best available assistant reply after an SDK turn completes."""
+    if isinstance(reply, str) and reply.strip():
+        return reply.strip()
+
+    streamed = "".join(reply_parts).strip()
+    if streamed:
+        return streamed
+
+    if last_result is not None:
+        extracted = _extract_sdk_reply(last_result)
+        if extracted:
+            return extracted
+
+    if notification_summaries:
+        return notification_summaries[-1]
+
+    num_turns = int(getattr(last_result, "num_turns", 0) or 0)
+    if num_turns > 0:
+        return (
+            f"**Assistant completed** ({num_turns} turn(s))\n\n"
+            "The agent finished tool work without a final written reply. "
+            "Review workspace artifacts or graph mutations, or ask the assistant "
+            "to summarize what it changed."
+        )
+
+    return (
+        "Claude Agent SDK completed without a textual response. "
+        "Retry with a more specific graph-management request."
+    )
 
 
 def _build_sdk_env(settings: AgentRuntimeSettings) -> dict[str, str]:
@@ -263,7 +311,7 @@ async def _stream_with_claude_sdk(
     turn_timeout_seconds: float,
 ) -> AsyncIterator[dict[str, Any]]:
     from claude_agent_sdk import ClaudeAgentOptions, query
-    from claude_agent_sdk.types import ResultMessage
+    from claude_agent_sdk.types import ResultMessage, TaskNotificationMessage
 
     system_prompt = _build_system_prompt(
         agent_configuration,
@@ -295,6 +343,8 @@ async def _stream_with_claude_sdk(
 
     reply: str | None = None
     reply_parts: list[str] = []
+    notification_summaries: list[str] = []
+    last_result: ResultMessage | None = None
     last_compose_at = 0
     elapsed_seconds = 0
     try:
@@ -330,6 +380,11 @@ async def _stream_with_claude_sdk(
                     yield event
                     await asyncio.sleep(0)
 
+                if isinstance(sdk_message, TaskNotificationMessage):
+                    summary = str(sdk_message.summary or "").strip()
+                    if summary:
+                        notification_summaries.append(summary)
+
                 if isinstance(sdk_message, ResultMessage):
                     if sdk_message.is_error:
                         error_text = str(sdk_message.result or "").strip()
@@ -349,6 +404,7 @@ async def _stream_with_claude_sdk(
                             },
                         }
                         return
+                    last_result = sdk_message
 
                 extracted = _extract_sdk_reply(sdk_message)
                 if extracted:
@@ -380,9 +436,10 @@ async def _stream_with_claude_sdk(
         }
         return
 
-    if not reply:
-        reply = (
-            "Claude Agent SDK completed without a textual response. "
-            "Retry with a more specific graph-management request."
-        )
+    reply = finalize_sdk_turn_reply(
+        reply=reply,
+        reply_parts=reply_parts,
+        last_result=last_result,
+        notification_summaries=notification_summaries,
+    )
     yield {"type": "done", "ok": True, "reply": reply}

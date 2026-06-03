@@ -95,17 +95,47 @@ def _stream_event_line(event: dict[str, Any]) -> str | None:
             return f"Running {name}…"
         if block_type == "thinking":
             return "Reasoning…"
+        if block_type == "text":
+            return "Composing reply…"
     if event_type == "content_block_delta":
         delta = event.get("delta") or {}
         if delta.get("type") == "thinking_delta":
             thinking = str(delta.get("thinking") or "").strip()
             if thinking:
                 return f"Reasoning · {normalize_activity_line(thinking)}"
-        if delta.get("type") == "text_delta":
-            text = str(delta.get("text") or "").strip()
-            if text:
-                return None  # handled via composing line from accumulated text
     return None
+
+
+def _thinking_events_from_stream_event(
+    event: dict[str, Any],
+    *,
+    recent: list[str],
+    reply_parts: list[str],
+    last_compose_at: int,
+    compose_step: int,
+) -> tuple[list[dict[str, Any]], int]:
+    events: list[dict[str, Any]] = []
+    if event.get("type") == "content_block_delta":
+        delta = event.get("delta") or {}
+        if delta.get("type") == "text_delta":
+            text = str(delta.get("text") or "")
+            if text:
+                reply_parts.append(text)
+                blob = "".join(reply_parts)
+                if len(blob.strip()) and len(blob) - last_compose_at >= compose_step:
+                    tail = blob[-88:].replace("\n", " ").strip()
+                    compose_event = update_composing_line(recent, tail)
+                    if compose_event:
+                        events.append(compose_event)
+                    last_compose_at = len(blob)
+            return events, last_compose_at
+
+    line = _stream_event_line(event)
+    if line:
+        compose_event = push_thinking(recent, line)
+        if compose_event:
+            events.append(compose_event)
+    return events, last_compose_at
 
 
 def _append_task_progress_events(
@@ -254,12 +284,13 @@ def thinking_events_from_sdk_message(
         return events, last_compose_at
 
     if isinstance(sdk_message, StreamEvent):
-        line = _stream_event_line(sdk_message.event)
-        if line:
-            event = push_thinking(recent, line)
-            if event:
-                events.append(event)
-        return events, last_compose_at
+        return _thinking_events_from_stream_event(
+            sdk_message.event,
+            recent=recent,
+            reply_parts=reply_parts,
+            last_compose_at=last_compose_at,
+            compose_step=compose_step,
+        )
 
     content = getattr(sdk_message, "content", None)
     if isinstance(content, list):
@@ -286,11 +317,13 @@ def thinking_events_from_sdk_message(
 
     payload = getattr(sdk_message, "event", None)
     if isinstance(payload, dict):
-        line = _stream_event_line(payload)
-        if line:
-            event = push_thinking(recent, line)
-            if event:
-                events.append(event)
+        return _thinking_events_from_stream_event(
+            payload,
+            recent=recent,
+            reply_parts=reply_parts,
+            last_compose_at=last_compose_at,
+            compose_step=compose_step,
+        )
 
     return events, last_compose_at
 

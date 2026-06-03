@@ -10,6 +10,8 @@ import pytest
 from kartograph_agent_runtime.executor import (
     _build_system_prompt,
     _build_workspace_prompt_appendix,
+    _extract_sdk_reply,
+    finalize_sdk_turn_reply,
     stream_turn_events,
 )
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
@@ -71,6 +73,53 @@ def test_build_system_prompt_includes_workspace_appendix() -> None:
 
     assert "Base prompt" in prompt
     assert "Files here" in prompt
+
+
+def test_extract_sdk_reply_joins_multiple_text_blocks() -> None:
+    from dataclasses import dataclass
+
+    @dataclass
+    class Block:
+        text: str
+
+    @dataclass
+    class Message:
+        content: list
+
+    message = Message(content=[Block(text="Part one. "), Block(text="Part two.")])
+
+    assert _extract_sdk_reply(message) == "Part one. Part two."
+
+
+def test_finalize_sdk_turn_reply_prefers_streamed_text() -> None:
+    reply = finalize_sdk_turn_reply(
+        reply=None,
+        reply_parts=["Designed ", "entity types."],
+        last_result=None,
+        notification_summaries=[],
+    )
+
+    assert reply == "Designed entity types."
+
+
+def test_finalize_sdk_turn_reply_uses_tool_only_completion_summary() -> None:
+    from dataclasses import dataclass
+
+    @dataclass
+    class Result:
+        num_turns: int
+        result: str | None = None
+        is_error: bool = False
+
+    reply = finalize_sdk_turn_reply(
+        reply=None,
+        reply_parts=[],
+        last_result=Result(num_turns=4),
+        notification_summaries=[],
+    )
+
+    assert "4 turn(s)" in reply
+    assert "without a final written reply" in reply
 
 
 @pytest.mark.asyncio

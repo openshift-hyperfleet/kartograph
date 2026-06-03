@@ -41,6 +41,11 @@ class FakeTaskProgressMessage:
     usage: dict | None = None
 
 
+@dataclass
+class FakeStreamEvent:
+    event: dict
+
+
 def test_initial_sdk_thinking_lines_include_connected_message() -> None:
     lines = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
 
@@ -126,3 +131,42 @@ def test_thinking_events_from_task_progress_message() -> None:
     joined = "\n".join(events[-1]["recent"])
     assert "Inspecting repository files" in joined
     assert "Running Grep" in joined
+
+
+def test_stream_event_text_delta_accumulates_reply_parts() -> None:
+    recent = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+    reply_parts: list[str] = []
+    message = FakeStreamEvent(
+        event={
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": "Designed three entity types."},
+        },
+    )
+
+    thinking_events_from_sdk_message(
+        message,
+        recent=recent,
+        reply_parts=reply_parts,
+        last_compose_at=0,
+        compose_step=10,
+    )
+
+    assert reply_parts == ["Designed three entity types."]
+
+
+def test_assistant_message_text_accumulates_reply_parts() -> None:
+    recent = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+    reply_parts: list[str] = []
+    message = FakeAssistantMessage(
+        content=[FakeTextBlock(text="Here is the proposed schema.")],
+    )
+
+    thinking_events_from_sdk_message(
+        message,
+        recent=recent,
+        reply_parts=reply_parts,
+        last_compose_at=0,
+        compose_step=120,
+    )
+
+    assert reply_parts == ["Here is the proposed schema."]

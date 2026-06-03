@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import {
+  captureScrollPositions,
+  isScrollNearBottom,
+  restoreScrollPositions,
+} from '@/composables/useScrollPositionPreserve'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
 import { Bot, Loader2, RefreshCw, RotateCcw, Send, Sparkles, User } from 'lucide-vue-next'
@@ -80,6 +85,8 @@ const clearConfirmOpen = ref(false)
 const chatScrollRef = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const composerInputId = 'graph-management-chat-input'
+const stickToBottom = ref(true)
+const trackedMessageCount = ref(0)
 
 marked.setOptions({ gfm: true, breaks: true })
 
@@ -130,15 +137,22 @@ function messageText(entry: ConversationEntry): string {
   return entry.content ?? entry.message ?? '(empty)'
 }
 
-function scrollToBottom() {
+function scrollToBottom(force = false) {
+  const el = chatScrollRef.value
+  if (!el) return
+  if (!force && !stickToBottom.value && !isScrollNearBottom(el)) return
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const el = chatScrollRef.value
-      if (el) {
-        el.scrollTop = el.scrollHeight
-      }
+      const target = chatScrollRef.value
+      if (target) target.scrollTop = target.scrollHeight
     })
   })
+}
+
+function onChatScroll() {
+  const el = chatScrollRef.value
+  if (!el) return
+  stickToBottom.value = isScrollNearBottom(el)
 }
 
 function adjustTextareaHeight() {
@@ -183,25 +197,54 @@ function confirmClearChat() {
 function sendDraftMessage() {
   const trimmed = props.draftMessage.trim()
   if (!trimmed || chatSendDisabled.value) return
+  stickToBottom.value = true
   emit('sendMessage', trimmed)
   emit('update:draftMessage', '')
-  void nextTick(() => adjustTextareaHeight())
+  void nextTick(() => {
+    adjustTextareaHeight()
+    scrollToBottom(true)
+  })
 }
+
+let sessionScrollSnapshot: ReturnType<typeof captureScrollPositions> | null = null
 
 watch(
   () => props.session,
-  async () => {
+  () => {
+    sessionScrollSnapshot = captureScrollPositions([chatScrollRef.value])
+  },
+  { deep: true, flush: 'sync' },
+)
+
+watch(
+  () => props.session,
+  async (session) => {
+    const nextCount = session?.message_history?.length ?? 0
+    const grew = nextCount > trackedMessageCount.value
+    trackedMessageCount.value = nextCount
     await nextTick()
-    scrollToBottom()
+    if (grew && (stickToBottom.value || props.sending)) {
+      scrollToBottom(true)
+      return
+    }
+    if (sessionScrollSnapshot) {
+      restoreScrollPositions(sessionScrollSnapshot)
+      sessionScrollSnapshot = null
+    }
   },
   { deep: true, flush: 'post' },
 )
 
 watch(
-  () => [props.activityLines, props.sending, props.loading, showRuntimeActivity.value],
+  () => [props.activityLines, props.sending, props.loading, showRuntimeActivity.value] as const,
   async () => {
+    const snapshot = captureScrollPositions([chatScrollRef.value])
     await nextTick()
-    scrollToBottom()
+    if (props.sending || stickToBottom.value) {
+      scrollToBottom(props.sending)
+      return
+    }
+    restoreScrollPositions(snapshot)
   },
   { deep: true, flush: 'post' },
 )
@@ -221,9 +264,10 @@ watch(
 )
 
 onMounted(() => {
+  trackedMessageCount.value = messageHistory.value.length
   void nextTick(() => {
     adjustTextareaHeight()
-    scrollToBottom()
+    scrollToBottom(true)
   })
 })
 </script>
@@ -292,6 +336,7 @@ onMounted(() => {
       <div
         ref="chatScrollRef"
         class="min-h-[14rem] max-h-[min(32rem,60vh)] space-y-4 overflow-y-auto bg-muted/10 px-4 py-4 sm:px-6"
+        @scroll.passive="onChatScroll"
       >
         <div
           v-if="showInitialConversationLoading"

@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import {
+  captureScrollPositions,
+  restoreScrollPositions,
+  withPreservedScrollPositions,
+  type ScrollSnapshot,
+} from '@/composables/useScrollPositionPreserve'
 import { toast } from 'vue-sonner'
 import {
   ArrowLeft,
@@ -501,6 +507,27 @@ const nextSteps = computed(() => {
 })
 
 const sessionActivityLines = ref<string[]>([])
+const graphManagementDetailRef = ref<HTMLElement | null>(null)
+let graphManagementScrollSnapshot: ScrollSnapshot | null = null
+
+function graphManagementScrollTargets(): HTMLElement[] {
+  const elements: HTMLElement[] = []
+  const main = document.querySelector('main')
+  if (main instanceof HTMLElement) elements.push(main)
+  if (graphManagementDetailRef.value) elements.push(graphManagementDetailRef.value)
+  return elements
+}
+
+function captureGraphManagementScroll(): void {
+  if (activeStep.value !== 'graph-management') return
+  graphManagementScrollSnapshot = captureScrollPositions(graphManagementScrollTargets())
+}
+
+function restoreGraphManagementScroll(): void {
+  if (!graphManagementScrollSnapshot) return
+  restoreScrollPositions(graphManagementScrollSnapshot)
+  graphManagementScrollSnapshot = null
+}
 
 async function refreshDesignArtifacts(options: { silent?: boolean } = {}) {
   if (!hasTenant.value || !kgId.value) return
@@ -510,9 +537,19 @@ async function refreshDesignArtifacts(options: { silent?: boolean } = {}) {
       `/management/knowledge-graphs/${kgId.value}/design-artifacts`,
       { query: { limit: 500 } },
     )
-    entityTypeLabels.value = Object.keys(artifacts.entities ?? {}).sort()
-    relationshipTypeLabels.value = (artifacts.relationships ?? []).map((rel) => rel.relationship_type)
-    designArtifactsReloadNonce.value += 1
+    const applyArtifactRefresh = () => {
+      entityTypeLabels.value = Object.keys(artifacts.entities ?? {}).sort()
+      relationshipTypeLabels.value = (artifacts.relationships ?? []).map((rel) => rel.relationship_type)
+      designArtifactsReloadNonce.value += 1
+    }
+    if (activeStep.value === 'graph-management') {
+      await withPreservedScrollPositions(graphManagementScrollTargets(), async () => {
+        applyArtifactRefresh()
+        await nextTick()
+      })
+    } else {
+      applyArtifactRefresh()
+    }
     if (!options.silent) {
       toast.success('Design artifacts refreshed')
     }
@@ -733,10 +770,19 @@ async function loadWorkspaceStatus() {
   if (!hasTenant.value || !kgId.value) return
   loading.value = true
   workspaceLoadError.value = null
-  try {
+  const preserveScroll =
+    activeStep.value === 'graph-management' && statusProjection.value !== null
+  const fetchStatus = async () => {
     statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
       `/management/knowledge-graphs/${kgId.value}/workspace-status`,
     )
+  }
+  try {
+    if (preserveScroll) {
+      await withPreservedScrollPositions(graphManagementScrollTargets(), fetchStatus)
+    } else {
+      await fetchStatus()
+    }
     workspaceForbidden.value = false
     workspaceForbiddenReason.value = null
   } catch (err) {
@@ -1126,10 +1172,17 @@ async function validateWorkspace() {
   if (!kgId.value || workspaceForbidden.value) return
   validating.value = true
   try {
-    statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
-      `/management/knowledge-graphs/${kgId.value}/workspace/validate`,
-      { method: 'POST' },
-    )
+    const validate = async () => {
+      statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
+        `/management/knowledge-graphs/${kgId.value}/workspace/validate`,
+        { method: 'POST' },
+      )
+    }
+    if (activeStep.value === 'graph-management') {
+      await withPreservedScrollPositions(graphManagementScrollTargets(), validate)
+    } else {
+      await validate()
+    }
     toast.success('Workspace validation complete')
   } catch (err) {
     if (isForbiddenHttpError(err)) {
@@ -1153,10 +1206,17 @@ async function transitionToExtraction() {
   transitioning.value = true
   const previousStatus = statusProjection.value
   try {
-    statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
-      `/management/knowledge-graphs/${kgId.value}/workspace/transition-to-extraction`,
-      { method: 'POST' },
-    )
+    const transition = async () => {
+      statusProjection.value = await apiFetch<WorkspaceStatusResponse>(
+        `/management/knowledge-graphs/${kgId.value}/workspace/transition-to-extraction`,
+        { method: 'POST' },
+      )
+    }
+    if (activeStep.value === 'graph-management') {
+      await withPreservedScrollPositions(graphManagementScrollTargets(), transition)
+    } else {
+      await transition()
+    }
     toast.success('Workspace transitioned to extraction operations')
     await loadExtractionSession()
   } catch (err) {
@@ -1268,6 +1328,38 @@ watch(selectedOpsDataSourceId, () => {
   selectedInlineRunId.value = null
   loadInlineSyncRuns()
 })
+
+watch(
+  () => {
+    if (activeStep.value !== 'graph-management') return null
+    return [
+      statusProjection.value,
+      designArtifactsReloadNonce.value,
+      progressChecklist.value,
+      graphManagementRailItems.value,
+    ] as const
+  },
+  () => {
+    captureGraphManagementScroll()
+  },
+  { flush: 'sync', deep: true },
+)
+
+watch(
+  () => {
+    if (activeStep.value !== 'graph-management') return null
+    return [
+      statusProjection.value,
+      designArtifactsReloadNonce.value,
+      progressChecklist.value,
+      graphManagementRailItems.value,
+    ] as const
+  },
+  () => {
+    restoreGraphManagementScroll()
+  },
+  { flush: 'post', deep: true },
+)
 </script>
 
 <template>
@@ -1901,6 +1993,7 @@ watch(selectedOpsDataSourceId, () => {
 
           <div
             id="graph-management-artifact-detail"
+            ref="graphManagementDetailRef"
             class="graph-management-detail min-h-0 min-w-0 max-h-[min(70dvh,calc(100dvh-12rem))] space-y-6 overflow-y-auto overscroll-contain"
           >
             <div v-if="selectedRailItemId === 'schema-entities'" class="min-w-0 space-y-2">

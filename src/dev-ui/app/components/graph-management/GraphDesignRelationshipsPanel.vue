@@ -28,19 +28,22 @@ const loading = ref(true)
 const data = ref<DesignArtifactsResponse | null>(null)
 const instancePage = ref<Record<string, number>>({})
 
-async function fetchRelationships() {
+async function fetchRelationships(options: { preserveUiState?: boolean } = {}) {
   if (!props.kgId) {
     data.value = null
     loading.value = false
     return
   }
-  loading.value = true
+  const preserveUiState = options.preserveUiState === true && data.value !== null
+  if (!preserveUiState) {
+    loading.value = true
+    instancePage.value = {}
+  }
   try {
     data.value = await apiFetch<DesignArtifactsResponse>(
       `/management/knowledge-graphs/${props.kgId}/design-artifacts`,
       { query: { limit: 500 } },
     )
-    instancePage.value = {}
   } catch (err: unknown) {
     toast.error('Failed to load relationship design artifacts', {
       description: err instanceof Error ? err.message : 'Request failed',
@@ -59,8 +62,8 @@ function setInstancePage(key: string, page: number) {
 
 watch(
   () => [props.kgId, props.reloadNonce] as const,
-  () => {
-    void fetchRelationships()
+  ([, reloadNonce]) => {
+    void fetchRelationships({ preserveUiState: reloadNonce > 0 })
   },
   { immediate: true },
 )
@@ -89,7 +92,7 @@ defineExpose({ refresh: fetchRelationships })
       </div>
     </div>
 
-    <div v-if="loading" class="flex items-center justify-center py-16">
+    <div v-if="loading && !data" class="flex items-center justify-center py-16">
       <Loader2 class="size-8 animate-spin text-muted-foreground" />
     </div>
 

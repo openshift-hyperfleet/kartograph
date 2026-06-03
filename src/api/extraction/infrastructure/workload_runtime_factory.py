@@ -77,6 +77,7 @@ def create_sticky_session_runtime_manager(
         container_run_uid=resolved.container_run_uid,
         container_run_gid=resolved.container_run_gid,
         agent_turn_timeout_seconds=resolved.sticky_turn_timeout_seconds,
+        agent_max_turns=resolved.sticky_max_turns,
     )
 
 

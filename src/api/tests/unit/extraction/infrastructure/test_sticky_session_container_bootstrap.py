@@ -28,6 +28,7 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
         gcloud_config_container_path="/gcloud/config",
         container_run_uid=1000,
         container_run_gid=1000,
+        agent_max_turns=500,
     )
     issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(tenant_id="tenant-1", knowledge_graph_id="kg-1")
@@ -59,5 +60,6 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
         "/gcloud/config/application_default_credentials.json"
     )
     assert spec.env["HOME"] == "/tmp"
+    assert spec.env["KARTOGRAPH_AGENT_MAX_TURNS"] == "500"
     assert spec.user == "1000:1000"
     assert lease.runtime_base_url.startswith("http://kartograph-sticky-")

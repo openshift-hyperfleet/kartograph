@@ -27,6 +27,32 @@ def push_thinking(recent: list[str], line: str) -> dict[str, Any] | None:
     return {"type": "thinking", "recent": list(recent)}
 
 
+def replace_last_thinking(
+    recent: list[str],
+    line: str,
+    *,
+    prefix: str | None = None,
+) -> dict[str, Any] | None:
+    """Replace the last matching (or final) thinking line — used for heartbeats."""
+    normalized = normalize_activity_line(line)
+    if not normalized:
+        return None
+    if prefix:
+        for index in range(len(recent) - 1, -1, -1):
+            if str(recent[index]).startswith(prefix):
+                if recent[index] == normalized:
+                    return None
+                recent[index] = normalized
+                return {"type": "thinking", "recent": list(recent)}
+    if recent:
+        if recent[-1] == normalized:
+            return None
+        recent[-1] = normalized
+    else:
+        recent.append(normalized)
+    return {"type": "thinking", "recent": list(recent)}
+
+
 def update_composing_line(recent: list[str], preview_tail: str) -> dict[str, Any] | None:
     preview_tail = normalize_activity_line(preview_tail.replace("\n", " "))
     line = normalize_activity_line(
@@ -82,20 +108,63 @@ def _stream_event_line(event: dict[str, Any]) -> str | None:
     return None
 
 
-def thinking_events_from_sdk_message(
-    sdk_message: Any,
+def _append_task_progress_events(
+    events: list[dict[str, Any]],
+    recent: list[str],
+    *,
+    description: str,
+    last_tool_name: str | None,
+    started: bool,
+) -> None:
+    progress_description = description.strip()
+    last_tool = str(last_tool_name or "").strip()
+    if progress_description:
+        prefix = "Task started · " if started else ""
+        event = push_thinking(recent, f"{prefix}{progress_description}".strip())
+        if event:
+            events.append(event)
+    if last_tool:
+        event = push_thinking(recent, f"Running {last_tool}…")
+        if event:
+            events.append(event)
+
+
+def _thinking_events_from_assistant_content(
+    content: list[Any],
     *,
     recent: list[str],
     reply_parts: list[str],
     last_compose_at: int,
-    compose_step: int = 120,
+    compose_step: int,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Return thinking NDJSON events and updated compose offset for one SDK message."""
-    events: list[dict[str, Any]] = []
+    from claude_agent_sdk.types import TextBlock, ThinkingBlock, ToolUseBlock
 
-    content = getattr(sdk_message, "content", None)
-    if isinstance(content, list):
-        for block in content:
+    events: list[dict[str, Any]] = []
+    for block in content:
+        if isinstance(block, ThinkingBlock):
+            thinking = normalize_activity_line(block.thinking or "")
+            if thinking:
+                event = push_thinking(recent, f"Reasoning · {thinking}")
+                if event:
+                    events.append(event)
+        elif isinstance(block, ToolUseBlock):
+            tool_input = block.input if isinstance(block.input, dict) else {}
+            event = push_thinking(recent, _tool_use_line(block.name, tool_input))
+            if event:
+                events.append(event)
+        elif isinstance(block, TextBlock):
+            text = str(block.text or "")
+            if text.strip():
+                reply_parts.append(text)
+                blob = "".join(reply_parts)
+                plain = text.replace("\n", "").strip()
+                if plain and len(blob) - last_compose_at >= compose_step:
+                    tail = blob[-88:].replace("\n", " ").strip()
+                    event = update_composing_line(recent, tail)
+                    if event:
+                        events.append(event)
+                    last_compose_at = len(blob)
+        else:
             block_type = type(block).__name__
             if block_type == "ThinkingBlock" or hasattr(block, "thinking"):
                 thinking = normalize_activity_line(getattr(block, "thinking", "") or "")
@@ -123,22 +192,96 @@ def thinking_events_from_sdk_message(
                         if event:
                             events.append(event)
                         last_compose_at = len(blob)
+    return events, last_compose_at
+
+
+def thinking_events_from_sdk_message(
+    sdk_message: Any,
+    *,
+    recent: list[str],
+    reply_parts: list[str],
+    last_compose_at: int,
+    compose_step: int = 120,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return thinking NDJSON events and updated compose offset for one SDK message."""
+    from claude_agent_sdk.types import (
+        AssistantMessage,
+        StreamEvent,
+        TaskNotificationMessage,
+        TaskProgressMessage,
+        TaskStartedMessage,
+    )
+
+    events: list[dict[str, Any]] = []
+
+    if isinstance(sdk_message, AssistantMessage):
+        if isinstance(sdk_message.content, list):
+            return _thinking_events_from_assistant_content(
+                sdk_message.content,
+                recent=recent,
+                reply_parts=reply_parts,
+                last_compose_at=last_compose_at,
+                compose_step=compose_step,
+            )
         return events, last_compose_at
+
+    if isinstance(sdk_message, TaskStartedMessage):
+        _append_task_progress_events(
+            events,
+            recent,
+            description=str(sdk_message.description or ""),
+            last_tool_name=None,
+            started=True,
+        )
+        return events, last_compose_at
+
+    if isinstance(sdk_message, TaskProgressMessage):
+        _append_task_progress_events(
+            events,
+            recent,
+            description=str(sdk_message.description or ""),
+            last_tool_name=sdk_message.last_tool_name,
+            started=False,
+        )
+        return events, last_compose_at
+
+    if isinstance(sdk_message, TaskNotificationMessage):
+        summary = str(sdk_message.summary or "").strip()
+        if summary:
+            event = push_thinking(recent, summary)
+            if event:
+                events.append(event)
+        return events, last_compose_at
+
+    if isinstance(sdk_message, StreamEvent):
+        line = _stream_event_line(sdk_message.event)
+        if line:
+            event = push_thinking(recent, line)
+            if event:
+                events.append(event)
+        return events, last_compose_at
+
+    content = getattr(sdk_message, "content", None)
+    if isinstance(content, list):
+        return _thinking_events_from_assistant_content(
+            content,
+            recent=recent,
+            reply_parts=reply_parts,
+            last_compose_at=last_compose_at,
+            compose_step=compose_step,
+        )
 
     task_id = getattr(sdk_message, "task_id", None)
     description = str(getattr(sdk_message, "description", "") or "").strip()
     if task_id and description:
-        last_tool = str(getattr(sdk_message, "last_tool_name", "") or "").strip()
-        usage = getattr(sdk_message, "usage", None)
-        prefix = "Task started ·" if usage is None and not last_tool else ""
-        line = f"{prefix}{description}".strip()
-        event = push_thinking(recent, line)
-        if event:
-            events.append(event)
-        if last_tool:
-            event = push_thinking(recent, f"Running {last_tool}…")
-            if event:
-                events.append(event)
+        _append_task_progress_events(
+            events,
+            recent,
+            description=description,
+            last_tool_name=getattr(sdk_message, "last_tool_name", None),
+            started=getattr(sdk_message, "usage", None) is None
+            and not getattr(sdk_message, "last_tool_name", None),
+        )
         return events, last_compose_at
 
     payload = getattr(sdk_message, "event", None)
@@ -146,21 +289,6 @@ def thinking_events_from_sdk_message(
         line = _stream_event_line(payload)
         if line:
             event = push_thinking(recent, line)
-            if event:
-                events.append(event)
-        return events, last_compose_at
-
-    subtype = str(getattr(sdk_message, "subtype", "") or "").strip()
-    data = getattr(sdk_message, "data", None) or {}
-    if subtype == "task_progress" and isinstance(data, dict):
-        progress_description = str(data.get("description") or "").strip()
-        last_tool = str(data.get("last_tool_name") or "").strip()
-        if progress_description:
-            event = push_thinking(recent, progress_description)
-            if event:
-                events.append(event)
-        if last_tool:
-            event = push_thinking(recent, f"Running {last_tool}…")
             if event:
                 events.append(event)
 

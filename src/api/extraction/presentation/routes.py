@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated
 
@@ -197,6 +198,7 @@ async def stream_runtime_warmup(
             ui_mode=request.graph_management_ui_mode,
         ):
             yield json.dumps(event) + "\n"
+            await asyncio.sleep(0)
 
     return StreamingResponse(
         event_stream(),
@@ -232,6 +234,7 @@ async def stream_chat_turn(
             message=request.message,
         ):
             yield json.dumps(event) + "\n"
+            await asyncio.sleep(0)
 
     return StreamingResponse(
         event_stream(),

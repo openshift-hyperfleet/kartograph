@@ -44,6 +44,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     api_base_url: str = Field(default="http://api:8000")
     sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
     sticky_turn_timeout_seconds: float = Field(default=600.0, ge=30.0, le=900.0)
+    sticky_max_turns: int = Field(default=500, ge=1, le=1000)
     vertex_project_id: str = Field(default="")
     vertex_region: str = Field(default="us-east5")
     gcloud_config_mount: str | None = Field(default=None)

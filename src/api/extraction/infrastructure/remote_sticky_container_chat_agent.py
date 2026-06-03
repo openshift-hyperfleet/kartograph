@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -76,6 +77,7 @@ class RemoteStickyContainerChatAgent:
                         if not trimmed:
                             continue
                         yield json.loads(trimmed)
+                        await asyncio.sleep(0)
         except httpx.HTTPError as exc:
             yield {
                 "type": "done",

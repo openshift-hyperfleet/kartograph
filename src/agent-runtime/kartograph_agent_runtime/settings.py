@@ -29,6 +29,7 @@ class AgentRuntimeSettings(BaseSettings):
     google_application_credentials: str = Field(default="", alias="GOOGLE_APPLICATION_CREDENTIALS")
     home_dir: str = Field(default="/tmp", alias="HOME")
     turn_timeout_seconds: float = Field(default=600.0, ge=30.0, le=900.0, alias="KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS")
+    max_turns: int = Field(default=500, ge=1, le=1000, alias="KARTOGRAPH_AGENT_MAX_TURNS")
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()

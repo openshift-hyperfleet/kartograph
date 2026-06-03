@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from kartograph_agent_runtime.thinking_stream import (
     initial_sdk_thinking_lines,
     push_thinking,
+    replace_last_thinking,
     thinking_events_from_sdk_message,
 )
 
@@ -47,11 +48,39 @@ def test_initial_sdk_thinking_lines_include_connected_message() -> None:
     assert any("Connected" in line for line in lines)
 
 
+def test_agent_runtime_settings_default_max_turns() -> None:
+    from kartograph_agent_runtime.settings import AgentRuntimeSettings
+
+    settings = AgentRuntimeSettings()
+
+    assert settings.max_turns == 500
+
+
 def test_push_thinking_deduplicates_and_caps_recent_lines() -> None:
     recent: list[str] = []
     for index in range(5):
         push_thinking(recent, f"line-{index}")
     assert recent == ["line-2", "line-3", "line-4"]
+
+
+def test_replace_last_thinking_updates_matching_prefix_in_place() -> None:
+    recent = initial_sdk_thinking_lines(auth_mode="Vertex AI", ui_mode="initial-schema-design")
+
+    first = replace_last_thinking(
+        recent,
+        "Waiting for model response… (8s)",
+        prefix="Waiting for model response",
+    )
+    second = replace_last_thinking(
+        recent,
+        "Waiting for model response… (16s)",
+        prefix="Waiting for model response",
+    )
+
+    assert first is not None
+    assert second is not None
+    assert recent[-1] == "Waiting for model response… (16s)"
+    assert len(recent) == 3
 
 
 def test_thinking_events_from_assistant_message_tool_and_reasoning_blocks() -> None:

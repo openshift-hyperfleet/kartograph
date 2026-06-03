@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -73,6 +74,7 @@ async def stream_turn(request: TurnRequest) -> StreamingResponse:
                         event.get("ok"),
                     )
                 yield json.dumps(event) + "\n"
+                await asyncio.sleep(0)
         except Exception:
             logger.exception(
                 "agent_runtime_turn_failed session_id=%s",

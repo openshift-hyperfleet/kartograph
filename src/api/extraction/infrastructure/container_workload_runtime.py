@@ -63,6 +63,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         container_run_uid: int | None = None,
         container_run_gid: int | None = None,
         agent_turn_timeout_seconds: float = 600.0,
+        agent_max_turns: int = 500,
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
@@ -80,6 +81,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._container_run_uid = container_run_uid
         self._container_run_gid = container_run_gid
         self._agent_turn_timeout_seconds = agent_turn_timeout_seconds
+        self._agent_max_turns = agent_max_turns
         self._leases: dict[str, StickySessionRuntimeLease] = {}
 
     def get_or_start_runtime(
@@ -284,6 +286,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             "KARTOGRAPH_SKILLS_DIR": self._container_skills_mount,
             "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
             "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(int(self._agent_turn_timeout_seconds)),
+            "KARTOGRAPH_AGENT_MAX_TURNS": str(int(self._agent_max_turns)),
         }
         binds: list[str] = []
         if bootstrap is not None:

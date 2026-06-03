@@ -11,6 +11,7 @@ from kartograph_agent_runtime.settings import AgentRuntimeSettings
 from kartograph_agent_runtime.thinking_stream import (
     initial_sdk_thinking_lines,
     push_thinking,
+    replace_last_thinking,
     thinking_events_from_sdk_message,
 )
 from kartograph_agent_runtime.tools import RuntimeTooling
@@ -262,6 +263,7 @@ async def _stream_with_claude_sdk(
     turn_timeout_seconds: float,
 ) -> AsyncIterator[dict[str, Any]]:
     from claude_agent_sdk import ClaudeAgentOptions, query
+    from claude_agent_sdk.types import ResultMessage
 
     system_prompt = _build_system_prompt(
         agent_configuration,
@@ -285,7 +287,7 @@ async def _stream_with_claude_sdk(
         system_prompt=system_prompt,
         env=sdk_env,
         permission_mode="bypassPermissions",
-        max_turns=8,
+        max_turns=settings.max_turns,
         setting_sources=[],
         cwd=workspace_dir,
         add_dirs=[workspace_dir],
@@ -308,12 +310,14 @@ async def _stream_with_claude_sdk(
                     break
                 except TimeoutError:
                     elapsed_seconds += int(_SDK_HEARTBEAT_SECONDS)
-                    heartbeat = push_thinking(
+                    heartbeat = replace_last_thinking(
                         recent,
                         f"Waiting for model response… ({elapsed_seconds}s)",
+                        prefix="Waiting for model response",
                     )
                     if heartbeat:
                         yield heartbeat
+                        await asyncio.sleep(0)
                     continue
 
                 thinking_events, last_compose_at = thinking_events_from_sdk_message(
@@ -324,6 +328,27 @@ async def _stream_with_claude_sdk(
                 )
                 for event in thinking_events:
                     yield event
+                    await asyncio.sleep(0)
+
+                if isinstance(sdk_message, ResultMessage):
+                    if sdk_message.is_error:
+                        error_text = str(sdk_message.result or "").strip()
+                        if not error_text and sdk_message.errors:
+                            error_text = "; ".join(str(item) for item in sdk_message.errors)
+                        if error_text:
+                            error_thinking = push_thinking(recent, f"Error · {error_text}")
+                            if error_thinking:
+                                yield error_thinking
+                                await asyncio.sleep(0)
+                        yield {
+                            "type": "done",
+                            "ok": False,
+                            "error": {
+                                "code": "AGENT_SDK_ERROR",
+                                "message": error_text or "Claude Agent SDK returned an error.",
+                            },
+                        }
+                        return
 
                 extracted = _extract_sdk_reply(sdk_message)
                 if extracted:

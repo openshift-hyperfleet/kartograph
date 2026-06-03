@@ -96,6 +96,24 @@ const syncStepLabel = ref('')
 const readyForStats = ref(false)
 
 const wizardSectionRef = ref<HTMLElement | null>(null)
+const urlInputRefs = new Map<string, HTMLInputElement>()
+
+function setUrlInputRef(id: string, el: unknown) {
+  if (!el) {
+    urlInputRefs.delete(id)
+    return
+  }
+  if (el instanceof HTMLInputElement) {
+    urlInputRefs.set(id, el)
+    return
+  }
+  if (typeof el === 'object' && el !== null && '$el' in el) {
+    const root = (el as { $el: unknown }).$el
+    if (root instanceof HTMLInputElement) {
+      urlInputRefs.set(id, root)
+    }
+  }
+}
 
 const manageUrl = computed(() => buildKgManageUrl(kgId.value))
 const operationsUrl = computed(() => buildKgDataSourcesUrl(kgId.value))
@@ -115,11 +133,11 @@ const preparedSourceCount = computed(() =>
   createdSources.value.filter((s) => s.syncStatus === 'ingested').length,
 )
 
-function addUrlField() {
-  sourceUrlInputs.value.push({
-    id: `source-${Date.now()}-${sourceUrlInputs.value.length + 1}`,
-    url: '',
-  })
+async function addUrlField() {
+  const id = `source-${Date.now()}-${sourceUrlInputs.value.length + 1}`
+  sourceUrlInputs.value.push({ id, url: '' })
+  await nextTick()
+  urlInputRefs.get(id)?.focus()
 }
 
 function removeUrlField(id: string) {
@@ -469,6 +487,7 @@ onUnmounted(() => {
               class="flex items-center gap-2"
             >
               <Input
+                :ref="(el) => setUrlInputRef(row.id, el)"
                 v-model="row.url"
                 type="text"
                 placeholder="https://github.com/org/repo"

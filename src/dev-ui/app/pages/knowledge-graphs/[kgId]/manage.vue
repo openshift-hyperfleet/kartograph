@@ -945,9 +945,9 @@ function setGraphManagementMode(mode: GraphManagementMode) {
 function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
   selectedRailItemId.value = itemId
   void nextTick(() => {
-    document.getElementById('graph-management-artifact-detail')?.scrollIntoView({
+    document.querySelector<HTMLElement>('.graph-management-detail')?.scrollTo({
+      top: 0,
       behavior: 'smooth',
-      block: 'start',
     })
   })
 }
@@ -1781,25 +1781,19 @@ watch(selectedOpsDataSourceId, () => {
         </div>
 
         <Card class="graph-management-controls overflow-hidden">
-          <CardHeader class="space-y-4 pb-4">
-            <div class="flex flex-wrap items-start gap-3">
-              <div
-                class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary"
-              >
-                <PencilRuler class="size-5 shrink-0" aria-hidden="true" />
+          <CardHeader class="gap-2 space-y-2 px-4 py-3">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div class="flex min-w-0 items-center gap-2">
+                <div
+                  class="flex size-8 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary"
+                >
+                  <PencilRuler class="size-4 shrink-0" aria-hidden="true" />
+                </div>
+                <CardTitle class="text-base leading-none">Graph Management</CardTitle>
               </div>
-              <div class="min-w-0 flex-1 space-y-1">
-                <CardTitle class="text-xl leading-tight">Graph Management</CardTitle>
-                <CardDescription>
-                  Shared chat session with mode-specific assistant framing and workspace panels.
-                </CardDescription>
-              </div>
-            </div>
-
-            <div class="space-y-2">
-              <p class="text-sm font-medium text-muted-foreground">Mode:</p>
+              <span class="text-xs font-medium text-muted-foreground">Mode</span>
               <div
-                class="grid gap-2 sm:grid-cols-3"
+                class="flex min-w-0 flex-1 flex-wrap gap-1.5"
                 role="tablist"
                 aria-label="Graph management modes"
               >
@@ -1808,7 +1802,7 @@ watch(selectedOpsDataSourceId, () => {
                     v-if="isGraphManagementModeUnlocked(mode, graphManagementModeGate)"
                     size="sm"
                     variant="outline"
-                    class="h-auto min-h-9 justify-center border py-2 shadow-none transition-colors"
+                    class="h-8 shrink-0 px-2.5 text-xs shadow-none transition-colors"
                     :class="
                       graphManagementMode === mode
                         ? 'border-primary/70 bg-muted/50 font-medium text-foreground ring-1 ring-primary/25'
@@ -1824,21 +1818,17 @@ watch(selectedOpsDataSourceId, () => {
                   </Button>
                   <div
                     v-else
-                    class="flex flex-col gap-1.5 rounded-lg border border-dashed border-rose-200/80 bg-rose-500/[0.04] px-3 py-2.5 text-left text-muted-foreground dark:border-rose-900/40 dark:bg-rose-950/20"
+                    class="inline-flex h-8 max-w-full items-center gap-1.5 rounded-md border border-dashed border-rose-200/80 bg-rose-500/[0.04] px-2 text-xs text-muted-foreground dark:border-rose-900/40 dark:bg-rose-950/20"
                     role="tab"
                     :aria-selected="false"
                     :aria-disabled="true"
+                    :aria-label="`${GRAPH_MANAGEMENT_MODE_LABELS[mode]} locked: ${graphManagementModeLockReason(mode, graphManagementModeGate) ?? ''}`"
                     :title="graphManagementModeLockReason(mode, graphManagementModeGate) ?? undefined"
                   >
-                    <div class="flex items-center gap-2">
-                      <Lock class="size-3.5 shrink-0 text-rose-700/80 dark:text-rose-400/90" />
-                      <span class="text-sm font-medium leading-tight text-foreground/80">
-                        {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
-                      </span>
-                    </div>
-                    <p class="text-[11px] leading-snug text-rose-800/90 dark:text-rose-300/90">
-                      {{ graphManagementModeLockReason(mode, graphManagementModeGate) }}
-                    </p>
+                    <Lock class="size-3 shrink-0 text-rose-700/80 dark:text-rose-400/90" aria-hidden="true" />
+                    <span class="truncate font-medium text-foreground/80">
+                      {{ GRAPH_MANAGEMENT_MODE_LABELS[mode] }}
+                    </span>
                   </div>
                 </template>
               </div>
@@ -1908,7 +1898,7 @@ watch(selectedOpsDataSourceId, () => {
 
           <div
             id="graph-management-artifact-detail"
-            class="graph-management-detail min-w-0 space-y-6"
+            class="graph-management-detail min-h-0 min-w-0 max-h-[min(70dvh,calc(100dvh-12rem))] space-y-6 overflow-y-auto overscroll-contain"
           >
             <div v-if="selectedRailItemId === 'schema-entities'" class="min-w-0 space-y-2">
               <GraphDesignEntitiesPanel

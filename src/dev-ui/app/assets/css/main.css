@@ -118,9 +118,6 @@
   body,
   #__nuxt {
     height: 100%;
-  }
-  html,
-  body {
     overflow: hidden;
   }
   body {

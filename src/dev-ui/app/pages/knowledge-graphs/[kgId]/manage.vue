@@ -18,6 +18,7 @@ import {
   MessageSquare,
   PencilRuler,
   PlayCircle,
+  RefreshCw,
   ScrollText,
   ShieldAlert,
   Trash2,
@@ -38,6 +39,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
+import GraphDesignEntitiesPanel from '@/components/graph-management/GraphDesignEntitiesPanel.vue'
+import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDesignRelationshipsPanel.vue'
 import {
   GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
   GRAPH_MANAGEMENT_MODE_LABELS,
@@ -99,6 +102,7 @@ import {
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
 import { useGraphApi } from '@/composables/api/useGraphApi'
+import type { DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
 
 const runtimeConfig = useRuntimeConfig()
 const { accessToken } = useAuth()
@@ -242,6 +246,8 @@ const inlineRunLogsError = ref<string | null>(null)
 const inlineMutationJsonl = ref('')
 const inlineMutationApplying = ref(false)
 const inlineMutationApplyError = ref<string | null>(null)
+const designArtifactsReloadNonce = ref(0)
+const designArtifactsRefreshing = ref(false)
 
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
@@ -493,6 +499,31 @@ const nextSteps = computed(() => {
 })
 
 const sessionActivityLines = ref<string[]>([])
+
+async function refreshDesignArtifacts(options: { silent?: boolean } = {}) {
+  if (!hasTenant.value || !kgId.value) return
+  designArtifactsRefreshing.value = true
+  try {
+    const artifacts = await apiFetch<DesignArtifactsResponse>(
+      `/management/knowledge-graphs/${kgId.value}/design-artifacts`,
+      { query: { limit: 500 } },
+    )
+    entityTypeLabels.value = Object.keys(artifacts.entities ?? {}).sort()
+    relationshipTypeLabels.value = (artifacts.relationships ?? []).map((rel) => rel.relationship_type)
+    designArtifactsReloadNonce.value += 1
+    if (!options.silent) {
+      toast.success('Design artifacts refreshed')
+    }
+  } catch (err) {
+    if (!options.silent) {
+      toast.error('Failed to refresh design artifacts', {
+        description: extractErrorMessage(err),
+      })
+    }
+  } finally {
+    designArtifactsRefreshing.value = false
+  }
+}
 
 async function loadKgIdentity() {
   if (!hasTenant.value || !kgId.value) return
@@ -1083,6 +1114,8 @@ async function sendChatMessage(message: string) {
     sendingChat.value = false
     if (chatSucceeded) {
       syncActivityLinesFromSession()
+      await refreshDesignArtifacts({ silent: true })
+      await loadWorkspaceStatus()
     }
   }
 }
@@ -1211,6 +1244,7 @@ watch(
         loadExtractionSession(),
         loadSessionHistory(),
         loadGraphManagementDataSources(),
+        refreshDesignArtifacts({ silent: true }),
       ])
       await warmupAssistantRuntime()
     } else {
@@ -1840,12 +1874,27 @@ watch(selectedOpsDataSourceId, () => {
             class="graph-management-schema-panel lg:sticky lg:top-4 lg:self-start"
           >
             <CardHeader class="pb-2">
-              <CardTitle class="text-sm font-semibold">Schema &amp; artifacts</CardTitle>
-              <CardDescription class="text-xs">
-                Workspace signals for
-                <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
-                Select an artifact to open it in the detail panel to the right.
-              </CardDescription>
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle class="text-sm font-semibold">Design Artifacts</CardTitle>
+                  <CardDescription class="text-xs">
+                    Live schema and instances from the platform database for
+                    <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
+                    Select an artifact to open it in the detail panel to the right.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="shrink-0"
+                  :disabled="designArtifactsRefreshing"
+                  @click="refreshDesignArtifacts()"
+                >
+                  <Loader2 v-if="designArtifactsRefreshing" class="mr-1.5 size-3.5 animate-spin" />
+                  <RefreshCw v-else class="mr-1.5 size-3.5" />
+                  Refresh
+                </Button>
+              </div>
             </CardHeader>
             <CardContent class="space-y-1.5 p-3 pt-0">
               <template v-if="schemaRailItems.length > 0">
@@ -1874,87 +1923,21 @@ watch(selectedOpsDataSourceId, () => {
           </Card>
 
           <div id="graph-management-artifact-detail" class="graph-management-detail scroll-mt-6 space-y-6">
-            <Card v-if="selectedRailItemId === 'schema-entities'">
-              <CardHeader>
-                <CardTitle class="text-base flex items-center gap-2">
-                  <Box class="size-4" />
-                  Schema: Entities
-                </CardTitle>
-                <CardDescription>
-                  Entity type coverage snapshot for
-                  <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
-                </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 text-sm">
-                <div class="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" size="sm" as-child>
-                    <NuxtLink to="/graph/schema">Open schema browser</NuxtLink>
-                  </Button>
-                </div>
-                <div class="rounded-lg border bg-muted/30 p-3">
-                  <div class="flex items-center justify-between gap-2">
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Entity type inventory
-                    </p>
-                    <Badge :variant="entityTypeLabels.length > 0 ? 'default' : 'secondary'">
-                      {{ entityTypeLabels.length }} type(s)
-                    </Badge>
-                  </div>
-                  <p
-                    v-if="entityTypeLabels.length === 0"
-                    class="mt-2 text-xs text-muted-foreground"
-                  >
-                    No entity types defined yet. Add at least one type to satisfy schema readiness.
-                  </p>
-                  <div v-else class="mt-2 flex flex-wrap gap-2">
-                    <Badge v-for="label in entityTypeLabels" :key="label" variant="outline">
-                      {{ label }}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div v-if="selectedRailItemId === 'schema-entities'" class="min-w-0 space-y-2">
+              <GraphDesignEntitiesPanel
+                :kg-id="kgId"
+                :reload-nonce="designArtifactsReloadNonce"
+                embedded
+              />
+            </div>
 
-            <Card v-else-if="selectedRailItemId === 'schema-relationships'">
-              <CardHeader>
-                <CardTitle class="text-base flex items-center gap-2">
-                  <Link2 class="size-4" />
-                  Schema: Relationships
-                </CardTitle>
-                <CardDescription>
-                  Relationship type coverage snapshot for
-                  <span class="font-medium text-foreground">{{ graphManagementModeLabel }}</span>.
-                </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 text-sm">
-                <div class="flex flex-wrap justify-end gap-2">
-                  <Button variant="outline" size="sm" as-child>
-                    <NuxtLink to="/graph/schema">Open schema browser</NuxtLink>
-                  </Button>
-                </div>
-                <div class="rounded-lg border bg-muted/30 p-3">
-                  <div class="flex items-center justify-between gap-2">
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Relationship type inventory
-                    </p>
-                    <Badge :variant="relationshipTypeLabels.length > 0 ? 'default' : 'secondary'">
-                      {{ relationshipTypeLabels.length }} type(s)
-                    </Badge>
-                  </div>
-                  <p
-                    v-if="relationshipTypeLabels.length === 0"
-                    class="mt-2 text-xs text-muted-foreground"
-                  >
-                    No relationship types defined yet. Add at least one type to satisfy schema readiness.
-                  </p>
-                  <div v-else class="mt-2 flex flex-wrap gap-2">
-                    <Badge v-for="label in relationshipTypeLabels" :key="label" variant="outline">
-                      {{ label }}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div v-else-if="selectedRailItemId === 'schema-relationships'" class="min-w-0 space-y-2">
+              <GraphDesignRelationshipsPanel
+                :kg-id="kgId"
+                :reload-nonce="designArtifactsReloadNonce"
+                embedded
+              />
+            </div>
 
             <Card v-else-if="selectedRailItemId === 'schema-readiness'">
               <CardHeader>

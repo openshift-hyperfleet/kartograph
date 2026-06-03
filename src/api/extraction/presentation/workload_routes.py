@@ -147,6 +147,7 @@ async def workload_apply_mutations(
 ) -> WorkloadMutationApplyResponse:
     _require_chat_scope(auth)
     result = await schema_service.apply_mutation_jsonl(
+        tenant_id=auth.tenant_id,
         knowledge_graph_id=auth.knowledge_graph_id,
         jsonl=request.jsonl,
     )

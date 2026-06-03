@@ -427,7 +427,10 @@ describe('KG-MANAGE-007 - graph management modes', () => {
 describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
   it('renders artifact navigator and detail panel in k-extract-style layout', () => {
     expect(manageWorkspaceVue).toContain('graph-management-artifacts')
-    expect(manageWorkspaceVue).toContain('Schema &amp; artifacts')
+    expect(manageWorkspaceVue).toContain('Design Artifacts')
+    expect(manageWorkspaceVue).toContain('refreshDesignArtifacts')
+    expect(manageWorkspaceVue).toContain('GraphDesignEntitiesPanel')
+    expect(manageWorkspaceVue).toContain('GraphDesignRelationshipsPanel')
     expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
     expect(manageWorkspaceVue).toContain('graph-management-session-pointers')
     expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
@@ -487,9 +490,9 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
 
 describe('KG-MANAGE-010 - schema design parity behavior', () => {
   it('exposes schema readiness and validation detail in initial schema design mode', () => {
-    expect(manageWorkspaceVue).toContain('Schema: Entities')
-    expect(manageWorkspaceVue).toContain('Schema: Relationships')
-    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-entities'")
+    expect(manageWorkspaceVue).toContain('GraphDesignEntitiesPanel')
+    expect(manageWorkspaceVue).toContain('GraphDesignRelationshipsPanel')
+    expect(manageWorkspaceVue).toContain('refreshDesignArtifacts')
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-relationships'")
     expect(manageWorkspaceVue).toContain('progressChecklist')
     expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')

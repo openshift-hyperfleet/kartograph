@@ -383,3 +383,73 @@ class OntologyConfigResponse(BaseModel):
             ],
             approved_at=config.approved_at,
         )
+
+
+class DesignArtifactInstanceModel(BaseModel):
+    """One entity or relationship instance surfaced in design artifacts."""
+
+    slug: str | None = None
+    source_slug: str | None = None
+    target_slug: str | None = None
+    properties: dict[str, object] = Field(default_factory=dict)
+
+
+class DesignArtifactEntityTypeModel(BaseModel):
+    """Entity type definition merged with live instance counts."""
+
+    type: str
+    description: str = ""
+    required_properties: list[str] = Field(default_factory=list)
+    optional_properties: list[str] = Field(default_factory=list)
+    property_definitions: dict[str, str] = Field(default_factory=dict)
+    prepopulated_instances: bool | str = False
+    instance_count: int = 0
+    instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
+
+
+class DesignArtifactRelationshipTypeModel(BaseModel):
+    """Relationship type definition merged with live instance counts."""
+
+    key: str
+    source_entity_type: str
+    target_entity_type: str
+    relationship_type: str
+    reverse_relationship_type: str | None = None
+    reverse_relationship_description: str | None = None
+    prepopulated_instances: bool | str = False
+    description: str | None = None
+    instance_count: int = 0
+    instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
+    required_parameters: list[str] = Field(default_factory=list)
+    optional_parameters: list[str] = Field(default_factory=list)
+    parameter_definitions: dict[str, str] = Field(default_factory=dict)
+
+
+class DesignArtifactsCountsModel(BaseModel):
+    """Aggregate counts for design artifact navigation."""
+
+    entity_types: int = 0
+    relationship_types: int = 0
+    entity_instances: int = 0
+    relationship_instances: int = 0
+
+
+class DesignArtifactsLimitsModel(BaseModel):
+    """Truncation metadata for instance payloads."""
+
+    requested: int
+    entity_instances_returned: int
+    relationship_instances_returned: int
+    entity_instances_truncated: bool
+    relationship_instances_truncated: bool
+
+
+class DesignArtifactsResponse(BaseModel):
+    """Canonical schema plus live graph instances for Graph Management UI."""
+
+    found: bool
+    knowledge_graph_id: str
+    entities: dict[str, DesignArtifactEntityTypeModel]
+    relationships: list[DesignArtifactRelationshipTypeModel]
+    counts: DesignArtifactsCountsModel
+    limits: DesignArtifactsLimitsModel

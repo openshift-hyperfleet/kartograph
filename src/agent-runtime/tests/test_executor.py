@@ -70,11 +70,13 @@ def test_build_workspace_prompt_appendix_lists_materialized_repository_files(
 def test_build_system_prompt_includes_workspace_appendix() -> None:
     prompt = _build_system_prompt(
         {"system_prompt": "Base prompt"},
+        settings=AgentRuntimeSettings(KARTOGRAPH_WORKLOAD_TOKEN="token"),
         workspace_appendix="## Session workspace\nFiles here",
     )
 
     assert "Base prompt" in prompt
     assert "Files here" in prompt
+    assert "kartograph_get_schema_ontology" in prompt
 
 
 def test_extract_sdk_reply_joins_multiple_text_blocks() -> None:

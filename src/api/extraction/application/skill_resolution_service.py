@@ -92,9 +92,16 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "instances required before extraction-mode transition."
         ),
         "schema_tools": (
-            "Available tools: kartograph_get_schema_authoring_guide, "
+            "Available MCP tools (call by exact name): kartograph_get_schema_authoring_guide, "
             "kartograph_get_schema_ontology, kartograph_save_schema_ontology, "
-            "kartograph_apply_graph_mutations, kartograph_search_graph_by_slug."
+            "kartograph_apply_graph_mutations, kartograph_search_graph_by_slug. "
+            "Always start with get_schema_authoring_guide, then get_schema_ontology before saves."
+        ),
+        "tools_quickstart": (
+            "Workflow: (1) kartograph_get_schema_authoring_guide → (2) kartograph_get_schema_ontology "
+            "→ (3) kartograph_save_schema_ontology for types → (4) kartograph_apply_graph_mutations "
+            "for instances → (5) kartograph_search_graph_by_slug to verify. "
+            "Never call /management or /graph HTTP routes."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

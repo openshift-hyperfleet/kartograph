@@ -40,7 +40,7 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=knowledge_graph_id,
+                graph_id=graph_name,
             )
             service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
             nodes = service.search_by_slug(

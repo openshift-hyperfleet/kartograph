@@ -28,8 +28,11 @@ from management.presentation.knowledge_graphs.models import (
     MaintenanceScheduleUpsertRequest,
     OntologyConfigRequest,
     OntologyConfigResponse,
+    DesignArtifactsResponse,
     UpdateKnowledgeGraphRequest,
 )
+from infrastructure.management.design_artifacts_service import DesignArtifactsService
+from management.dependencies.design_artifacts import get_design_artifacts_service
 from shared_kernel.authorization.types import Permission
 
 router = APIRouter(tags=["knowledge-graphs"])
@@ -591,6 +594,37 @@ async def update_knowledge_graph(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update knowledge graph",
         )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts",
+    response_model=DesignArtifactsResponse,
+    summary="Get design artifacts for a knowledge graph",
+    description="""
+Return canonical schema definitions merged with live graph instances from the tenant AGE database.
+
+Used by the Graph Management workspace to render k-extract-style design artifact panels.
+Requires `view` permission on the knowledge graph.
+""",
+)
+async def get_knowledge_graph_design_artifacts(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    limit: Annotated[int, Query(ge=1, le=3000)] = 500,
+) -> DesignArtifactsResponse:
+    """Get merged ontology and graph instance artifacts for one knowledge graph."""
+    payload = await service.get_design_artifacts(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        limit=limit,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactsResponse.model_validate(payload)
 
 
 @router.get(

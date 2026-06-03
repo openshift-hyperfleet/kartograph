@@ -24,6 +24,7 @@ class IWorkloadSchemaService(Protocol):
     async def apply_mutation_jsonl(
         self,
         *,
+        tenant_id: str,
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:

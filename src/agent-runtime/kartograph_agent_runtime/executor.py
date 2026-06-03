@@ -9,6 +9,7 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
+from kartograph_agent_runtime.agent_prompt import build_agent_system_prompt
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
 from kartograph_agent_runtime.thinking_stream import (
     initial_sdk_thinking_lines,
@@ -26,19 +27,14 @@ _SDK_HEARTBEAT_SECONDS = 8.0
 def _build_system_prompt(
     agent_configuration: dict[str, Any],
     *,
+    settings: AgentRuntimeSettings | None = None,
     workspace_appendix: str = "",
 ) -> str:
-    system_prompt = str(agent_configuration.get("system_prompt") or "").strip()
-    guardrails = agent_configuration.get("guardrails") or []
-    skills = agent_configuration.get("skills") or {}
-    skill_lines = "\n".join(f"- {key}: {value}" for key, value in sorted(skills.items()))
-    guardrail_lines = "\n".join(f"- {item}" for item in guardrails if str(item).strip())
-    sections = [
-        section
-        for section in (system_prompt, guardrail_lines, skill_lines, workspace_appendix.strip())
-        if section
-    ]
-    return "\n\n".join(sections) or "You are the Graph Management Assistant."
+    return build_agent_system_prompt(
+        agent_configuration,
+        settings=settings,
+        workspace_appendix=workspace_appendix,
+    )
 
 
 def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
@@ -346,6 +342,7 @@ async def _stream_with_claude_sdk(
 
     system_prompt = _build_system_prompt(
         agent_configuration,
+        settings=settings,
         workspace_appendix=_build_workspace_prompt_appendix(settings),
     )
     history_lines = [

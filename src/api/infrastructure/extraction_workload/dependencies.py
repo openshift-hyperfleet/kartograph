@@ -13,6 +13,9 @@ from extraction.ports.workload_graph import IWorkloadGraphReader
 from extraction.ports.workload_schema import IWorkloadSchemaService
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
+from infrastructure.extraction_workload.graph_mutation_writer import (
+    GraphWorkloadGraphMutationWriter,
+)
 from infrastructure.extraction_workload.graph_reader import GraphWorkloadGraphReader
 from infrastructure.extraction_workload.schema_service import GraphWorkloadSchemaService
 from infrastructure.settings import get_database_settings
@@ -38,5 +41,13 @@ def get_workload_graph_reader(
 
 def get_workload_schema_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
+    pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
 ) -> IWorkloadSchemaService:
-    return GraphWorkloadSchemaService(session=session)
+    return GraphWorkloadSchemaService(
+        session=session,
+        mutation_writer=GraphWorkloadGraphMutationWriter(
+            pool=pool,
+            settings=get_database_settings(),
+            session=session,
+        ),
+    )

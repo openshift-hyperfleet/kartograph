@@ -8,13 +8,20 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from kartograph_agent_runtime.tools import RuntimeTooling
 
+WORKSPACE_FILE_TOOL_NAMES = ("Read", "Grep", "Glob")
+
 KARTOGRAPH_SCHEMA_TOOL_NAMES = (
     "kartograph_get_schema_authoring_guide",
+    "kartograph_get_workspace_readiness",
     "kartograph_get_schema_ontology",
     "kartograph_save_schema_ontology",
     "kartograph_apply_graph_mutations",
+    "kartograph_list_instances_by_type",
+    "kartograph_list_relationship_instances",
     "kartograph_search_graph_by_slug",
 )
+
+GMA_ALLOWED_TOOL_NAMES = KARTOGRAPH_SCHEMA_TOOL_NAMES + WORKSPACE_FILE_TOOL_NAMES
 
 
 def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
@@ -33,6 +40,20 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
         except Exception as exc:  # noqa: BLE001
             return {
                 "content": [{"type": "text", "text": f"Failed to load schema guide: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
+        "kartograph_get_workspace_readiness",
+        "Return bootstrap readiness: prepopulated gaps, live instance counts, and blocking reasons.",
+        {},
+    )
+    async def get_workspace_readiness(_args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return RuntimeTooling.format_tool_result(await tooling.get_workspace_readiness())
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to load workspace readiness: {exc}"}],
                 "is_error": True,
             }
 
@@ -100,6 +121,76 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
             }
 
     @tool(
+        "kartograph_list_instances_by_type",
+        "List entity instances for one type with pagination (use to verify prepopulation).",
+        {"entity_type": str, "limit": int, "offset": int},
+    )
+    async def list_instances_by_type(args: dict[str, Any]) -> dict[str, Any]:
+        entity_type = str(args.get("entity_type") or "").strip()
+        if not entity_type:
+            return {
+                "content": [{"type": "text", "text": "entity_type must not be empty."}],
+                "is_error": True,
+            }
+        limit = args.get("limit", 100)
+        offset = args.get("offset", 0)
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.list_instances_by_type(
+                    entity_type=entity_type,
+                    limit=int(limit) if isinstance(limit, int) else 100,
+                    offset=int(offset) if isinstance(offset, int) else 0,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to list instances: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
+        "kartograph_list_relationship_instances",
+        "List relationship instances with source/target slugs and IDs for edge prepopulation.",
+        {
+            "relationship_type": str,
+            "source_entity_type": str,
+            "target_entity_type": str,
+            "limit": int,
+            "offset": int,
+        },
+    )
+    async def list_relationship_instances(args: dict[str, Any]) -> dict[str, Any]:
+        relationship_type = str(args.get("relationship_type") or "").strip()
+        if not relationship_type:
+            return {
+                "content": [{"type": "text", "text": "relationship_type must not be empty."}],
+                "is_error": True,
+            }
+        source_entity_type = args.get("source_entity_type")
+        target_entity_type = args.get("target_entity_type")
+        limit = args.get("limit", 100)
+        offset = args.get("offset", 0)
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.list_relationship_instances(
+                    relationship_type=relationship_type,
+                    source_entity_type=str(source_entity_type).strip()
+                    if source_entity_type
+                    else None,
+                    target_entity_type=str(target_entity_type).strip()
+                    if target_entity_type
+                    else None,
+                    limit=int(limit) if isinstance(limit, int) else 100,
+                    offset=int(offset) if isinstance(offset, int) else 0,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to list relationships: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
         "kartograph_search_graph_by_slug",
         "Search existing graph nodes by slug within the active knowledge graph.",
         {"slug": str, "entity_type": str},
@@ -130,9 +221,12 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
         version="1.0.0",
         tools=[
             get_schema_authoring_guide,
+            get_workspace_readiness,
             get_schema_ontology,
             save_schema_ontology,
             apply_graph_mutations,
+            list_instances_by_type,
+            list_relationship_instances,
             search_graph_by_slug,
         ],
     )

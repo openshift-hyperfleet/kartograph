@@ -38,8 +38,12 @@ class TestExtractionSkillResolutionService:
         assert "entity_type_authoring" in resolved.skills
         assert "relationship_type_authoring" in resolved.skills
         assert "instance_authoring" in resolved.skills
+        assert "instance_generation" in resolved.skills
+        assert "relationship_instance_authoring" in resolved.skills
         assert "schema_tools" in resolved.skills
         assert "kartograph_get_schema_ontology" in resolved.skills["schema_tools"]
+        assert "kartograph_get_workspace_readiness" in resolved.skills["schema_tools"]
+        assert "Read" in resolved.skills["schema_tools"]
         assert "prepopulation_validation" in resolved.skills
         assert "capabilities_intake" in resolved.skills
         assert "goal" in resolved.system_prompt.lower()

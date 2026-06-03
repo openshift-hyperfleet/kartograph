@@ -55,6 +55,41 @@ def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -
     assert "pkg/api/adapter_status_types_test.go" in appendix
 
 
+def test_build_workspace_prompt_appendix_includes_extension_counts(tmp_path: Path) -> None:
+    package_root = tmp_path / "repository-files" / "hyperfleet-api" / "pkg" / "api"
+    package_root.mkdir(parents=True)
+    (package_root / "adapter_status_types_test.go").write_text("package api\n", encoding="utf-8")
+    (package_root / "README.md").write_text("# docs\n", encoding="utf-8")
+    (tmp_path / "sources-index.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "knowledge_graph_id": "kg-1",
+                "sources": [
+                    {
+                        "job_package_id": "pkg-1",
+                        "data_source_id": "ds-hyperfleet-api",
+                        "data_source_name": "Hyperfleet API",
+                        "repository_folder": "hyperfleet-api",
+                        "entry_count": 2,
+                        "repository_root": "repository-files/hyperfleet-api",
+                        "sample_paths": ["pkg/api/adapter_status_types_test.go"],
+                        "file_extension_counts": {".go": 1, ".md": 1},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    appendix = _build_workspace_prompt_appendix(
+        AgentRuntimeSettings(KARTOGRAPH_WORKSPACE_DIR=str(tmp_path))
+    )
+
+    assert ".go=1" in appendix
+    assert ".md=1" in appendix
+
+
 def test_build_workspace_prompt_appendix_lists_materialized_repository_files(
     tmp_path: Path,
 ) -> None:

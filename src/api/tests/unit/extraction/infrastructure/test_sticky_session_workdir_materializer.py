@@ -132,6 +132,7 @@ def test_materializer_writes_sources_index(tmp_path: Path) -> None:
     assert source["entry_count"] == 1
     assert source["sample_paths"] == ["pkg/api/example.go"]
     assert source["repository_root"] == "repository-files/hyperfleet-e2e"
+    assert source["file_extension_counts"] == {".go": 1}
 
 
 def test_materializer_refresh_preserves_session_root_directory(tmp_path: Path) -> None:

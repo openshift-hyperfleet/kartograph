@@ -88,7 +88,20 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         "instance_authoring": (
             "Create entity or relationship instances with kartograph_apply_graph_mutations "
             "JSONL CREATE lines after types exist. Nodes require slug, data_source_id, "
-            "and source_path in set_properties. Use ids like label:16hex."
+            "and source_path in set_properties. Use ids like label:16hex. Create entity "
+            "nodes before edges; batch 25–50 lines per apply call."
+        ),
+        "relationship_instance_authoring": (
+            "Create relationship instances only after endpoint entity nodes exist. Use "
+            "kartograph_list_instances_by_type or kartograph_list_relationship_instances "
+            "to resolve start_id/end_id and source_slug/target_slug pairs. Edge CREATE "
+            "lines require start_id, end_id, data_source_id, and source_path."
+        ),
+        "instance_generation": (
+            "For prepopulated types, scan repository-files with Read/Grep/Glob using the "
+            "data_source, folder, or source_file patterns from the authoring guide. "
+            "Derive kebab-case slugs from paths, apply CREATE batches, then verify with "
+            "kartograph_list_instances_by_type and kartograph_get_workspace_readiness."
         ),
         "prepopulation_validation": (
             "Prioritize prepopulated entity and relationship type coverage. Entity types "
@@ -98,14 +111,19 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         ),
         "schema_tools": (
             "Available MCP tools (call by exact name): kartograph_get_schema_authoring_guide, "
-            "kartograph_get_schema_ontology, kartograph_save_schema_ontology, "
-            "kartograph_apply_graph_mutations, kartograph_search_graph_by_slug. "
-            "Always start with get_schema_authoring_guide, then get_schema_ontology before saves."
+            "kartograph_get_workspace_readiness, kartograph_get_schema_ontology, "
+            "kartograph_save_schema_ontology, kartograph_apply_graph_mutations, "
+            "kartograph_list_instances_by_type, kartograph_list_relationship_instances, "
+            "kartograph_search_graph_by_slug. "
+            "Filesystem tools: Read, Grep, Glob (workspace mount only). "
+            "Always start with get_schema_authoring_guide, then get_workspace_readiness."
         ),
         "tools_quickstart": (
-            "Workflow: (1) kartograph_get_schema_authoring_guide → (2) kartograph_get_schema_ontology "
-            "→ (3) kartograph_save_schema_ontology for types → (4) kartograph_apply_graph_mutations "
-            "for instances → (5) kartograph_search_graph_by_slug to verify. "
+            "Workflow: (1) kartograph_get_schema_authoring_guide → "
+            "(2) kartograph_get_workspace_readiness → (3) kartograph_get_schema_ontology "
+            "→ (4) Read/Grep/Glob repository-files → (5) kartograph_save_schema_ontology "
+            "for types → (6) kartograph_apply_graph_mutations for instances in batches "
+            "→ (7) kartograph_list_instances_by_type to verify. "
             "Never call /management or /graph HTTP routes."
         ),
     },

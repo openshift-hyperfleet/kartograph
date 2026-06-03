@@ -50,7 +50,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
         ),
     )
     sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
-    sticky_turn_timeout_seconds: float = Field(default=600.0, ge=30.0, le=900.0)
+    sticky_turn_timeout_seconds: float = Field(default=1000.0, ge=30.0, le=1200.0)
     sticky_max_turns: int = Field(default=500, ge=1, le=1000)
     vertex_project_id: str = Field(default="")
     vertex_region: str = Field(default="us-east5")

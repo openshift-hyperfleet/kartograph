@@ -16,6 +16,21 @@ class WorkloadGraphNode:
     properties: dict
 
 
+@dataclass(frozen=True)
+class WorkloadGraphRelationship:
+    """Graph relationship returned to sticky session agent tools."""
+
+    id: str
+    relationship_type: str
+    start_id: str
+    end_id: str
+    source_slug: str | None
+    target_slug: str | None
+    source_entity_type: str
+    target_entity_type: str
+    properties: dict
+
+
 class IWorkloadGraphReader(Protocol):
     """Read-only graph access scoped to a workload token context."""
 
@@ -28,4 +43,52 @@ class IWorkloadGraphReader(Protocol):
         entity_type: str | None = None,
     ) -> list[WorkloadGraphNode]:
         """Search nodes by slug within one knowledge graph."""
+        ...
+
+    async def list_instances_by_type(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[WorkloadGraphNode], int]:
+        """List entity instances for one type; returns (page, total_count)."""
+        ...
+
+    async def count_entity_instances_by_type(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+    ) -> int:
+        """Count live entity instances for one type."""
+        ...
+
+    async def list_relationship_instances(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        relationship_type: str,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[WorkloadGraphRelationship], int]:
+        """List relationship instances; returns (page, total_count)."""
+        ...
+
+    async def count_relationship_instances(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        relationship_type: str,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+    ) -> int:
+        """Count live relationship instances for one relationship type."""
         ...

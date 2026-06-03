@@ -62,7 +62,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         gcloud_config_container_path: str = "/gcloud/config",
         container_run_uid: int | None = None,
         container_run_gid: int | None = None,
-        agent_turn_timeout_seconds: float = 600.0,
+        agent_turn_timeout_seconds: float = 1000.0,
         agent_max_turns: int = 500,
     ) -> None:
         self._container_runtime = container_runtime

@@ -30,6 +30,13 @@ class RuntimeTooling:
             response.raise_for_status()
             return response.json()
 
+    async def get_workspace_readiness(self) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/schema/readiness"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
     async def get_schema_ontology(self) -> dict[str, Any]:
         url = f"{self._base_url()}/extraction/workloads/schema/ontology"
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -52,6 +59,48 @@ class RuntimeTooling:
                 headers=self._headers(),
                 json={"jsonl": jsonl},
             )
+            response.raise_for_status()
+            return response.json()
+
+    async def list_instances_by_type(
+        self,
+        *,
+        entity_type: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/graph/instances"
+        params = {
+            "entity_type": entity_type,
+            "limit": str(max(1, min(limit, 500))),
+            "offset": str(max(0, offset)),
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers(), params=params)
+            response.raise_for_status()
+            return response.json()
+
+    async def list_relationship_instances(
+        self,
+        *,
+        relationship_type: str,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/graph/relationships"
+        params: dict[str, str] = {
+            "relationship_type": relationship_type,
+            "limit": str(max(1, min(limit, 500))),
+            "offset": str(max(0, offset)),
+        }
+        if source_entity_type:
+            params["source_entity_type"] = source_entity_type
+        if target_entity_type:
+            params["target_entity_type"] = target_entity_type
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers(), params=params)
             response.raise_for_status()
             return response.json()
 

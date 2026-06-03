@@ -12,6 +12,9 @@ from infrastructure.canonical_schema.graph_canonical_schema_repository import (
 from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
+from infrastructure.extraction_workload.workspace_readiness import (
+    sync_prepopulated_instance_counts,
+)
 from management.domain.value_objects import OntologyConfig
 from management.ports.exceptions import CanonicalSchemaMutationError
 
@@ -24,10 +27,12 @@ class GraphWorkloadSchemaService:
         session: AsyncSession,
         *,
         mutation_writer: GraphWorkloadGraphMutationWriter,
+        graph_reader=None,
     ) -> None:
         self._session = session
         self._repository = GraphCanonicalSchemaRepository(session)
         self._mutation_writer = mutation_writer
+        self._graph_reader = graph_reader
 
     async def get_ontology(self, *, knowledge_graph_id: str) -> OntologyConfig | None:
         return await self._repository.get_ontology(knowledge_graph_id)
@@ -86,6 +91,18 @@ class GraphWorkloadSchemaService:
         if errors:
             await self._session.rollback()
             return {"applied": False, "errors": errors}
+
+        if instance_ops and self._graph_reader is not None:
+            ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+            if ontology is not None:
+                synced = await sync_prepopulated_instance_counts(
+                    ontology=ontology,
+                    knowledge_graph_id=knowledge_graph_id,
+                    tenant_id=tenant_id,
+                    graph_reader=self._graph_reader,
+                )
+                if synced is not ontology:
+                    await self._repository.replace_ontology(knowledge_graph_id, synced)
 
         await self._session.commit()
         return {"applied": True, "errors": [], "operations_applied": operations_applied}

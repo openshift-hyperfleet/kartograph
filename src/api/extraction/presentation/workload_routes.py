@@ -74,6 +74,52 @@ class WorkloadSchemaAuthoringGuideResponse(BaseModel):
     guide: str
 
 
+class WorkloadInstanceListResponse(BaseModel):
+    """Paginated entity instances for one type."""
+
+    entity_type: str
+    nodes: list[dict]
+    count: int
+    total: int
+    limit: int
+    offset: int
+
+
+class WorkloadReadinessResponse(BaseModel):
+    """Bootstrap readiness snapshot for schema prepopulation."""
+
+    knowledge_graph_id: str
+    has_minimum_entity_types: bool
+    has_minimum_relationship_types: bool
+    prepopulated_types_ready_metadata: bool
+    prepopulated_types_without_instances_metadata: list[str] = Field(default_factory=list)
+    prepopulated_relationship_types_without_instances_metadata: list[str] = Field(
+        default_factory=list
+    )
+    prepopulated_entity_types_without_instances_live: list[str] = Field(default_factory=list)
+    prepopulated_relationship_types_without_instances_live: list[str] = Field(
+        default_factory=list
+    )
+    prepopulated_types_ready_live: bool = False
+    prepopulated_entity_types: list[dict[str, object]] = Field(default_factory=list)
+    prepopulated_relationship_types: list[dict[str, object]] = Field(default_factory=list)
+    blocking_reasons: list[str] = Field(default_factory=list)
+    transition_eligible: bool
+
+
+class WorkloadRelationshipListResponse(BaseModel):
+    """Paginated relationship instances for one type."""
+
+    relationship_type: str
+    source_entity_type: str | None = None
+    target_entity_type: str | None = None
+    relationships: list[dict]
+    count: int
+    total: int
+    limit: int
+    offset: int
+
+
 @router.get(
     "/schema/authoring-guide",
     response_model=WorkloadSchemaAuthoringGuideResponse,
@@ -192,3 +238,116 @@ async def workload_search_graph_by_slug(
         for node in nodes
     ]
     return WorkloadGraphSearchResponse(nodes=serialized, count=len(serialized))
+
+
+@router.get(
+    "/graph/instances",
+    response_model=WorkloadInstanceListResponse,
+)
+async def workload_list_instances_by_type(
+    entity_type: Annotated[str, Query(min_length=1)],
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+) -> WorkloadInstanceListResponse:
+    _require_chat_scope(auth)
+
+    nodes, total = await reader.list_instances_by_type(
+        tenant_id=auth.tenant_id,
+        knowledge_graph_id=auth.knowledge_graph_id,
+        entity_type=entity_type,
+        limit=limit,
+        offset=offset,
+    )
+    serialized = [
+        {
+            "id": node.id,
+            "entity_type": node.entity_type,
+            "slug": node.slug,
+            "properties": node.properties,
+        }
+        for node in nodes
+    ]
+    return WorkloadInstanceListResponse(
+        entity_type=entity_type,
+        nodes=serialized,
+        count=len(serialized),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/graph/relationships",
+    response_model=WorkloadRelationshipListResponse,
+)
+async def workload_list_relationship_instances(
+    relationship_type: Annotated[str, Query(min_length=1)],
+    source_entity_type: Annotated[str | None, Query()] = None,
+    target_entity_type: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+) -> WorkloadRelationshipListResponse:
+    _require_chat_scope(auth)
+
+    relationships, total = await reader.list_relationship_instances(
+        tenant_id=auth.tenant_id,
+        knowledge_graph_id=auth.knowledge_graph_id,
+        relationship_type=relationship_type,
+        source_entity_type=source_entity_type,
+        target_entity_type=target_entity_type,
+        limit=limit,
+        offset=offset,
+    )
+    serialized = [
+        {
+            "id": rel.id,
+            "relationship_type": rel.relationship_type,
+            "start_id": rel.start_id,
+            "end_id": rel.end_id,
+            "source_slug": rel.source_slug,
+            "target_slug": rel.target_slug,
+            "source_entity_type": rel.source_entity_type,
+            "target_entity_type": rel.target_entity_type,
+            "properties": rel.properties,
+        }
+        for rel in relationships
+    ]
+    return WorkloadRelationshipListResponse(
+        relationship_type=relationship_type,
+        source_entity_type=source_entity_type,
+        target_entity_type=target_entity_type,
+        relationships=serialized,
+        count=len(serialized),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/schema/readiness",
+    response_model=WorkloadReadinessResponse,
+)
+async def workload_get_workspace_readiness(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+) -> WorkloadReadinessResponse:
+    _require_chat_scope(auth)
+    from infrastructure.extraction_workload.workspace_readiness import (
+        build_workload_readiness_snapshot,
+    )
+
+    ontology = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
+    snapshot = await build_workload_readiness_snapshot(
+        ontology=ontology,
+        knowledge_graph_id=auth.knowledge_graph_id,
+        tenant_id=auth.tenant_id,
+        graph_reader=reader,
+    )
+    return WorkloadReadinessResponse(**snapshot)

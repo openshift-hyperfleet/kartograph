@@ -84,6 +84,9 @@ class StickySessionWorkdirMaterializer:
                     "sync_mode": str(manifest.sync_mode),
                     "repository_root": f"repository-files/{repository_folder}",
                     "sample_paths": sample_paths,
+                    "file_extension_counts": self._extension_counts(
+                        repository_files_dir / repository_folder
+                    ),
                 }
             )
 
@@ -95,6 +98,21 @@ class StickySessionWorkdirMaterializer:
             sources=index_sources,
         )
         return session_root
+
+    @staticmethod
+    def _extension_counts(root: Path) -> dict[str, int]:
+        """Summarize file extensions under one materialized repository folder."""
+        counts: dict[str, int] = {}
+        if not root.is_dir():
+            return counts
+        for file_path in root.rglob("*"):
+            if not file_path.is_file():
+                continue
+            if any(part.startswith(".") for part in file_path.parts):
+                continue
+            suffix = file_path.suffix.lower() or "(no extension)"
+            counts[suffix] = counts.get(suffix, 0) + 1
+        return dict(sorted(counts.items()))
 
     def _write_workspace_index(
         self,

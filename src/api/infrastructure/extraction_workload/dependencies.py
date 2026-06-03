@@ -50,4 +50,5 @@ def get_workload_schema_service(
             settings=get_database_settings(),
             session=session,
         ),
+        graph_reader=GraphWorkloadGraphReader(pool=pool, settings=get_database_settings()),
     )

@@ -36,6 +36,31 @@ def test_build_agent_system_prompt_includes_skills_tools_and_session_scope() -> 
     assert "Files here" in prompt
 
 
+def test_build_agent_system_prompt_includes_workspace_readiness() -> None:
+    prompt = build_agent_system_prompt(
+        {"system_prompt": "Base"},
+        settings=AgentRuntimeSettings(
+            KARTOGRAPH_WORKLOAD_TOKEN="token",
+            KARTOGRAPH_KNOWLEDGE_GRAPH_ID="kg-123",
+        ),
+        workspace_readiness={
+            "prepopulated_entity_types_without_instances_live": ["folder"],
+            "prepopulated_relationship_types_without_instances_live": [],
+            "prepopulated_entity_types": [
+                {"label": "folder", "live_instance_count": 0, "metadata_instance_count": 0}
+            ],
+            "blocking_reasons": ["Prepopulated entity types require instances before transition: folder"],
+            "transition_eligible": False,
+        },
+    )
+
+    assert "Workspace readiness" in prompt
+    assert "`folder`" in prompt
+    assert "kartograph_get_workspace_readiness" in prompt
+    assert "Read" in prompt
+    assert "Glob" in prompt
+
+
 def test_build_agent_system_prompt_omits_tools_without_workload_token() -> None:
     prompt = build_agent_system_prompt(
         {"system_prompt": "Base"},

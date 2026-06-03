@@ -20,7 +20,7 @@ from kartograph_agent_runtime.thinking_stream import (
 from kartograph_agent_runtime.tools import RuntimeTooling
 from kartograph_agent_runtime.vertex import build_claude_agent_env
 
-_DEFAULT_TURN_TIMEOUT_SECONDS = 600.0
+_DEFAULT_TURN_TIMEOUT_SECONDS = 1000.0
 _SDK_HEARTBEAT_SECONDS = 8.0
 
 
@@ -29,11 +29,13 @@ def _build_system_prompt(
     *,
     settings: AgentRuntimeSettings | None = None,
     workspace_appendix: str = "",
+    workspace_readiness: dict[str, Any] | None = None,
 ) -> str:
     return build_agent_system_prompt(
         agent_configuration,
         settings=settings,
         workspace_appendix=workspace_appendix,
+        workspace_readiness=workspace_readiness,
     )
 
 
@@ -87,6 +89,14 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                     for path in sample_paths[:6]:
                         if path:
                             lines.append(f"  - `{path}`")
+                extension_counts = source.get("file_extension_counts")
+                if isinstance(extension_counts, dict) and extension_counts:
+                    top_extensions = sorted(
+                        extension_counts.items(),
+                        key=lambda item: (-int(item[1]), str(item[0])),
+                    )[:8]
+                    summary = ", ".join(f"{ext}={count}" for ext, count in top_extensions)
+                    lines.append(f"  - extensions: {summary}")
             return "\n".join(lines)
 
     repo_root = root / "repository-files"
@@ -363,10 +373,20 @@ async def _stream_with_claude_sdk(
     from claude_agent_sdk import ClaudeAgentOptions, query
     from claude_agent_sdk.types import ResultMessage, TaskNotificationMessage
 
+    workspace_dir = settings.workspace_dir.strip() or "/workspace"
+    tooling = RuntimeTooling(settings=settings)
+    workspace_readiness: dict[str, Any] | None = None
+    if settings.workload_token.strip():
+        try:
+            workspace_readiness = await tooling.get_workspace_readiness()
+        except Exception:  # noqa: BLE001
+            workspace_readiness = None
+
     system_prompt = _build_system_prompt(
         agent_configuration,
         settings=settings,
         workspace_appendix=_build_workspace_prompt_appendix(settings),
+        workspace_readiness=workspace_readiness,
     )
     history_lines = [
         f"{entry.get('role', 'unknown')}: {entry.get('content', '')}"
@@ -381,19 +401,17 @@ async def _stream_with_claude_sdk(
     yield {"type": "thinking", "recent": list(recent)}
 
     sdk_env = _build_sdk_env(settings)
-    workspace_dir = settings.workspace_dir.strip() or "/workspace"
-    tooling = RuntimeTooling(settings=settings)
     options_kwargs: dict[str, Any] = {}
     if settings.workload_token.strip():
         from kartograph_agent_runtime.schema_tools import (
-            KARTOGRAPH_SCHEMA_TOOL_NAMES,
+            GMA_ALLOWED_TOOL_NAMES,
             build_kartograph_schema_mcp_server,
         )
 
         options_kwargs["mcp_servers"] = {
             "kartograph": build_kartograph_schema_mcp_server(tooling),
         }
-        options_kwargs["allowed_tools"] = list(KARTOGRAPH_SCHEMA_TOOL_NAMES)
+        options_kwargs["allowed_tools"] = list(GMA_ALLOWED_TOOL_NAMES)
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         env=sdk_env,

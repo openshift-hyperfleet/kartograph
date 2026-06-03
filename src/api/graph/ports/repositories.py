@@ -54,6 +54,50 @@ class IGraphReadOnlyRepository(Protocol):
         """
         ...
 
+    def find_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[NodeRecord]:
+        """List nodes of one entity type, optionally scoped to a knowledge graph."""
+        ...
+
+    def count_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+    ) -> int:
+        """Count nodes of one entity type within an optional knowledge graph scope."""
+        ...
+
+    def find_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[tuple]:
+        """List relationship instances with source and target nodes."""
+        ...
+
+    def count_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+    ) -> int:
+        """Count relationship instances matching optional endpoint filters."""
+        ...
+
     def get_neighbors(
         self,
         node_id: str,

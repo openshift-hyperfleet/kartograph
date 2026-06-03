@@ -9,8 +9,12 @@ from fastapi.testclient import TestClient
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.presentation import workload_routes
 from extraction.presentation.workload_auth import WorkloadAuthContext, get_workload_auth_context
-from infrastructure.extraction_workload.dependencies import get_workload_schema_service
-from management.domain.value_objects import OntologyConfig
+from extraction.ports.workload_graph import WorkloadGraphNode, WorkloadGraphRelationship
+from infrastructure.extraction_workload.dependencies import (
+    get_workload_graph_reader,
+    get_workload_schema_service,
+)
+from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
 
 
 class _FakeSchemaService:
@@ -41,9 +45,75 @@ class _FakeSchemaService:
         return {"applied": True, "errors": []}
 
 
+class _FakeGraphReader:
+    async def search_by_slug(self, **kwargs):
+        return []
+
+    async def list_instances_by_type(self, **kwargs):
+        return (
+            [
+                WorkloadGraphNode(
+                    id="service:abc",
+                    entity_type="service",
+                    slug="api-gateway",
+                    properties={"name": "api-gateway"},
+                )
+            ],
+            1,
+        )
+
+    async def count_entity_instances_by_type(self, **kwargs):
+        entity_type = kwargs.get("entity_type")
+        if entity_type == "service":
+            return 1
+        return 0
+
+    async def list_relationship_instances(self, **kwargs):
+        return (
+            [
+                WorkloadGraphRelationship(
+                    id="contains:abc",
+                    relationship_type="contains",
+                    start_id="folder:aaa",
+                    end_id="file:bbb",
+                    source_slug="root-hyperfleet",
+                    target_slug="pkg-api-example-go",
+                    source_entity_type="folder",
+                    target_entity_type="source_file",
+                    properties={},
+                )
+            ],
+            1,
+        )
+
+    async def count_relationship_instances(self, **kwargs):
+        relationship_type = kwargs.get("relationship_type")
+        if relationship_type == "contains":
+            return 1
+        return 0
+
+
 @pytest.fixture
 def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     fake = _FakeSchemaService()
+    fake.saved = OntologyConfig(
+        node_types=(
+            NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
+        ),
+        edge_types=(
+            EdgeTypeDefinition(
+                label="contains",
+                source_labels=("folder",),
+                target_labels=("source_file",),
+                prepopulated=True,
+            ),
+            EdgeTypeDefinition(
+                label="depends_on",
+                source_labels=("service",),
+                target_labels=("service",),
+            ),
+        ),
+    )
     issuer = ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
@@ -53,6 +123,7 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     app = FastAPI()
     app.include_router(workload_routes.router, prefix="/extraction")
     app.dependency_overrides[get_workload_schema_service] = lambda: fake
+    app.dependency_overrides[get_workload_graph_reader] = lambda: _FakeGraphReader()
     app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
         credentials=credentials,
         tenant_id="tenant-1",
@@ -71,6 +142,53 @@ def test_workload_get_schema_authoring_guide(workload_client: tuple[TestClient, 
     )
     assert response.status_code == 200
     assert "kartograph_get_schema_ontology" in response.json()["guide"]
+    assert "Instance generation cookbook" in response.json()["guide"]
+
+
+def test_workload_get_workspace_readiness(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.get(
+        "/extraction/workloads/schema/readiness",
+        headers={"X-Workload-Token": token},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["knowledge_graph_id"] == "kg-1"
+    assert payload["prepopulated_entity_types_without_instances_live"] == []
+    assert payload["prepopulated_entity_types"][0]["live_instance_count"] == 1
+    assert payload["prepopulated_entity_types"][0]["label"] == "service"
+
+
+def test_workload_list_instances_by_type(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.get(
+        "/extraction/workloads/graph/instances",
+        headers={"X-Workload-Token": token},
+        params={"entity_type": "service"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entity_type"] == "service"
+    assert payload["count"] == 1
+    assert payload["nodes"][0]["slug"] == "api-gateway"
+
+
+def test_workload_list_relationship_instances(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.get(
+        "/extraction/workloads/graph/relationships",
+        headers={"X-Workload-Token": token},
+        params={
+            "relationship_type": "contains",
+            "source_entity_type": "folder",
+            "target_entity_type": "source_file",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["relationship_type"] == "contains"
+    assert payload["count"] == 1
+    assert payload["relationships"][0]["source_slug"] == "root-hyperfleet"
 
 
 def test_workload_save_schema_ontology(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:

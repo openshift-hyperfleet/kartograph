@@ -137,6 +137,147 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
 
         return nodes
 
+    def find_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[NodeRecord]:
+        """List nodes of one entity type, optionally scoped to a knowledge graph."""
+        bounded_limit = max(1, min(limit, 500))
+        bounded_offset = max(0, offset)
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        query = f"""
+            MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            RETURN {{node: n}}
+            SKIP {bounded_offset}
+            LIMIT {bounded_limit}
+        """
+        result = self._client.execute_cypher(query)
+
+        nodes: list[NodeRecord] = []
+        for row in result.rows:
+            if len(row) > 0 and isinstance(row[0], dict):
+                result_map = row[0]
+                if "node" in result_map and result_map["node"] is not None:
+                    nodes.append(self._vertex_to_node_record(result_map["node"]))
+        return nodes
+
+    def count_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+    ) -> int:
+        """Count nodes of one entity type within an optional knowledge graph scope."""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        query = f"""
+            MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            RETURN count(n) AS total
+        """
+        result = self._client.execute_cypher(query)
+        if not result.rows:
+            return 0
+        row = result.rows[0]
+        if not row:
+            return 0
+        value = row[0]
+        if isinstance(value, dict) and "total" in value:
+            return int(value["total"])
+        return int(value)
+
+    def find_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[tuple[EdgeRecord, NodeRecord, NodeRecord]]:
+        """List relationship instances with resolved source and target nodes."""
+        bounded_limit = max(1, min(limit, 500))
+        bounded_offset = max(0, offset)
+        source_type = f":{source_entity_type}" if source_entity_type else ""
+        target_type = f":{target_entity_type}" if target_entity_type else ""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        query = f"""
+            MATCH (source{source_type})-[edge:{relationship_label} {{
+                graph_id: '{self._graph_id}'{kg_filter}
+            }}]->(target{target_type})
+            RETURN {{edge: edge, source: source, target: target}}
+            SKIP {bounded_offset}
+            LIMIT {bounded_limit}
+        """
+        result = self._client.execute_cypher(query)
+
+        instances: list[tuple[EdgeRecord, NodeRecord, NodeRecord]] = []
+        for row in result.rows:
+            if len(row) == 0 or not isinstance(row[0], dict):
+                continue
+            result_map = row[0]
+            edge_vertex = result_map.get("edge")
+            source_vertex = result_map.get("source")
+            target_vertex = result_map.get("target")
+            if edge_vertex is None or source_vertex is None or target_vertex is None:
+                continue
+            instances.append(
+                (
+                    self._edge_to_edge_record(edge_vertex),
+                    self._vertex_to_node_record(source_vertex),
+                    self._vertex_to_node_record(target_vertex),
+                )
+            )
+        return instances
+
+    def count_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+    ) -> int:
+        """Count relationship instances matching optional endpoint type filters."""
+        source_type = f":{source_entity_type}" if source_entity_type else ""
+        target_type = f":{target_entity_type}" if target_entity_type else ""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        query = f"""
+            MATCH (source{source_type})-[edge:{relationship_label} {{
+                graph_id: '{self._graph_id}'{kg_filter}
+            }}]->(target{target_type})
+            RETURN count(edge) AS total
+        """
+        result = self._client.execute_cypher(query)
+        if not result.rows:
+            return 0
+        row = result.rows[0]
+        if not row:
+            return 0
+        value = row[0]
+        if isinstance(value, dict) and "total" in value:
+            return int(value["total"])
+        return int(value)
+
     def get_neighbors(
         self,
         node_id: str,

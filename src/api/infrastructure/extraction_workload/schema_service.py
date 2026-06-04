@@ -12,9 +12,14 @@ from infrastructure.canonical_schema.graph_canonical_schema_repository import (
 from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
+from infrastructure.extraction_workload.mutation_preflight import (
+    parse_mutation_jsonl,
+    validate_mutation_jsonl,
+)
 from infrastructure.extraction_workload.workspace_readiness import (
     sync_prepopulated_instance_counts,
 )
+from graph.domain.value_objects import EntityType
 from management.domain.value_objects import OntologyConfig
 from management.ports.exceptions import CanonicalSchemaMutationError
 
@@ -47,6 +52,42 @@ class GraphWorkloadSchemaService:
         await self._session.commit()
         return config
 
+    async def _existing_type_keys(self, knowledge_graph_id: str) -> frozenset[tuple[str, str]]:
+        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+        if ontology is None:
+            return frozenset()
+        keys: set[tuple[str, str]] = set()
+        for node_type in ontology.node_types:
+            keys.add((node_type.label, EntityType.NODE.value))
+        for edge_type in ontology.edge_types:
+            keys.add((edge_type.label, EntityType.EDGE.value))
+        return frozenset(keys)
+
+    async def validate_mutation_jsonl(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        jsonl: str,
+    ) -> dict[str, object]:
+        errors = await validate_mutation_jsonl(
+            jsonl_content=jsonl,
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+            graph_reader=self._graph_reader,
+            existing_type_keys=await self._existing_type_keys(knowledge_graph_id),
+        )
+        operation_count = 0
+        try:
+            operation_count = len(parse_mutation_jsonl(jsonl))
+        except CanonicalSchemaMutationError:
+            operation_count = 0
+        return {
+            "valid": not errors,
+            "errors": errors,
+            "operation_count": operation_count,
+        }
+
     async def apply_mutation_jsonl(
         self,
         *,
@@ -54,8 +95,18 @@ class GraphWorkloadSchemaService:
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:
+        preflight_errors = await validate_mutation_jsonl(
+            jsonl_content=jsonl,
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+            graph_reader=self._graph_reader,
+            existing_type_keys=await self._existing_type_keys(knowledge_graph_id),
+        )
+        if preflight_errors:
+            return {"applied": False, "errors": preflight_errors}
+
         try:
-            operations = GraphWorkloadGraphMutationWriter.parse_jsonl(jsonl)
+            operations = parse_mutation_jsonl(jsonl)
             define_ops, instance_ops = GraphWorkloadGraphMutationWriter.split_operations(
                 operations
             )

@@ -271,6 +271,10 @@ class NodeTypeDefinitionModel(BaseModel):
         ge=0,
         description="Current known instance count used for readiness evaluation",
     )
+    instance_generator: str | None = Field(
+        default=None,
+        description="Optional workspace-relative script under instance_generators/ for prepopulation",
+    )
 
     def to_domain(self) -> NodeTypeDefinition:
         """Convert to domain NodeTypeDefinition value object."""
@@ -281,6 +285,7 @@ class NodeTypeDefinitionModel(BaseModel):
             optional_properties=tuple(self.optional_properties),
             prepopulated=self.prepopulated,
             prepopulated_instance_count=self.prepopulated_instance_count,
+            instance_generator=self.instance_generator,
         )
 
     @classmethod
@@ -293,6 +298,7 @@ class NodeTypeDefinitionModel(BaseModel):
             optional_properties=list(nt.optional_properties),
             prepopulated=nt.prepopulated,
             prepopulated_instance_count=nt.prepopulated_instance_count,
+            instance_generator=nt.instance_generator,
         )
 
 
@@ -325,6 +331,10 @@ class EdgeTypeDefinitionModel(BaseModel):
         ge=0,
         description="Current known instance count used for readiness evaluation",
     )
+    instance_generator: str | None = Field(
+        default=None,
+        description="Optional workspace-relative script under instance_generators/ for prepopulation",
+    )
 
     def to_domain(self) -> EdgeTypeDefinition:
         """Convert to domain EdgeTypeDefinition value object."""
@@ -336,6 +346,7 @@ class EdgeTypeDefinitionModel(BaseModel):
             properties=tuple(self.properties),
             prepopulated=self.prepopulated,
             prepopulated_instance_count=self.prepopulated_instance_count,
+            instance_generator=self.instance_generator,
         )
 
     @classmethod
@@ -349,6 +360,7 @@ class EdgeTypeDefinitionModel(BaseModel):
             properties=list(et.properties),
             prepopulated=et.prepopulated,
             prepopulated_instance_count=et.prepopulated_instance_count,
+            instance_generator=et.instance_generator,
         )
 
 

@@ -21,6 +21,15 @@ class IWorkloadSchemaService(Protocol):
     ) -> OntologyConfig:
         """Replace the canonical ontology via DEFINE mutation-log operations."""
 
+    async def validate_mutation_jsonl(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        jsonl: str,
+    ) -> dict[str, object]:
+        """Dry-run validation for JSONL mutations without writing to the graph."""
+
     async def apply_mutation_jsonl(
         self,
         *,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from graph.application.observability import DefaultGraphServiceProbe
 from graph.application.services import GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
@@ -213,3 +215,118 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
             )
         finally:
             client.disconnect()
+
+    async def find_existing_node_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        node_ids: tuple[str, ...],
+    ) -> frozenset[str]:
+        if not node_ids:
+            return frozenset()
+        graph_name = f"tenant_{tenant_id}"
+
+        def _query() -> set[str]:
+            factory = ConnectionFactory(self._settings, pool=self._pool)
+            client = AgeGraphClient(
+                self._settings, connection_factory=factory, graph_name=graph_name
+            )
+            client.connect()
+            try:
+                repository = GraphExtractionReadOnlyRepository(
+                    client=client,
+                    graph_id=graph_name,
+                )
+                return repository.find_existing_node_ids(
+                    list(node_ids),
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+            finally:
+                client.disconnect()
+
+        return frozenset(await asyncio.to_thread(_query))
+
+    async def find_existing_edge_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        edge_ids: tuple[str, ...],
+    ) -> frozenset[str]:
+        if not edge_ids:
+            return frozenset()
+        graph_name = f"tenant_{tenant_id}"
+
+        def _query() -> set[str]:
+            factory = ConnectionFactory(self._settings, pool=self._pool)
+            client = AgeGraphClient(
+                self._settings, connection_factory=factory, graph_name=graph_name
+            )
+            client.connect()
+            try:
+                repository = GraphExtractionReadOnlyRepository(
+                    client=client,
+                    graph_id=graph_name,
+                )
+                return repository.find_existing_edge_ids(
+                    list(edge_ids),
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+            finally:
+                client.disconnect()
+
+        return frozenset(await asyncio.to_thread(_query))
+
+    async def find_existing_slugs_for_entity_type(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+        slugs: tuple[str, ...],
+    ) -> frozenset[str]:
+        if not slugs:
+            return frozenset()
+        graph_name = f"tenant_{tenant_id}"
+
+        def _query() -> set[str]:
+            factory = ConnectionFactory(self._settings, pool=self._pool)
+            client = AgeGraphClient(
+                self._settings, connection_factory=factory, graph_name=graph_name
+            )
+            client.connect()
+            try:
+                repository = GraphExtractionReadOnlyRepository(
+                    client=client,
+                    graph_id=graph_name,
+                )
+                return repository.find_existing_slugs_for_entity_type(
+                    entity_type,
+                    list(slugs),
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+            finally:
+                client.disconnect()
+
+        return frozenset(await asyncio.to_thread(_query))
+
+    async def partition_slugs_by_existence(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+        slugs: tuple[str, ...],
+    ) -> tuple[list[str], list[str]]:
+        if not slugs:
+            return [], []
+        existing = await self.find_existing_slugs_for_entity_type(
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+            entity_type=entity_type,
+            slugs=slugs,
+        )
+        existing_sorted = sorted(existing)
+        missing_sorted = sorted(slug for slug in slugs if slug not in existing)
+        return existing_sorted, missing_sorted

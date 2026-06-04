@@ -154,3 +154,27 @@ def test_materializer_refresh_preserves_session_root_directory(tmp_path: Path) -
 
     assert first_root == second_root
     assert (second_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go").exists()
+
+
+def test_materializer_copies_instance_generator_templates(tmp_path: Path) -> None:
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    session_root = materializer.prepare(
+        session_id="session-generators",
+        knowledge_graph_id="kg-1",
+        job_packages=(),
+    )
+
+    generators_dir = session_root / "instance_generators"
+    assert generators_dir.is_dir()
+    for name in (
+        "data_source.py",
+        "folder.py",
+        "source_file.py",
+        "json_instances_to_jsonl.py",
+        "json_relationships_to_jsonl.py",
+        "README.md",
+    ):
+        assert (generators_dir / name).is_file()
+    readme = (generators_dir / "README.md").read_text(encoding="utf-8")
+    assert "repository-files" in readme

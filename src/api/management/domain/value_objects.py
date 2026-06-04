@@ -410,6 +410,7 @@ class NodeTypeDefinition:
     optional_properties: tuple[str, ...] = field(default_factory=tuple)
     prepopulated: bool = False
     prepopulated_instance_count: int = 0
+    instance_generator: str | None = None
 
     def __post_init__(self) -> None:
         """Validate that label is non-empty."""
@@ -417,10 +418,12 @@ class NodeTypeDefinition:
             raise ValueError("NodeTypeDefinition label must not be empty")
         if self.prepopulated_instance_count < 0:
             raise ValueError("prepopulated_instance_count must be >= 0")
+        if self.instance_generator is not None and not self.instance_generator.strip():
+            raise ValueError("instance_generator must not be empty or whitespace-only")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON persistence."""
-        return {
+        payload = {
             "label": self.label,
             "description": self.description,
             "required_properties": list(self.required_properties),
@@ -428,10 +431,15 @@ class NodeTypeDefinition:
             "prepopulated": self.prepopulated,
             "prepopulated_instance_count": self.prepopulated_instance_count,
         }
+        if self.instance_generator:
+            payload["instance_generator"] = self.instance_generator
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NodeTypeDefinition:
         """Deserialize from a plain dict."""
+        raw_generator = data.get("instance_generator")
+        instance_generator = str(raw_generator).strip() if raw_generator else None
         return cls(
             label=data["label"],
             description=data.get("description", ""),
@@ -439,6 +447,7 @@ class NodeTypeDefinition:
             optional_properties=tuple(data.get("optional_properties", [])),
             prepopulated=bool(data.get("prepopulated", False)),
             prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
+            instance_generator=instance_generator or None,
         )
 
 
@@ -465,6 +474,7 @@ class EdgeTypeDefinition:
     properties: tuple[str, ...] = field(default_factory=tuple)
     prepopulated: bool = False
     prepopulated_instance_count: int = 0
+    instance_generator: str | None = None
 
     def __post_init__(self) -> None:
         """Validate that label is non-empty."""
@@ -472,10 +482,12 @@ class EdgeTypeDefinition:
             raise ValueError("EdgeTypeDefinition label must not be empty")
         if self.prepopulated_instance_count < 0:
             raise ValueError("prepopulated_instance_count must be >= 0")
+        if self.instance_generator is not None and not self.instance_generator.strip():
+            raise ValueError("instance_generator must not be empty or whitespace-only")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON persistence."""
-        return {
+        payload = {
             "label": self.label,
             "description": self.description,
             "source_labels": list(self.source_labels),
@@ -484,10 +496,15 @@ class EdgeTypeDefinition:
             "prepopulated": self.prepopulated,
             "prepopulated_instance_count": self.prepopulated_instance_count,
         }
+        if self.instance_generator:
+            payload["instance_generator"] = self.instance_generator
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EdgeTypeDefinition:
         """Deserialize from a plain dict."""
+        raw_generator = data.get("instance_generator")
+        instance_generator = str(raw_generator).strip() if raw_generator else None
         return cls(
             label=data["label"],
             description=data.get("description", ""),
@@ -496,6 +513,7 @@ class EdgeTypeDefinition:
             properties=tuple(data.get("properties", [])),
             prepopulated=bool(data.get("prepopulated", False)),
             prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
+            instance_generator=instance_generator or None,
         )
 
 

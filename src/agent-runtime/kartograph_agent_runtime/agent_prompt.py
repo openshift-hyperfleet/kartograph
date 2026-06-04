@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+
+PromptDetail = Literal["full", "compact"]
 
 from kartograph_agent_runtime.schema_tools import (
     KARTOGRAPH_SCHEMA_TOOL_NAMES,
@@ -19,32 +21,43 @@ _TOOLS_QUICK_REFERENCE = """
 | `kartograph_get_workspace_readiness` | Prepopulated gaps, live instance counts, blocking reasons |
 | `kartograph_get_schema_ontology` | Read current `node_types` and `edge_types` before every save |
 | `kartograph_save_schema_ontology` | Replace canonical ontology (read → merge edits → save full payload) |
-| `kartograph_apply_graph_mutations` | Apply JSONL CREATE/UPDATE/DELETE instance lines (batch 25–50 lines) |
+| `kartograph_validate_graph_mutations` | Dry-run JSONL (strict CREATE — no duplicates) |
+| `kartograph_apply_graph_mutations` | Apply JSONL CREATE/UPDATE/DELETE (small batches) |
+| `kartograph_validate_graph_mutations_from_file` | Dry-run a workspace `.jsonl` file |
+| `kartograph_apply_graph_mutations_from_file` | Apply a workspace `.jsonl` file in one call |
 | `kartograph_list_instances_by_type` | List/count entity instances for one type (verify prepopulation) |
 | `kartograph_list_relationship_instances` | List relationship edges with source/target slugs and node IDs |
 | `kartograph_search_graph_by_slug` | Find existing nodes by slug to avoid duplicates |
+| `kartograph_check_graph_slugs` | Batch check which slugs already exist for one entity type |
 
-## Workspace file tools (read-only)
+## Workspace tools
 
 | Tool | Purpose |
 |------|---------|
 | `Read` | Read files under the session workspace mount |
 | `Grep` | Search file contents in `repository-files/<data_source>/` |
 | `Glob` | List files by pattern for instance generation |
+| `Bash` | Run `instance_generators/*.py` against `repository-files/` (workspace only) |
 
 ### Quick workflow
 
 1. `kartograph_get_schema_authoring_guide`
 2. `kartograph_get_workspace_readiness`
 3. `kartograph_get_schema_ontology`
-4. Glob/Grep/Read `repository-files/` to derive instances
+4. For large prepopulation: Bash `python3 instance_generators/<template>.py repository-files`
 5. Model types → `kartograph_save_schema_ontology`
-6. Create entity instances in batches → `kartograph_apply_graph_mutations`
-7. Create relationship edges (after entity IDs are known)
-8. Verify → `kartograph_list_instances_by_type` and `kartograph_list_relationship_instances`
+6. Apply CREATE mutations → `kartograph_apply_graph_mutations` (small fixes inline; bulk via generator output)
+7. Create relationship edges after entity IDs are known
+8. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`
 
 Writes persist to the platform database for the active knowledge graph.
 """.strip()
+
+_TOOLS_COMPACT_REFERENCE = (
+    "Tools: kartograph_* schema MCP tools, plus Read/Grep/Glob/Bash on the workspace. "
+    "Bulk prepopulation: Bash generator → `json_instances_to_jsonl.py` → validate-from-file → apply-from-file. "
+    "CREATE is strict (use UPDATE to edit existing instances)."
+)
 
 
 def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
@@ -112,8 +125,9 @@ def build_agent_system_prompt(
     workspace_appendix: str = "",
     workspace_readiness: dict[str, Any] | None = None,
     include_tools_manifest: bool = True,
+    prompt_detail: PromptDetail = "full",
 ) -> str:
-    """Build the full system prompt with skills, guardrails, tools, and session scope."""
+    """Build the system prompt with guardrails, optional skills/tools, and session scope."""
     system_prompt = str(agent_configuration.get("system_prompt") or "").strip()
     guardrails = agent_configuration.get("guardrails") or []
     skills = agent_configuration.get("skills") or {}
@@ -136,18 +150,21 @@ def build_agent_system_prompt(
             skill_sections.append(f"**{key}**: {text}")
 
     skills_block = ""
-    if skill_sections:
+    if prompt_detail == "full" and skill_sections:
         skills_block = "## Skills\n\n" + "\n\n".join(skill_sections)
 
     tools_block = ""
     if include_tools_manifest and settings is not None and settings.workload_token.strip():
-        kartograph_tools = ", ".join(f"`{name}`" for name in KARTOGRAPH_SCHEMA_TOOL_NAMES)
-        file_tools = ", ".join(f"`{name}`" for name in WORKSPACE_FILE_TOOL_NAMES)
-        tools_block = (
-            f"{_TOOLS_QUICK_REFERENCE}\n\n"
-            f"Registered Kartograph tools: {kartograph_tools}.\n"
-            f"Registered workspace file tools: {file_tools}."
-        )
+        if prompt_detail == "compact":
+            tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}"
+        else:
+            kartograph_tools = ", ".join(f"`{name}`" for name in KARTOGRAPH_SCHEMA_TOOL_NAMES)
+            file_tools = ", ".join(f"`{name}`" for name in WORKSPACE_FILE_TOOL_NAMES)
+            tools_block = (
+                f"{_TOOLS_QUICK_REFERENCE}\n\n"
+                f"Registered Kartograph tools: {kartograph_tools}.\n"
+                f"Registered workspace tools: {file_tools}."
+            )
 
     session_block = ""
     if settings is not None:

@@ -34,6 +34,15 @@ class _FakeSchemaService:
         self.saved = config
         return config
 
+    async def validate_mutation_jsonl(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        jsonl: str,
+    ) -> dict[str, object]:
+        return {"valid": True, "errors": [], "operation_count": 1}
+
     async def apply_mutation_jsonl(
         self,
         *,
@@ -42,7 +51,7 @@ class _FakeSchemaService:
         jsonl: str,
     ) -> dict[str, object]:
         self.applied_jsonl = jsonl
-        return {"applied": True, "errors": []}
+        return {"applied": True, "errors": [], "operations_applied": 1}
 
 
 class _FakeGraphReader:
@@ -91,6 +100,21 @@ class _FakeGraphReader:
         if relationship_type == "contains":
             return 1
         return 0
+
+    async def find_existing_node_ids(self, **kwargs):
+        return frozenset()
+
+    async def find_existing_edge_ids(self, **kwargs):
+        return frozenset()
+
+    async def find_existing_slugs_for_entity_type(self, **kwargs):
+        return frozenset({"api-gateway"})
+
+    async def partition_slugs_by_existence(self, **kwargs):
+        slugs = tuple(kwargs.get("slugs") or ())
+        existing = sorted(slug for slug in slugs if slug == "api-gateway")
+        missing = sorted(slug for slug in slugs if slug != "api-gateway")
+        return existing, missing
 
 
 @pytest.fixture
@@ -222,6 +246,32 @@ def test_workload_save_schema_ontology(workload_client: tuple[TestClient, _FakeS
     assert fake.saved is not None
     assert fake.saved.node_types[0].label == "service"
     assert fake.saved.edge_types[0].label == "depends_on"
+
+
+def test_workload_check_graph_slugs(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.post(
+        "/extraction/workloads/graph/check-slugs",
+        headers={"X-Workload-Token": token},
+        json={"entity_type": "service", "slugs": ["api-gateway", "new-service"]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["existing_slugs"] == ["api-gateway"]
+    assert payload["missing_slugs"] == ["new-service"]
+
+
+def test_workload_validate_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.post(
+        "/extraction/workloads/mutations/validate",
+        headers={"X-Workload-Token": token},
+        json={"jsonl": '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service","set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap","source_path":"assistant"}}'},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert payload["operation_count"] == 1
 
 
 def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:

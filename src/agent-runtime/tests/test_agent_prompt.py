@@ -31,6 +31,8 @@ def test_build_agent_system_prompt_includes_skills_tools_and_session_scope() -> 
     assert "**schema_modeling**" in prompt
     assert "kartograph_get_schema_ontology" in prompt
     assert "Quick workflow" in prompt
+    assert "Bash" in prompt
+    assert "instance_generators" in prompt
     assert "kg-123" in prompt
     assert "tenant-456" in prompt
     assert "Files here" in prompt
@@ -69,3 +71,23 @@ def test_build_agent_system_prompt_omits_tools_without_workload_token() -> None:
 
     assert "Quick workflow" not in prompt
     assert "Base" in prompt
+
+
+def test_build_agent_system_prompt_compact_omits_skills_and_full_tools_table() -> None:
+    prompt = build_agent_system_prompt(
+        {
+            "system_prompt": "You are the Graph Management Assistant.",
+            "skills": {"prepopulation": "Run instance_generators with Bash."},
+        },
+        settings=AgentRuntimeSettings(
+            KARTOGRAPH_WORKLOAD_TOKEN="token",
+            KARTOGRAPH_KNOWLEDGE_GRAPH_ID="kg-123",
+        ),
+        prompt_detail="compact",
+    )
+
+    assert "**prepopulation**" not in prompt
+    assert "Quick workflow" not in prompt
+    assert "json_instances_to_jsonl.py" in prompt
+    assert "validate-from-file" in prompt
+    assert "apply-from-file" in prompt

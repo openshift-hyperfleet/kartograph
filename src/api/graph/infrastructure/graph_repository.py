@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from age.models import Edge as AgeEdge  # type: ignore
 from age.models import Vertex as AgeVertex
 
+from graph.infrastructure.age_bulk_loading.utils import validate_label_name
 from graph.ports.repositories import IGraphReadOnlyRepository
 from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 from graph.ports.protocols import GraphClientProtocol, NodeNeighborsResult
@@ -21,6 +22,10 @@ from shared_kernel.graph_primitives import EntityIdGenerator
 
 if TYPE_CHECKING:
     pass
+
+
+def _escape_cypher_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
 class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
@@ -168,6 +173,84 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
                 if "node" in result_map and result_map["node"] is not None:
                     nodes.append(self._vertex_to_node_record(result_map["node"]))
         return nodes
+
+    def find_existing_node_ids(
+        self,
+        node_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return node IDs from ``node_ids`` that already exist in the knowledge graph."""
+        if not node_ids:
+            return set()
+        existing: set[str] = set()
+        for offset in range(0, len(node_ids), chunk_size):
+            chunk = node_ids[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(node_id)}'" for node_id in chunk)
+            query = f"""
+                MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}})
+                WHERE n.id IN [{literals}]
+                RETURN n.id AS id
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
+
+    def find_existing_edge_ids(
+        self,
+        edge_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return edge IDs from ``edge_ids`` that already exist in the knowledge graph."""
+        if not edge_ids:
+            return set()
+        existing: set[str] = set()
+        for offset in range(0, len(edge_ids), chunk_size):
+            chunk = edge_ids[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk)
+            query = f"""
+                MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}}]->()
+                WHERE r.id IN [{literals}]
+                RETURN r.id AS id
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
+
+    def find_existing_slugs_for_entity_type(
+        self,
+        entity_type: str,
+        slugs: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return slugs that already exist for one entity type within a knowledge graph."""
+        if not slugs:
+            return set()
+        validate_label_name(entity_type)
+        existing: set[str] = set()
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(slugs), chunk_size):
+            chunk = slugs[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(slug)}'" for slug in chunk)
+            query = f"""
+                MATCH (n:{entity_type} {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}})
+                WHERE n.slug IN [{literals}]
+                RETURN n.slug AS slug
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
 
     def count_nodes_by_label(
         self,

@@ -1,0 +1,124 @@
+"""Pre-apply validation for workload JSONL mutations (strict CREATE semantics)."""
+
+from __future__ import annotations
+
+from graph.domain.value_objects import EntityType, MutationOperation, MutationOperationType
+from management.ports.exceptions import CanonicalSchemaMutationError
+
+from extraction.ports.workload_graph import IWorkloadGraphReader
+
+
+def parse_mutation_jsonl(jsonl_content: str) -> list[MutationOperation]:
+    from infrastructure.extraction_workload.graph_mutation_writer import (
+        GraphWorkloadGraphMutationWriter,
+    )
+
+    return GraphWorkloadGraphMutationWriter.parse_jsonl(jsonl_content)
+
+
+async def validate_mutation_jsonl(
+    *,
+    jsonl_content: str,
+    tenant_id: str,
+    knowledge_graph_id: str,
+    graph_reader: IWorkloadGraphReader | None,
+    existing_type_keys: frozenset[tuple[str, str]],
+) -> list[str]:
+    """Return validation errors; empty list means the batch may be applied."""
+    try:
+        operations = parse_mutation_jsonl(jsonl_content)
+    except CanonicalSchemaMutationError as exc:
+        return [str(exc)]
+
+    errors: list[str] = []
+    seen_create_ids: dict[str, int] = {}
+
+    create_node_ids: list[str] = []
+    create_edge_ids: list[str] = []
+    slug_checks: dict[str, set[str]] = {}
+
+    for line_num, operation in enumerate(operations, start=1):
+        if operation.op == MutationOperationType.DEFINE and operation.label:
+            key = (operation.label, operation.type)
+            if key in existing_type_keys:
+                errors.append(
+                    f"Line {line_num}: DEFINE for {operation.type} `{operation.label}` "
+                    "already exists; update the ontology via kartograph_save_schema_ontology "
+                    "instead of DEFINE."
+                )
+
+        if operation.op == MutationOperationType.CREATE and operation.id:
+            if operation.id in seen_create_ids:
+                errors.append(
+                    f"Line {line_num}: duplicate CREATE id `{operation.id}` "
+                    f"(first seen on line {seen_create_ids[operation.id]})."
+                )
+            else:
+                seen_create_ids[operation.id] = line_num
+
+            if operation.type == EntityType.NODE.value:
+                create_node_ids.append(operation.id)
+                slug = (operation.set_properties or {}).get("slug")
+                label = operation.label
+                if slug and label:
+                    slug_checks.setdefault(label, set()).add(str(slug))
+            elif operation.type == EntityType.EDGE.value:
+                create_edge_ids.append(operation.id)
+
+    if graph_reader is not None and not errors:
+        if create_node_ids:
+            existing_node_ids = await graph_reader.find_existing_node_ids(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                node_ids=tuple(create_node_ids),
+            )
+            for line_num, operation in enumerate(operations, start=1):
+                if (
+                    operation.op == MutationOperationType.CREATE
+                    and operation.type == EntityType.NODE.value
+                    and operation.id in existing_node_ids
+                ):
+                    errors.append(
+                        f"Line {line_num}: node id `{operation.id}` already exists; "
+                        "use UPDATE to change it."
+                    )
+
+        if create_edge_ids:
+            existing_edge_ids = await graph_reader.find_existing_edge_ids(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                edge_ids=tuple(create_edge_ids),
+            )
+            for line_num, operation in enumerate(operations, start=1):
+                if (
+                    operation.op == MutationOperationType.CREATE
+                    and operation.type == EntityType.EDGE.value
+                    and operation.id in existing_edge_ids
+                ):
+                    errors.append(
+                        f"Line {line_num}: edge id `{operation.id}` already exists; "
+                        "use UPDATE to change it."
+                    )
+
+        for label, slugs in slug_checks.items():
+            existing_slugs = await graph_reader.find_existing_slugs_for_entity_type(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                entity_type=label,
+                slugs=tuple(slugs),
+            )
+            if not existing_slugs:
+                continue
+            for line_num, operation in enumerate(operations, start=1):
+                if operation.op != MutationOperationType.CREATE:
+                    continue
+                if operation.type != EntityType.NODE.value or operation.label != label:
+                    continue
+                slug = str((operation.set_properties or {}).get("slug") or "")
+                if slug in existing_slugs:
+                    errors.append(
+                        f"Line {line_num}: {label} slug `{slug}` already exists; "
+                        "use UPDATE to change it."
+                    )
+
+    return errors

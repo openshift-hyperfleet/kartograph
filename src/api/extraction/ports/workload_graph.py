@@ -92,3 +92,45 @@ class IWorkloadGraphReader(Protocol):
     ) -> int:
         """Count live relationship instances for one relationship type."""
         ...
+
+    async def find_existing_node_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        node_ids: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return node IDs that already exist in the knowledge graph."""
+        ...
+
+    async def find_existing_edge_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        edge_ids: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return edge IDs that already exist in the knowledge graph."""
+        ...
+
+    async def find_existing_slugs_for_entity_type(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+        slugs: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return slugs that already exist for one entity type."""
+        ...
+
+    async def partition_slugs_by_existence(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        entity_type: str,
+        slugs: tuple[str, ...],
+    ) -> tuple[list[str], list[str]]:
+        """Return (existing_slugs, missing_slugs) sorted for one entity type."""
+        ...

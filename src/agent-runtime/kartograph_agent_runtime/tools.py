@@ -53,6 +53,17 @@ class RuntimeTooling:
 
     async def apply_graph_mutations(self, *, jsonl: str) -> dict[str, Any]:
         url = f"{self._base_url()}/extraction/workloads/mutations/apply"
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            response = await client.post(
+                url,
+                headers=self._headers(),
+                json={"jsonl": jsonl},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def validate_graph_mutations(self, *, jsonl: str) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/mutations/validate"
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 url,
@@ -61,6 +72,19 @@ class RuntimeTooling:
             )
             response.raise_for_status()
             return response.json()
+
+    def read_jsonl_from_workspace(self, *, relative_path: str) -> str:
+        from kartograph_agent_runtime.workspace_paths import read_workspace_text_file
+
+        return read_workspace_text_file(self.settings.workspace_dir, relative_path)
+
+    async def apply_graph_mutations_from_file(self, *, path: str) -> dict[str, Any]:
+        jsonl = self.read_jsonl_from_workspace(relative_path=path)
+        return await self.apply_graph_mutations(jsonl=jsonl)
+
+    async def validate_graph_mutations_from_file(self, *, path: str) -> dict[str, Any]:
+        jsonl = self.read_jsonl_from_workspace(relative_path=path)
+        return await self.validate_graph_mutations(jsonl=jsonl)
 
     async def list_instances_by_type(
         self,
@@ -101,6 +125,22 @@ class RuntimeTooling:
             params["target_entity_type"] = target_entity_type
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self._headers(), params=params)
+            response.raise_for_status()
+            return response.json()
+
+    async def check_graph_slugs(
+        self,
+        *,
+        entity_type: str,
+        slugs: list[str],
+    ) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/graph/check-slugs"
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                url,
+                headers=self._headers(),
+                json={"entity_type": entity_type, "slugs": slugs},
+            )
             response.raise_for_status()
             return response.json()
 

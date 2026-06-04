@@ -14,9 +14,21 @@ class TestIGraphReadOnlyRepositoryProtocol:
         # Create a minimal implementation to verify protocol
         class MinimalRepo:
             def find_nodes_by_slug(
-                self, slug: str, node_type: str | None = None
+                self, slug: str, node_type: str | None = None, **kwargs
             ) -> list[NodeRecord]:
                 return []
+
+            def find_nodes_by_label(self, node_type: str, **kwargs) -> list[NodeRecord]:
+                return []
+
+            def count_nodes_by_label(self, node_type: str, **kwargs) -> int:
+                return 0
+
+            def find_relationship_instances(self, relationship_label: str, **kwargs) -> list:
+                return []
+
+            def count_relationship_instances(self, relationship_label: str, **kwargs) -> int:
+                return 0
 
             def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
                 return NodeNeighborsResult(
@@ -50,9 +62,21 @@ class TestIGraphReadOnlyRepositoryProtocol:
 
         class MissingGenerateId:
             def find_nodes_by_slug(
-                self, slug: str, node_type: str | None = None
+                self, slug: str, node_type: str | None = None, **kwargs
             ) -> list[NodeRecord]:
                 return []
+
+            def find_nodes_by_label(self, node_type: str, **kwargs) -> list[NodeRecord]:
+                return []
+
+            def count_nodes_by_label(self, node_type: str, **kwargs) -> int:
+                return 0
+
+            def find_relationship_instances(self, relationship_label: str, **kwargs) -> list:
+                return []
+
+            def count_relationship_instances(self, relationship_label: str, **kwargs) -> int:
+                return 0
 
             def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
                 return NodeNeighborsResult(

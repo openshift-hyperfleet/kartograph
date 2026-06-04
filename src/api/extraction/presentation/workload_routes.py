@@ -61,11 +61,26 @@ class WorkloadMutationApplyRequest(BaseModel):
     jsonl: str = Field(min_length=1)
 
 
+class WorkloadMutationValidateRequest(BaseModel):
+    """JSONL mutation batch to validate without applying."""
+
+    jsonl: str = Field(min_length=1)
+
+
 class WorkloadMutationApplyResponse(BaseModel):
     """Result of applying a JSONL mutation batch."""
 
     applied: bool
     errors: list[str] = Field(default_factory=list)
+    operations_applied: int = 0
+
+
+class WorkloadMutationValidateResponse(BaseModel):
+    """Dry-run validation result for a JSONL mutation batch."""
+
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    operation_count: int = 0
 
 
 class WorkloadSchemaAuthoringGuideResponse(BaseModel):
@@ -190,6 +205,28 @@ async def workload_save_schema_ontology(
 
 
 @router.post(
+    "/mutations/validate",
+    response_model=WorkloadMutationValidateResponse,
+)
+async def workload_validate_mutations(
+    request: WorkloadMutationValidateRequest,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+) -> WorkloadMutationValidateResponse:
+    _require_chat_scope(auth)
+    result = await schema_service.validate_mutation_jsonl(
+        tenant_id=auth.tenant_id,
+        knowledge_graph_id=auth.knowledge_graph_id,
+        jsonl=request.jsonl,
+    )
+    return WorkloadMutationValidateResponse(
+        valid=bool(result.get("valid")),
+        errors=[str(item) for item in result.get("errors", [])],
+        operation_count=int(result.get("operation_count", 0)),
+    )
+
+
+@router.post(
     "/mutations/apply",
     response_model=WorkloadMutationApplyResponse,
 )
@@ -207,6 +244,48 @@ async def workload_apply_mutations(
     return WorkloadMutationApplyResponse(
         applied=bool(result.get("applied")),
         errors=[str(item) for item in result.get("errors", [])],
+        operations_applied=int(result.get("operations_applied", 0)),
+    )
+
+
+class WorkloadCheckSlugsRequest(BaseModel):
+    """Batch slug existence check for one entity type."""
+
+    entity_type: str = Field(min_length=1)
+    slugs: list[str] = Field(min_length=1)
+
+
+class WorkloadCheckSlugsResponse(BaseModel):
+    """Partition of requested slugs into existing and missing."""
+
+    entity_type: str
+    existing_slugs: list[str] = Field(default_factory=list)
+    missing_slugs: list[str] = Field(default_factory=list)
+
+
+@router.post(
+    "/graph/check-slugs",
+    response_model=WorkloadCheckSlugsResponse,
+)
+async def workload_check_slugs(
+    request: WorkloadCheckSlugsRequest,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+) -> WorkloadCheckSlugsResponse:
+    _require_chat_scope(auth)
+    normalized = tuple(
+        sorted({str(slug).strip() for slug in request.slugs if str(slug).strip()})
+    )
+    existing, missing = await reader.partition_slugs_by_existence(
+        tenant_id=auth.tenant_id,
+        knowledge_graph_id=auth.knowledge_graph_id,
+        entity_type=request.entity_type.strip(),
+        slugs=normalized,
+    )
+    return WorkloadCheckSlugsResponse(
+        entity_type=request.entity_type.strip(),
+        existing_slugs=existing,
+        missing_slugs=missing,
     )
 
 

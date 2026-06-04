@@ -64,67 +64,16 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
 _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
     ExtractionSessionMode.SCHEMA_BOOTSTRAP: {
         "capabilities_intake": (
-            "Begin by asking for user capabilities/goals and confirm whether they "
-            "want a first-pass schema attempt or guided co-design."
+            "Ask for goals once, then co-design or propose a first-pass schema."
         ),
-        "schema_modeling": (
-            "Author entity types (node_types) and relationship types (edge_types) via "
-            "kartograph_get_schema_ontology → edit → kartograph_save_schema_ontology. "
-            "Each entity type needs label, description, required_properties, optional "
-            "prepopulated flag. Each relationship type needs source_labels and "
-            "target_labels. Call kartograph_get_schema_authoring_guide before the first save."
+        "schema_workflow": (
+            "Call kartograph_get_schema_authoring_guide when you need shapes or mutation rules. "
+            "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
-        "entity_type_authoring": (
-            "Create or edit entity types by updating node_types entries: label "
-            "(lowercase snake_case), description, required_properties, optional_properties, "
-            "prepopulated, prepopulated_instance_count. Always read the current ontology first."
-        ),
-        "relationship_type_authoring": (
-            "Create or edit relationship types by updating edge_types entries: label, "
-            "description, source_labels, target_labels, properties, optional prepopulated "
-            "and prepopulated_instance_count. When prepopulated is true, every source and "
-            "target entity type label must already be prepopulated on node_types."
-        ),
-        "instance_authoring": (
-            "Create entity or relationship instances with kartograph_apply_graph_mutations "
-            "JSONL CREATE lines after types exist. Nodes require slug, data_source_id, "
-            "and source_path in set_properties. Use ids like label:16hex. Create entity "
-            "nodes before edges; batch 25–50 lines per apply call."
-        ),
-        "relationship_instance_authoring": (
-            "Create relationship instances only after endpoint entity nodes exist. Use "
-            "kartograph_list_instances_by_type or kartograph_list_relationship_instances "
-            "to resolve start_id/end_id and source_slug/target_slug pairs. Edge CREATE "
-            "lines require start_id, end_id, data_source_id, and source_path."
-        ),
-        "instance_generation": (
-            "For prepopulated types, scan repository-files with Read/Grep/Glob using the "
-            "data_source, folder, or source_file patterns from the authoring guide. "
-            "Derive kebab-case slugs from paths, apply CREATE batches, then verify with "
-            "kartograph_list_instances_by_type and kartograph_get_workspace_readiness."
-        ),
-        "prepopulation_validation": (
-            "Prioritize prepopulated entity and relationship type coverage. Entity types "
-            "and relationship types marked prepopulated must have instances before "
-            "extraction-mode transition. Relationship types may only be prepopulated when "
-            "their source and target entity types are prepopulated too."
-        ),
-        "schema_tools": (
-            "Available MCP tools (call by exact name): kartograph_get_schema_authoring_guide, "
-            "kartograph_get_workspace_readiness, kartograph_get_schema_ontology, "
-            "kartograph_save_schema_ontology, kartograph_apply_graph_mutations, "
-            "kartograph_list_instances_by_type, kartograph_list_relationship_instances, "
-            "kartograph_search_graph_by_slug. "
-            "Filesystem tools: Read, Grep, Glob (workspace mount only). "
-            "Always start with get_schema_authoring_guide, then get_workspace_readiness."
-        ),
-        "tools_quickstart": (
-            "Workflow: (1) kartograph_get_schema_authoring_guide → "
-            "(2) kartograph_get_workspace_readiness → (3) kartograph_get_schema_ontology "
-            "→ (4) Read/Grep/Glob repository-files → (5) kartograph_save_schema_ontology "
-            "for types → (6) kartograph_apply_graph_mutations for instances in batches "
-            "→ (7) kartograph_list_instances_by_type to verify. "
-            "Never call /management or /graph HTTP routes."
+        "prepopulation": (
+            "For prepopulated types: set instance_generator on the type when helpful, run script "
+            "under instance_generators/ with Bash, convert with json_*_to_jsonl helpers, validate "
+            "then apply-from-file. CREATE cannot duplicate existing instances — use UPDATE to edit."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

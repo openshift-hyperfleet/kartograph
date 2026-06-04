@@ -68,3 +68,28 @@ The system SHALL enforce `prepopulated=true` as a transition-blocking readiness 
 - WHEN readiness is evaluated
 - THEN validation fails and transition to extraction mode is blocked
 
+### Requirement: Workload Bulk Instance Authoring
+The system SHALL support bulk instance authoring for the Graph Management Assistant via workspace files and strict CREATE semantics.
+
+#### Scenario: Dry-run mutation validation
+- GIVEN a JSONL batch of mutation lines for one knowledge graph
+- WHEN the assistant calls workload mutation validate
+- THEN the system returns validation errors without writing to the graph
+- AND CREATE lines that target existing instance ids or slugs are rejected
+
+#### Scenario: Apply mutations from workspace file
+- GIVEN a JSONL file under the sticky session workspace mount
+- WHEN the assistant applies mutations from that file path
+- THEN the system reads the full file and applies all valid operations in one request
+
+#### Scenario: Optional instance generator metadata
+- GIVEN an entity type with `instance_generator` set to a script name under `instance_generators/`
+- WHEN the ontology is saved and read back
+- THEN the script name is preserved as authoring metadata for the assistant
+
+#### Scenario: Session workspace generator templates
+- GIVEN a sticky session work directory is prepared
+- WHEN the assistant lists `instance_generators/`
+- THEN example generator scripts and JSONL converter helpers are present
+- AND the assistant may add custom generator scripts alongside them
+

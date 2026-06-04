@@ -12,6 +12,13 @@ from management.domain.value_objects import (
 )
 
 
+def _optional_metadata_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def stored_definitions_to_ontology_config(
     stored_definitions: list[StoredKnowledgeGraphTypeDefinition],
 ) -> OntologyConfig:
@@ -31,6 +38,9 @@ def stored_definitions_to_ontology_config(
                     prepopulated_instance_count=int(
                         stored.metadata.get("prepopulated_instance_count", 0)
                     ),
+                    instance_generator=_optional_metadata_str(
+                        stored.metadata.get("instance_generator")
+                    ),
                 )
             )
         elif stored.entity_type == "edge":
@@ -44,6 +54,9 @@ def stored_definitions_to_ontology_config(
                     prepopulated=bool(stored.metadata.get("prepopulated", False)),
                     prepopulated_instance_count=int(
                         stored.metadata.get("prepopulated_instance_count", 0)
+                    ),
+                    instance_generator=_optional_metadata_str(
+                        stored.metadata.get("instance_generator")
                     ),
                 )
             )

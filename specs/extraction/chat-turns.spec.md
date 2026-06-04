@@ -79,3 +79,18 @@ The system SHALL reset sticky session runtime when clear-chat is invoked.
 - WHEN the user clicks Clear chat
 - THEN the sticky container is reset
 - AND a new clean session is started for the same scope
+
+### Requirement: Graph Management Assistant Tooling
+The system SHALL expose schema, mutation, and workspace tooling appropriate for bootstrap prepopulation workflows.
+
+#### Scenario: Bash and workspace generators
+- GIVEN an active graph-management chat turn in schema bootstrap mode
+- WHEN the agent runtime starts
+- THEN Bash is an allowed tool scoped to the session workspace
+- AND `instance_generators/` contains example scripts the agent may copy or extend
+
+#### Scenario: Compact follow-up prompts
+- GIVEN a graph-management session with prior user messages in the turn history
+- WHEN a follow-up chat message is processed
+- THEN the system prompt omits the full skill prose block
+- AND still includes live workspace readiness and a short tools summary

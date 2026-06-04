@@ -8,17 +8,21 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from kartograph_agent_runtime.tools import RuntimeTooling
 
-WORKSPACE_FILE_TOOL_NAMES = ("Read", "Grep", "Glob")
+WORKSPACE_FILE_TOOL_NAMES = ("Read", "Grep", "Glob", "Bash")
 
 KARTOGRAPH_SCHEMA_TOOL_NAMES = (
     "kartograph_get_schema_authoring_guide",
     "kartograph_get_workspace_readiness",
     "kartograph_get_schema_ontology",
     "kartograph_save_schema_ontology",
+    "kartograph_validate_graph_mutations",
     "kartograph_apply_graph_mutations",
+    "kartograph_validate_graph_mutations_from_file",
+    "kartograph_apply_graph_mutations_from_file",
     "kartograph_list_instances_by_type",
     "kartograph_list_relationship_instances",
     "kartograph_search_graph_by_slug",
+    "kartograph_check_graph_slugs",
 )
 
 GMA_ALLOWED_TOOL_NAMES = KARTOGRAPH_SCHEMA_TOOL_NAMES + WORKSPACE_FILE_TOOL_NAMES
@@ -99,8 +103,30 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
             }
 
     @tool(
+        "kartograph_validate_graph_mutations",
+        "Dry-run: validate JSONL mutations without writing (strict CREATE — no duplicate types/instances).",
+        {"jsonl": str},
+    )
+    async def validate_graph_mutations(args: dict[str, Any]) -> dict[str, Any]:
+        jsonl = str(args.get("jsonl") or "").strip()
+        if not jsonl:
+            return {
+                "content": [{"type": "text", "text": "jsonl must not be empty."}],
+                "is_error": True,
+            }
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.validate_graph_mutations(jsonl=jsonl),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to validate mutations: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
         "kartograph_apply_graph_mutations",
-        "Apply JSONL mutation lines to create/update/delete entity or relationship instances.",
+        "Apply JSONL mutation lines. CREATE fails if type or instance already exists; use UPDATE to edit.",
         {"jsonl": str},
     )
     async def apply_graph_mutations(args: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +143,60 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
         except Exception as exc:  # noqa: BLE001
             return {
                 "content": [{"type": "text", "text": f"Failed to apply mutations: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
+        "kartograph_validate_graph_mutations_from_file",
+        "Dry-run validate a .jsonl file under the workspace (path relative to session root).",
+        {"path": str},
+    )
+    async def validate_graph_mutations_from_file(args: dict[str, Any]) -> dict[str, Any]:
+        path = str(args.get("path") or "").strip()
+        if not path:
+            return {
+                "content": [{"type": "text", "text": "path must not be empty."}],
+                "is_error": True,
+            }
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.validate_graph_mutations_from_file(path=path),
+            )
+        except ValueError as exc:
+            return {
+                "content": [{"type": "text", "text": str(exc)}],
+                "is_error": True,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to validate file: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
+        "kartograph_apply_graph_mutations_from_file",
+        "Apply a workspace .jsonl file in one call (strict CREATE semantics).",
+        {"path": str},
+    )
+    async def apply_graph_mutations_from_file(args: dict[str, Any]) -> dict[str, Any]:
+        path = str(args.get("path") or "").strip()
+        if not path:
+            return {
+                "content": [{"type": "text", "text": "path must not be empty."}],
+                "is_error": True,
+            }
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.apply_graph_mutations_from_file(path=path),
+            )
+        except ValueError as exc:
+            return {
+                "content": [{"type": "text", "text": str(exc)}],
+                "is_error": True,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Failed to apply file: {exc}"}],
                 "is_error": True,
             }
 
@@ -191,6 +271,37 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
             }
 
     @tool(
+        "kartograph_check_graph_slugs",
+        "Check which slugs already exist for one entity type (before bulk CREATE).",
+        {"entity_type": str, "slugs": list},
+    )
+    async def check_graph_slugs(args: dict[str, Any]) -> dict[str, Any]:
+        entity_type = str(args.get("entity_type") or "").strip()
+        slugs = args.get("slugs") or []
+        if not entity_type:
+            return {
+                "content": [{"type": "text", "text": "entity_type must not be empty."}],
+                "is_error": True,
+            }
+        if not isinstance(slugs, list) or not slugs:
+            return {
+                "content": [{"type": "text", "text": "slugs must be a non-empty list."}],
+                "is_error": True,
+            }
+        try:
+            return RuntimeTooling.format_tool_result(
+                await tooling.check_graph_slugs(
+                    entity_type=entity_type,
+                    slugs=[str(slug).strip() for slug in slugs if str(slug).strip()],
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "content": [{"type": "text", "text": f"Slug check failed: {exc}"}],
+                "is_error": True,
+            }
+
+    @tool(
         "kartograph_search_graph_by_slug",
         "Search existing graph nodes by slug within the active knowledge graph.",
         {"slug": str, "entity_type": str},
@@ -224,9 +335,13 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
             get_workspace_readiness,
             get_schema_ontology,
             save_schema_ontology,
+            validate_graph_mutations,
             apply_graph_mutations,
+            validate_graph_mutations_from_file,
+            apply_graph_mutations_from_file,
             list_instances_by_type,
             list_relationship_instances,
             search_graph_by_slug,
+            check_graph_slugs,
         ],
     )

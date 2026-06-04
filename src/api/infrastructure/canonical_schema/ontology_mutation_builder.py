@@ -41,18 +41,24 @@ def ontology_config_to_define_operations(
 
 def node_type_metadata(node_type) -> dict:
     """Serialize node-type authoring metadata for canonical storage."""
-    return {
+    metadata = {
         "prepopulated": node_type.prepopulated,
         "prepopulated_instance_count": node_type.prepopulated_instance_count,
     }
+    if node_type.instance_generator:
+        metadata["instance_generator"] = node_type.instance_generator
+    return metadata
 
 
 def edge_type_metadata(edge_type) -> dict:
     """Serialize edge-type authoring metadata for canonical storage."""
-    return {
+    metadata = {
         "source_labels": list(edge_type.source_labels),
         "target_labels": list(edge_type.target_labels),
         "properties": list(edge_type.properties),
         "prepopulated": edge_type.prepopulated,
         "prepopulated_instance_count": edge_type.prepopulated_instance_count,
     }
+    if edge_type.instance_generator:
+        metadata["instance_generator"] = edge_type.instance_generator
+    return metadata

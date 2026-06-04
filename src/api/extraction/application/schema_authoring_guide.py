@@ -4,7 +4,8 @@ SCHEMA_AUTHORING_GUIDE = """
 # Kartograph schema authoring (Graph Management Assistant)
 
 Use the Kartograph schema tools — never probe undocumented HTTP routes.
-Use Read, Grep, and Glob against the session workspace mount to scan prepared repository files.
+Use Read, Grep, Glob, and Bash against the session workspace mount. Prebuilt generator scripts
+live under `instance_generators/` (see README there).
 
 ## Workflow
 
@@ -12,9 +13,15 @@ Use Read, Grep, and Glob against the session workspace mount to scan prepared re
 2. Call `kartograph_get_workspace_readiness` to see prepopulated gaps and live instance counts.
 3. Call `kartograph_get_schema_ontology` to read the current entity/relationship types.
 4. Edit the ontology JSON (full replace) and call `kartograph_save_schema_ontology`.
-5. Scan `repository-files/<data_source_name>/` with Read/Grep/Glob to derive instances.
-6. Create entity instances in batches via `kartograph_apply_graph_mutations` (JSONL CREATE lines).
-7. Verify with `kartograph_list_instances_by_type`, `kartograph_list_relationship_instances`, and `kartograph_search_graph_by_slug`.
+5. For prepopulated types at scale: run a script under `instance_generators/` (examples:
+   `data_source.py`, `folder.py`, `source_file.py`, or your own), then
+   `python3 instance_generators/json_instances_to_jsonl.py <entity_label> out/instances.json`.
+6. After entity nodes exist, convert relationship JSON with
+   `json_relationships_to_jsonl.py <edge_label> <source_entity> <target_entity> out/relationships.json`.
+7. Optional: `kartograph_check_graph_slugs` to batch-check which slugs already exist before CREATE.
+8. Dry-run with `kartograph_validate_graph_mutations_from_file`, then apply with
+   `kartograph_apply_graph_mutations_from_file` (or inline tools for small fixes).
+9. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`.
 
 ## Entity type (node type) shape
 
@@ -27,12 +34,14 @@ Each entry in `node_types`:
   "required_properties": ["name"],
   "optional_properties": ["team"],
   "prepopulated": false,
-  "prepopulated_instance_count": 0
+  "prepopulated_instance_count": 0,
+  "instance_generator": "source_file.py"
 }
 ```
 
 - `label`: lowercase snake_case type name (required).
 - `prepopulated`: when true, bootstrap transition requires at least one instance.
+- `instance_generator`: optional script name under `instance_generators/` (example templates or your own).
 - Saving replaces the entire ontology — read first, merge your edits, then save.
 
 ## Relationship type (edge type) shape
@@ -47,11 +56,13 @@ Each entry in `edge_types`:
   "target_labels": ["api_endpoint"],
   "properties": [],
   "prepopulated": true,
-  "prepopulated_instance_count": 0
+  "prepopulated_instance_count": 0,
+  "instance_generator": "my_edges.py"
 }
 ```
 
 - `source_labels` / `target_labels`: allowed node type labels for edge endpoints.
+- `instance_generator`: optional script under `instance_generators/` for relationship prepopulation.
 - `prepopulated`: when true, bootstrap transition requires at least one instance of this
   relationship type. Every listed source and target entity type must also have
   `prepopulated: true`.
@@ -77,7 +88,10 @@ Rules:
 - CREATE requires `data_source_id` and `source_path` in `set_properties`.
 - Node CREATE requires `slug` in `set_properties` (kebab-case, unique per type).
 - `knowledge_graph_id` is stamped by the platform — do not set it.
-- Apply in batches of 25–50 CREATE lines; create all entity nodes before relationship edges.
+- For large sets: Bash + custom script under `instance_generators/` → JSONL file → apply-from-file tool.
+- CREATE is strict: existing types/instances must be changed with UPDATE, not CREATE again.
+- Dry-run before apply: `kartograph_validate_graph_mutations` or `kartograph_validate_graph_mutations_from_file`.
+- Create all entity nodes before relationship edges.
 - Sort instances deterministically (by slug or path) before emitting CREATE lines.
 
 ## Instance generation cookbook

@@ -30,12 +30,14 @@ def _build_system_prompt(
     settings: AgentRuntimeSettings | None = None,
     workspace_appendix: str = "",
     workspace_readiness: dict[str, Any] | None = None,
+    prompt_detail: str = "full",
 ) -> str:
     return build_agent_system_prompt(
         agent_configuration,
         settings=settings,
         workspace_appendix=workspace_appendix,
         workspace_readiness=workspace_readiness,
+        prompt_detail="compact" if prompt_detail == "compact" else "full",
     )
 
 
@@ -57,10 +59,10 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 f"Workspace mount: `{settings.workspace_dir}`",
                 (
                     "Prepared repository files live under "
-                    "`repository-files/<data_source_name>/` relative to the workspace mount "
-                    "(one folder per data source for this session's knowledge graph; folder "
-                    "names are slugified data source names such as `hyperfleet-api`). "
-                    "Use Read, Grep, and Glob tools against those paths."
+                    "`repository-files/<data_source_name>/`. "
+                    "Prebuilt instance generator scripts are in `instance_generators/` "
+                    "(run with Bash: `python3 instance_generators/<script>.py repository-files`). "
+                    "Use Read, Grep, Glob, and Bash against the workspace mount only."
                 ),
             ]
             for source in sources[:12]:
@@ -382,11 +384,17 @@ async def _stream_with_claude_sdk(
         except Exception:  # noqa: BLE001
             workspace_readiness = None
 
+    prior_turns = sum(
+        1 for entry in message_history if isinstance(entry, dict) and entry.get("role") == "user"
+    )
+    prompt_detail = "full" if prior_turns <= 1 else "compact"
+
     system_prompt = _build_system_prompt(
         agent_configuration,
         settings=settings,
         workspace_appendix=_build_workspace_prompt_appendix(settings),
         workspace_readiness=workspace_readiness,
+        prompt_detail=prompt_detail,
     )
     history_lines = [
         f"{entry.get('role', 'unknown')}: {entry.get('content', '')}"

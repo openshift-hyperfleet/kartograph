@@ -34,17 +34,13 @@ class TestExtractionSkillResolutionService:
             mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
         )
 
-        assert "schema_modeling" in resolved.skills
-        assert "entity_type_authoring" in resolved.skills
-        assert "relationship_type_authoring" in resolved.skills
-        assert "instance_authoring" in resolved.skills
-        assert "instance_generation" in resolved.skills
-        assert "relationship_instance_authoring" in resolved.skills
-        assert "schema_tools" in resolved.skills
-        assert "kartograph_get_schema_ontology" in resolved.skills["schema_tools"]
-        assert "kartograph_get_workspace_readiness" in resolved.skills["schema_tools"]
-        assert "Read" in resolved.skills["schema_tools"]
-        assert "prepopulation_validation" in resolved.skills
+        assert set(resolved.skills.keys()) >= {
+            "capabilities_intake",
+            "schema_workflow",
+            "prepopulation",
+        }
+        assert "instance_generators" in resolved.skills["prepopulation"]
+        assert "kartograph_get_schema_authoring_guide" in resolved.skills["schema_workflow"]
         assert "capabilities_intake" in resolved.skills
         assert "goal" in resolved.system_prompt.lower()
         assert len(resolved.prompt_hierarchy) > 0

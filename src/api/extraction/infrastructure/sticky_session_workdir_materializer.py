@@ -8,6 +8,10 @@ import shutil
 import zipfile
 
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+from extraction.infrastructure.instance_generator_templates import (
+    TEMPLATES_DIR,
+    TEMPLATE_SCRIPT_NAMES,
+)
 from shared_kernel.job_package.path_safety import validate_zip_entry_name
 from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
@@ -92,12 +96,23 @@ class StickySessionWorkdirMaterializer:
 
         marker = session_root / "knowledge-graph-id"
         marker.write_text(knowledge_graph_id, encoding="utf-8")
+        self._materialize_instance_generators(session_root)
         self._write_workspace_index(
             session_root=session_root,
             knowledge_graph_id=knowledge_graph_id,
             sources=index_sources,
         )
         return session_root
+
+    @staticmethod
+    def _materialize_instance_generators(session_root: Path) -> None:
+        """Copy bundled generator templates into the session workspace."""
+        target_dir = session_root / "instance_generators"
+        _replace_directory(target_dir)
+        for name in TEMPLATE_SCRIPT_NAMES:
+            source = TEMPLATES_DIR / name
+            if source.is_file():
+                shutil.copy2(source, target_dir / name)
 
     @staticmethod
     def _extension_counts(root: Path) -> dict[str, int]:

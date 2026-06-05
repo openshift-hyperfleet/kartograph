@@ -42,7 +42,7 @@ class MutationOperationType(str, Enum):
 # These are automatically added by the system and should not be tracked as optional properties
 
 # Properties required for ALL entities (nodes and edges)
-COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id", "source_path"})
+COMMON_SYSTEM_PROPERTIES: frozenset[str] = frozenset({"data_source_id"})
 
 # Node-specific system properties (in addition to common)
 # These are REQUIRED in CREATE operations and excluded from optional property tracking.
@@ -308,8 +308,6 @@ class MutationOperation(BaseModel):
                 raise ValueError("CREATE requires 'set_properties'")
             if "data_source_id" not in self.set_properties:
                 raise ValueError("CREATE requires 'data_source_id' in set_properties")
-            if "source_path" not in self.set_properties:
-                raise ValueError("CREATE requires 'source_path' in set_properties")
 
             if self.type == "node":
                 if "slug" not in self.set_properties:

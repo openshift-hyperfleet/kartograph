@@ -31,7 +31,7 @@ def export_system_properties():
     # Property descriptions for documentation
     property_descriptions = {
         "data_source_id": "Identifies which data source this entity came from (e.g., 'ds-123')",
-        "source_path": "The file path within the data source where this entity was extracted from",
+        "source_path": "Optional provenance path within the data source (not a platform-required system property)",
         "slug": "Unique human-readable identifier for the node (e.g., 'alice-smith', 'kartograph')",
     }
 

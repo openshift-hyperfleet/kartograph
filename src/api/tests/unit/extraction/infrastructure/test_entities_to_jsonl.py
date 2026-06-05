@@ -32,8 +32,6 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
             "test",
             "--data-source-id",
             "schema-bootstrap",
-            "--source-path",
-            "graph-management-assistant",
             str(instances_path),
         ],
         check=True,
@@ -58,3 +56,21 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
         text=True,
     )
     assert rerun.stdout == proc.stdout
+
+
+def test_entities_to_jsonl_omits_source_path_when_not_configured(tmp_path: Path) -> None:
+    instances_path = tmp_path / "test_instances.json"
+    instances_path.write_text(
+        json.dumps([{"slug": "a-entity", "properties": {"name": "A"}}]),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "test", str(instances_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    line = json.loads(proc.stdout.strip())
+    assert "source_path" not in line["set_properties"]

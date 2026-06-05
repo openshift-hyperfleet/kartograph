@@ -94,9 +94,8 @@ class TestSchemaLearning:
         final_type_def = mock_type_repo.save.call_args_list[1][0][0]
         assert "age" in final_type_def.optional_properties
         assert "email" in final_type_def.optional_properties
-        # data_source_id and source_path are system props, should be excluded
         assert "data_source_id" not in final_type_def.optional_properties
-        assert "source_path" not in final_type_def.optional_properties
+        assert "source_path" in final_type_def.optional_properties
 
     def test_optional_properties_accumulate(self, service, mock_type_repo):
         """Should accumulate optional properties across multiple CREATEs."""
@@ -163,7 +162,7 @@ class TestSchemaLearning:
         updated_type_def = mock_type_repo.save.call_args[0][0]
         assert "custom_field" in updated_type_def.optional_properties
         assert "data_source_id" not in updated_type_def.optional_properties
-        assert "source_path" not in updated_type_def.optional_properties
+        assert "source_path" in updated_type_def.optional_properties
 
     def test_no_update_when_no_extra_properties(self, service, mock_type_repo):
         """Should not update type def if no new optional properties."""
@@ -172,11 +171,11 @@ class TestSchemaLearning:
             entity_type=EntityType.NODE,
             description="A person",
             required_properties={"slug", "name"},
-            optional_properties={"email"},
+            optional_properties={"email", "source_path"},
         )
         mock_type_repo.get.return_value = existing_type_def
 
-        # CREATE with only required props + already-known optional prop
+        # CREATE with only required props + already-known optional props
         create_op = MutationOperation(
             op=MutationOperationType.CREATE,
             type=EntityType.NODE,
@@ -185,7 +184,7 @@ class TestSchemaLearning:
             set_properties={
                 "slug": "alice",
                 "name": "Alice",
-                "email": "alice@example.com",  # Already in optional_properties
+                "email": "alice@example.com",
                 "data_source_id": "ds-123",
                 "source_path": "people/alice.md",
             },

@@ -49,7 +49,8 @@ def instance_to_create_line(
     set_properties.setdefault("slug", slug)
     set_properties.setdefault("name", slug)
     set_properties["data_source_id"] = data_source_id
-    set_properties["source_path"] = source_path
+    if source_path.strip():
+        set_properties["source_path"] = source_path.strip()
     return {
         "op": "CREATE",
         "type": "node",
@@ -88,7 +89,11 @@ def main() -> int:
     parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
     parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic node ids.")
     parser.add_argument("--data-source-id", default="schema-bootstrap")
-    parser.add_argument("--source-path", default="graph-management-assistant")
+    parser.add_argument(
+        "--source-path",
+        default="",
+        help="Optional provenance path stamped on each CREATE when set.",
+    )
     args = parser.parse_args()
 
     raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()

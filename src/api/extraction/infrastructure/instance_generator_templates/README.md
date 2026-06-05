@@ -18,7 +18,6 @@ python3 instance_generators/test.py repository-files \
 
 python3 instance_generators/entities_to_jsonl.py test \
   --data-source-id schema-bootstrap \
-  --source-path graph-management-assistant \
   instance_generators/out/test_instances.json \
   > instance_generators/out/test_instances.jsonl
 ```

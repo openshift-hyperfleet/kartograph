@@ -109,7 +109,7 @@ Relationship scanner convention: `out/{source}_{label}_{target}_instances.json`.
 
 ## Instance mutations (JSONL)
 
-- CREATE requires `data_source_id`, `source_path`, and `slug` on nodes.
+- CREATE requires `data_source_id` and `slug` on nodes. Add `source_path` only when provenance matters.
 - CREATE is strict — use UPDATE for existing instances.
 - Never hand-author bulk CREATE lines in chat; use `entities_to_jsonl.py` / `relationships_to_jsonl.py`.
 - Create all entity nodes before relationship edges.

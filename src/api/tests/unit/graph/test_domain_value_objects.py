@@ -340,8 +340,8 @@ class TestMutationOperation:
         with pytest.raises(ValueError, match="data_source_id"):
             mutation.validate_operation()
 
-    def test_create_requires_source_path(self):
-        """CREATE should require source_path in set_properties."""
+    def test_create_allows_missing_source_path(self):
+        """CREATE should not require source_path in set_properties."""
         mutation = MutationOperation(
             op=MutationOperationType.CREATE,
             type=EntityType.NODE,
@@ -350,10 +350,10 @@ class TestMutationOperation:
             set_properties={
                 "slug": "alice",
                 "data_source_id": "ds-123",
+                "knowledge_graph_id": "kg-123",
             },
         )
-        with pytest.raises(ValueError, match="source_path"):
-            mutation.validate_operation()
+        mutation.validate_operation()
 
     def test_create_node_requires_slug(self):
         """CREATE node should require slug in set_properties."""

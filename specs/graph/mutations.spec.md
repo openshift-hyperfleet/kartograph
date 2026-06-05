@@ -55,12 +55,12 @@ The system SHALL support declaring node and edge types with property schemas.
 - GIVEN a DEFINE operation with label "person", description, and required properties
 - WHEN the mutation is applied
 - THEN a type definition is stored with the label, description, required properties, and empty optional properties
-- AND system properties (`data_source_id`, `source_path`, `slug`) are automatically added to required properties
+- AND system properties (`data_source_id`, `slug`) are automatically added to required properties
 
 #### Scenario: Define an edge type
 - GIVEN a DEFINE operation with entity type "edge"
 - WHEN the mutation is applied
-- THEN system properties for edges (`data_source_id`, `source_path`) are automatically added
+- THEN system properties for edges (`data_source_id`) are automatically added
 
 ### Requirement: CREATE Operation
 The system SHALL support idempotent entity creation with property accumulation.
@@ -133,11 +133,13 @@ The system SHALL require specific system-managed properties on all CREATE operat
 
 #### Scenario: Node system properties
 - GIVEN a CREATE operation for a node
-- THEN `data_source_id`, `source_path`, `slug`, and `knowledge_graph_id` MUST be present in `set_properties`
+- THEN `data_source_id`, `slug`, and `knowledge_graph_id` MUST be present in `set_properties`
+- AND `source_path` MAY be present when the caller or type definition requires provenance
 
 #### Scenario: Edge system properties
 - GIVEN a CREATE operation for an edge
-- THEN `data_source_id`, `source_path`, and `knowledge_graph_id` MUST be present in `set_properties`
+- THEN `data_source_id` and `knowledge_graph_id` MUST be present in `set_properties`
+- AND `source_path` MAY be present when the caller or type definition requires provenance
 
 ### Requirement: Deterministic Entity IDs
 The system SHALL use deterministic IDs for idempotent mutation replay.

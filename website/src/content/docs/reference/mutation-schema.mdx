@@ -90,8 +90,8 @@ listed below.
   "label": "string",
   "set_properties": {
     "data_source_id": "required",
-    "source_path": "required",
-    "slug": "required" // Only required for `CREATE node` operations
+    "slug": "required", // Only required for `CREATE node` operations
+    "source_path": "optional" // Include when provenance matters, or when required by the type definition
     ...
   }
 }

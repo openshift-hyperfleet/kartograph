@@ -7,12 +7,10 @@
   "common": {
     "description": "System properties required for all entities (nodes and edges)",
     "properties": [
-      "data_source_id",
-      "source_path"
+      "data_source_id"
     ],
     "property_descriptions": {
-      "data_source_id": "Identifies which data source this entity came from (e.g., 'ds-123')",
-      "source_path": "The file path within the data source where this entity was extracted from"
+      "data_source_id": "Identifies which data source this entity came from (e.g., 'ds-123')"
     }
   },
   "edge_specific": {
@@ -23,8 +21,7 @@
   "edge_total": {
     "description": "All system properties for edges (common + edge-specific)",
     "properties": [
-      "data_source_id",
-      "source_path"
+      "data_source_id"
     ]
   },
   "node_specific": {
@@ -40,8 +37,7 @@
     "description": "All system properties for nodes (common + node-specific)",
     "properties": [
       "data_source_id",
-      "slug",
-      "source_path"
+      "slug"
     ]
   }
 }

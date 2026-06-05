@@ -10,8 +10,8 @@ Use the Kartograph schema tools — never probe undocumented HTTP routes.
 | Path | Access | Purpose |
 |------|--------|---------|
 | `repository-files/<data_source>/` | read-only | Source repos for Glob/Grep/Read |
-| `ingestion-context/` | read-only | Sync metadata |
 | `instance_generators/` | **writable** | `{label}.py` scanners + `out/*_instances.json(l)` |
+| rest of workspace | **writable** | Session metadata, agent-authored files |
 
 Never write to `/tmp`. Apply-from-file paths must be under `instance_generators/out/`
 (e.g. `instance_generators/out/test_instances.jsonl`).

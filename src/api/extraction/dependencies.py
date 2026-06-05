@@ -110,6 +110,8 @@ def get_extraction_chat_turn_service(
         ),
         workdir_materializer=StickySessionWorkdirMaterializer(
             job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+            container_run_uid=runtime_settings.container_run_uid,
+            container_run_gid=runtime_settings.container_run_gid,
         ),
         runtime_settings=runtime_settings,
     )

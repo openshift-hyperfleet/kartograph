@@ -30,6 +30,13 @@ def test_gma_allowed_tools_include_workspace_file_tools() -> None:
         assert tool_name in GMA_ALLOWED_TOOL_NAMES
 
 
+def test_gma_allowed_tools_include_write_and_edit() -> None:
+    from kartograph_agent_runtime.schema_tools import GMA_ALLOWED_TOOL_NAMES
+
+    assert "Write" in GMA_ALLOWED_TOOL_NAMES
+    assert "Edit" in GMA_ALLOWED_TOOL_NAMES
+
+
 def test_gma_allowed_tools_include_bash() -> None:
     from kartograph_agent_runtime.schema_tools import GMA_ALLOWED_TOOL_NAMES
 

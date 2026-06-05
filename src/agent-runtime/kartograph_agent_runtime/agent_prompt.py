@@ -35,6 +35,8 @@ _TOOLS_QUICK_REFERENCE = """
 | Tool | Purpose |
 |------|---------|
 | `Read` | Read files under the session workspace mount |
+| `Write` | Create scanner scripts and JSON outputs under `instance_generators/` |
+| `Edit` | Update existing workspace files (e.g. refine a scanner script) |
 | `Grep` | Search file contents in `repository-files/<data_source>/` |
 | `Glob` | List files by pattern for instance generation |
 | `Bash` | Run `instance_generators/*.py` against `repository-files/` (workspace only) |
@@ -54,7 +56,7 @@ Writes persist to the platform database for the active knowledge graph.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (
-    "Tools: kartograph_* schema MCP tools, plus Read/Grep/Glob/Bash. "
+    "Tools: kartograph_* schema MCP tools, plus Read/Write/Edit/Grep/Glob/Bash. "
     "Prepopulation: {label}.py → out/{label}_instances.json → entities_to_jsonl.py or "
     "relationships_to_jsonl.py → validate/apply out/{label}_instances.jsonl. Never /tmp."
 )

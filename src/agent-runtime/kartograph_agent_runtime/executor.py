@@ -58,8 +58,9 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 "## Session workspace",
                 f"Workspace mount: `{settings.workspace_dir}`",
                 (
-                    "Read-only: `repository-files/`, `ingestion-context/`. "
-                    "Writable: `instance_generators/` — `{label}.py` and `out/{label}_instances.json(l)`. "
+                    "Read-only: `repository-files/`. "
+                    "Writable: entire workspace except repository snapshots — "
+                    "`instance_generators/` for `{label}.py` and `out/{label}_instances.json(l)`. "
                     "Platform converters: `entities_to_jsonl.py`, `relationships_to_jsonl.py`. "
                     "Never `/tmp`. One batch per gap via apply-from-file."
                 ),

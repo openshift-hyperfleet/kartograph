@@ -8,7 +8,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from kartograph_agent_runtime.tools import RuntimeTooling
 
-WORKSPACE_FILE_TOOL_NAMES = ("Read", "Grep", "Glob", "Bash")
+WORKSPACE_FILE_TOOL_NAMES = ("Read", "Write", "Edit", "Grep", "Glob", "Bash")
 
 KARTOGRAPH_SCHEMA_TOOL_NAMES = (
     "kartograph_get_schema_authoring_guide",

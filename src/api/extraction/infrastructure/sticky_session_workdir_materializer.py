@@ -12,6 +12,9 @@ from extraction.infrastructure.instance_generator_templates import (
     TEMPLATES_DIR,
     TEMPLATE_SCRIPT_NAMES,
 )
+from extraction.infrastructure.sticky_session_workspace_permissions import (
+    ensure_agent_workspace_permissions,
+)
 from shared_kernel.job_package.path_safety import validate_zip_entry_name
 from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
@@ -29,8 +32,16 @@ def _replace_directory(path: Path) -> None:
 class StickySessionWorkdirMaterializer:
     """Materialize JobPackage archives into a session-scoped work directory."""
 
-    def __init__(self, *, job_package_work_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        job_package_work_dir: Path,
+        container_run_uid: int | None = None,
+        container_run_gid: int | None = None,
+    ) -> None:
         self._job_package_work_dir = job_package_work_dir
+        self._container_run_uid = container_run_uid
+        self._container_run_gid = container_run_gid
 
     def prepare(
         self,
@@ -101,6 +112,11 @@ class StickySessionWorkdirMaterializer:
             session_root=session_root,
             knowledge_graph_id=knowledge_graph_id,
             sources=index_sources,
+        )
+        ensure_agent_workspace_permissions(
+            session_root,
+            container_run_uid=self._container_run_uid,
+            container_run_gid=self._container_run_gid,
         )
         return session_root
 

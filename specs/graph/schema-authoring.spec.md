@@ -68,6 +68,20 @@ The system SHALL enforce `prepopulated=true` as a transition-blocking readiness 
 - WHEN readiness is evaluated
 - THEN validation fails and transition to extraction mode is blocked
 
+### Requirement: Opinionated Bootstrap Workflow
+The system SHALL guide the Graph Management Assistant through a six-phase schema bootstrap workflow.
+
+#### Scenario: Goals before schema
+- GIVEN a new schema bootstrap conversation
+- WHEN the assistant begins intake
+- THEN it asks for questions the graph must answer before proposing entity types
+
+#### Scenario: Phased bootstrap guidance
+- GIVEN schema bootstrap skills are resolved for a graph-management turn
+- WHEN the agent system prompt is assembled
+- THEN it includes the six phases: goals, discovery, schema Q&A, prepopulation planning, confirmed save, bulk implementation
+- AND instructs not to conflate schema design with prepopulation implementation
+
 ### Requirement: Workload Bulk Instance Authoring
 The system SHALL support bulk instance authoring for the Graph Management Assistant via workspace files and strict CREATE semantics.
 

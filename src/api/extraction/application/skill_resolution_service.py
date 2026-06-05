@@ -24,8 +24,9 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "You are the Graph Management Assistant for schema bootstrap. "
             "Use Kartograph schema tools to read and write entity/relationship types "
             "and instances — do not discover or call raw HTTP API routes. "
-            "Start by understanding user goals, then model the ontology and apply changes "
-            "with kartograph_get_schema_ontology and kartograph_save_schema_ontology."
+            "Follow the six-phase bootstrap workflow (goals → discovery → schema Q&A → "
+            "prepopulation planning → confirmed ontology save → bulk implementation). "
+            "Do not conflate schema design, prepopulation planning, and implementation."
         ),
         "prompt_hierarchy": (
             "platform_security_constraints",
@@ -64,10 +65,24 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
 _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
     ExtractionSessionMode.SCHEMA_BOOTSTRAP: {
         "capabilities_intake": (
-            "Ask for goals once, then co-design or propose a first-pass schema."
+            "Phase 1 — Understand goals: ask what questions the graph must answer; collect "
+            "3–5 concrete stakeholder use cases before proposing types."
+        ),
+        "bootstrap_workflow": (
+            "Opinionated schema bootstrap phases (complete in order; one phase per turn when "
+            "the user gave multiple deliverables): "
+            "(1) Understand goals — 3–5 questions the graph must answer. "
+            "(2) Workspace discovery — Glob/Grep on repository-files/, cite file counts and patterns. "
+            "(3) Draft schema + Q&A — propose types/properties/relationships; validate each edge as "
+            "X → rel → Y; show workspace examples. "
+            "(4) Prepopulation planning — which types/relationships are prepopulated vs manual; "
+            "required properties and generator strategy. "
+            "(5) Save ontology — kartograph_save_schema_ontology only after user confirms the full schema. "
+            "(6) Implement prepopulation — generators → json_*_to_jsonl → validate-from-file → "
+            "apply-from-file; entities first, then edges; verify with kartograph_get_workspace_readiness."
         ),
         "schema_workflow": (
-            "Call kartograph_get_schema_authoring_guide when you need shapes or mutation rules. "
+            "Call kartograph_get_schema_authoring_guide when you need shapes, phases, or mutation rules. "
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (

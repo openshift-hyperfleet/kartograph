@@ -36,9 +36,13 @@ class TestExtractionSkillResolutionService:
 
         assert set(resolved.skills.keys()) >= {
             "capabilities_intake",
+            "bootstrap_workflow",
             "schema_workflow",
             "prepopulation",
         }
+        assert "six-phase" in resolved.skills["bootstrap_workflow"].lower() or "6" in resolved.skills["bootstrap_workflow"]
+        assert "Workspace discovery" in resolved.skills["bootstrap_workflow"]
+        assert "3–5" in resolved.skills["capabilities_intake"]
         assert "instance_generators" in resolved.skills["prepopulation"]
         assert "kartograph_get_schema_authoring_guide" in resolved.skills["schema_workflow"]
         assert "capabilities_intake" in resolved.skills

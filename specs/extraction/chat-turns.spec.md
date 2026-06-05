@@ -94,3 +94,12 @@ The system SHALL expose schema, mutation, and workspace tooling appropriate for 
 - WHEN a follow-up chat message is processed
 - THEN the system prompt omits the full skill prose block
 - AND still includes live workspace readiness and a short tools summary
+
+### Requirement: Sticky Turn Timeout
+The system SHALL allow configuring a per-turn execution timeout for graph-management chat in sticky session containers.
+
+#### Scenario: One-hour dev timeout
+- GIVEN development runtime settings set `STICKY_TURN_TIMEOUT_SECONDS` to 3600
+- WHEN a chat turn runs in the sticky agent runtime
+- THEN the agent turn may execute for up to 3600 seconds before timing out
+- AND the API sticky HTTP client read timeout exceeds the configured turn timeout

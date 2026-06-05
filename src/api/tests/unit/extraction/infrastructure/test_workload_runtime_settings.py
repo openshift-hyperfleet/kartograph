@@ -34,3 +34,8 @@ class TestExtractionWorkloadRuntimeSettings:
         settings = ExtractionWorkloadRuntimeSettings(workload_token_signing_key="")
 
         assert resolve_workload_token_signing_key(settings)
+
+    def test_sticky_turn_timeout_accepts_one_hour(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(sticky_turn_timeout_seconds=3600.0)
+
+        assert settings.sticky_turn_timeout_seconds == 3600.0

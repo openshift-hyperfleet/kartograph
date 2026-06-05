@@ -59,10 +59,12 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 f"Workspace mount: `{settings.workspace_dir}`",
                 (
                     "Prepared repository files live under "
-                    "`repository-files/<data_source_name>/`. "
-                    "Prebuilt instance generator scripts are in `instance_generators/` "
-                    "(run with Bash: `python3 instance_generators/<script>.py repository-files`). "
-                    "Use Read, Grep, Glob, and Bash against the workspace mount only."
+                    "`repository-files/<data_source_name>/` (read-only). "
+                    "`ingestion-context/` is read-only. "
+                    "Writable outputs: `instance_generators/` only (scripts, JSON, JSONL under "
+                    "`instance_generators/out/`). "
+                    "Run generators with Bash: `python3 instance_generators/<script>.py repository-files`. "
+                    "Use Read, Grep, Glob on repository-files; Bash for generators."
                 ),
             ]
             for source in sources[:12]:

@@ -24,8 +24,9 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "You are the Graph Management Assistant for schema bootstrap. "
             "Use Kartograph schema tools to read and write entity/relationship types "
             "and instances — do not discover or call raw HTTP API routes. "
-            "Start by understanding user goals, then model the ontology and apply changes "
-            "with kartograph_get_schema_ontology and kartograph_save_schema_ontology."
+            "Follow the six-phase bootstrap workflow (goals → discovery → schema Q&A → "
+            "prepopulation planning → confirmed ontology save → bulk implementation). "
+            "Do not conflate schema design, prepopulation planning, and implementation."
         ),
         "prompt_hierarchy": (
             "platform_security_constraints",
@@ -39,6 +40,30 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "Keep recommendations scoped to the active knowledge graph.",
             "Use kartograph_* schema tools for ontology and JSONL mutations; never probe /management or /graph HTTP routes manually.",
             "Format user-facing replies in GitHub-flavored Markdown (headings, lists, fenced code blocks, tables) for readability in the chat UI.",
+            (
+                "When the user gives multiple deliverables in one message (three or more bullets, "
+                "or any mix of ontology edits + bulk prepopulation + relationships), do not execute "
+                "the full list in one turn. Complete one phase only, summarize what finished, then "
+                "ask whether to continue through the rest automatically or one phase at a time. "
+                "Default to one phase per turn unless the user explicitly requests doing everything."
+            ),
+            (
+                "Bootstrap phases (in order): (1) ontology/types/properties, (2) entity instances "
+                "in dependency order, (3) relationship instances, (4) readiness verification via "
+                "kartograph_get_workspace_readiness. Stop after each phase when multiple deliverables "
+                "were requested."
+            ),
+            (
+                "Do not call kartograph_save_schema_ontology until the user confirms the full "
+                "proposed schema (types, properties, relationship directions, prepopulation flags). "
+                "Exception: the user explicitly says to save/apply or continues after reviewing your draft."
+            ),
+            (
+                "For bulk prepopulation never hand-author CREATE ids in chat. Use Bash generators → "
+                "json_*_to_jsonl.py → validate-from-file → apply-from-file. On ontology save errors, "
+                "read kartograph_get_schema_ontology and kartograph_get_schema_authoring_guide, merge "
+                "a fix, then retry once."
+            ),
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
@@ -64,18 +89,40 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
 _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
     ExtractionSessionMode.SCHEMA_BOOTSTRAP: {
         "capabilities_intake": (
-            "Ask for goals once, then co-design or propose a first-pass schema."
+            "Phase 1 — Understand goals: ask what questions the graph must answer; collect "
+            "3–5 concrete stakeholder use cases before proposing types."
+        ),
+        "bootstrap_workflow": (
+            "Opinionated schema bootstrap phases (complete in order; one phase per turn when "
+            "the user gave multiple deliverables): "
+            "(1) Understand goals — 3–5 questions the graph must answer. "
+            "(2) Workspace discovery — Glob/Grep on repository-files/, cite file counts and patterns. "
+            "(3) Draft schema + Q&A — propose types/properties/relationships; show workspace examples. "
+            "(4) Prepopulation planning — which types/relationships are prepopulated vs manual. "
+            "(5) Save ontology — kartograph_save_schema_ontology only after user confirms the full schema. "
+            "(6) Implement prepopulation — generators → json_*_to_jsonl → validate-from-file → "
+            "apply-from-file; entities first, then edges; verify with kartograph_get_workspace_readiness."
+        ),
+        "schema_modeling": (
+            "Property vs entity: distinguish/categorize → property on an existing type; "
+            "track which/what or needs relationships → entity type + edges. "
+            "Relationships default bidirectional — author primary direction only; platform creates "
+            "inverse type + twin instances. Set bidirectional=false for asymmetric edges "
+            "(depends_on, created_by). For asymmetric edges, confirm X → rel → Y direction explicitly."
         ),
         "schema_workflow": (
-            "Call kartograph_get_schema_authoring_guide when you need shapes or mutation rules. "
+            "Call kartograph_get_schema_authoring_guide when you need shapes, phases, or mutation rules. "
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (
-            "For prepopulated types: set instance_generator on the type when helpful, run script "
-            "under instance_generators/ with Bash, convert with json_*_to_jsonl helpers, validate "
-            "then apply-from-file. CREATE cannot duplicate existing instances — use UPDATE to edit. "
-            "Bidirectional relationships default on: author primary-direction edges only; platform "
-            "creates inverse type + twin instances. Set bidirectional=false for asymmetric edges."
+            "Before prepopulation planning: Glob/Grep repository-files/ and cite counts from the workspace "
+            "appendix. Write scripts/JSON/JSONL only under instance_generators/ (repository-files/ is "
+            "read-only). For prepopulated types: run script with Bash, convert with json_*_to_jsonl, "
+            "validate then apply-from-file. Bidirectional edges: primary direction only in generators."
+        ),
+        "readiness_reporting": (
+            "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "
+            "blocking_reasons, prepopulated gaps, and transition_eligible in your reply."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
@@ -174,4 +221,3 @@ class ExtractionSkillResolutionService:
             guardrails=base.guardrails,
             skills=merged_skills,
         )
-

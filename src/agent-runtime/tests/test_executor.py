@@ -53,6 +53,8 @@ def test_build_workspace_prompt_appendix_prefers_sources_index(tmp_path: Path) -
     assert "Hyperfleet API" in appendix
     assert "142 file(s)" in appendix
     assert "pkg/api/adapter_status_types_test.go" in appendix
+    assert "read-only" in appendix
+    assert "instance_generators/" in appendix
 
 
 def test_build_workspace_prompt_appendix_includes_extension_counts(tmp_path: Path) -> None:

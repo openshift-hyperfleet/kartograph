@@ -36,15 +36,23 @@ class TestExtractionSkillResolutionService:
 
         assert set(resolved.skills.keys()) >= {
             "capabilities_intake",
+            "bootstrap_workflow",
+            "schema_modeling",
             "schema_workflow",
             "prepopulation",
+            "readiness_reporting",
         }
-        assert "instance_generators" in resolved.skills["prepopulation"]
-        assert "kartograph_get_schema_authoring_guide" in resolved.skills["schema_workflow"]
-        assert "capabilities_intake" in resolved.skills
-        assert "goal" in resolved.system_prompt.lower()
+        assert "3–5" in resolved.skills["capabilities_intake"]
+        assert "Workspace discovery" in resolved.skills["bootstrap_workflow"]
+        assert "Property vs entity" in resolved.skills["schema_modeling"]
+        assert "read-only" in resolved.skills["prepopulation"]
+        assert "blocking_reasons" in resolved.skills["readiness_reporting"]
+        assert "six-phase" in resolved.system_prompt.lower()
+        guardrails_text = " ".join(resolved.guardrails)
+        assert "one phase per turn" in guardrails_text
+        assert "kartograph_save_schema_ontology" in guardrails_text
+        assert "never hand-author CREATE ids" in guardrails_text
         assert len(resolved.prompt_hierarchy) > 0
-        assert len(resolved.guardrails) > 0
 
     async def test_extraction_mode_uses_extraction_defaults(self):
         service = ExtractionSkillResolutionService(

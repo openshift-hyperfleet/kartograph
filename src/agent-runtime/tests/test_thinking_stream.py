@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from kartograph_agent_runtime.thinking_stream import (
+    _compose_reply_line,
     initial_sdk_thinking_lines,
     push_thinking,
     replace_last_thinking,
     thinking_events_from_sdk_message,
+    update_composing_line,
 )
 
 
@@ -51,6 +53,21 @@ def test_initial_sdk_thinking_lines_include_connected_message() -> None:
 
     assert any("Claude Agent SDK query started" in line for line in lines)
     assert any("Schema tools" in line for line in lines)
+
+
+def test_compose_reply_line_sanitizes_noisy_planning_text() -> None:
+    assert _compose_reply_line("need. Let me create tasks") == "Composing reply…"
+    assert _compose_reply_line("Short") == "Composing reply…"
+    assert _compose_reply_line("Summarizing ontology changes for review.") == (
+        "Composing reply · Summarizing ontology changes for review."
+    )
+
+
+def test_update_composing_line_uses_sanitized_preview() -> None:
+    recent: list[str] = []
+    event = update_composing_line(recent, "Now let me start with the ontology schema")
+    assert event is not None
+    assert recent[-1] == "Composing reply…"
 
 
 def test_agent_runtime_settings_default_max_turns() -> None:

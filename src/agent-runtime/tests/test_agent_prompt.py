@@ -46,10 +46,24 @@ def test_build_agent_system_prompt_includes_workspace_readiness() -> None:
             KARTOGRAPH_KNOWLEDGE_GRAPH_ID="kg-123",
         ),
         workspace_readiness={
+            "next_action": "Run entity prepopulation for `folder`.",
+            "prepopulation_tasks": [
+                {
+                    "kind": "entity",
+                    "label": "folder",
+                    "live_instance_count": 0,
+                    "scanner_path": "instance_generators/folder.py",
+                }
+            ],
             "prepopulated_entity_types_without_instances_live": ["folder"],
             "prepopulated_relationship_types_without_instances_live": [],
             "prepopulated_entity_types": [
-                {"label": "folder", "live_instance_count": 0, "metadata_instance_count": 0}
+                {
+                    "label": "folder",
+                    "live_instance_count": 0,
+                    "metadata_instance_count": 0,
+                    "required_properties": ["name"],
+                }
             ],
             "blocking_reasons": ["Prepopulated entity types require instances before transition: folder"],
             "transition_eligible": False,
@@ -57,6 +71,8 @@ def test_build_agent_system_prompt_includes_workspace_readiness() -> None:
     )
 
     assert "Workspace readiness" in prompt
+    assert "Next action" in prompt
+    assert "instance_generators/folder.py" in prompt
     assert "`folder`" in prompt
     assert "kartograph_get_workspace_readiness" in prompt
     assert "Read" in prompt

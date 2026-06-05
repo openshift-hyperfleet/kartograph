@@ -39,14 +39,16 @@ _TOOLS_QUICK_REFERENCE = """
 | `Edit` | Update existing workspace files (e.g. refine a scanner script) |
 | `Grep` | Search file contents in `repository-files/<data_source>/` |
 | `Glob` | List files by pattern for instance generation |
-| `Bash` | Run `instance_generators/*.py` against `repository-files/` (workspace only) |
+| `Bash` | Run scanners and `preview_instances.py` against `repository-files/` |
+
+See `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered prepopulation checklist.
 
 ### Quick workflow
 
 1. `kartograph_get_schema_authoring_guide`
 2. `kartograph_get_workspace_readiness`
 3. `kartograph_get_schema_ontology`
-4. Prepopulation: `{label}.py` → `out/{label}_instances.json` → `entities_to_jsonl.py` → apply-from-file
+4. Prepopulation: `{Label}.py` (case-sensitive) → `out/{Label}_instances.json` → `preview_instances.py` → `entities_to_jsonl.py` → apply-from-file
 5. Model types → `kartograph_save_schema_ontology`
 6. Apply CREATE mutations → `kartograph_apply_graph_mutations` (small fixes inline; bulk via generator output)
 7. Create relationship edges after entity IDs are known
@@ -65,11 +67,16 @@ _TOOLS_COMPACT_REFERENCE = (
 def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
     lines = ["## Workspace readiness (live snapshot)"]
 
+    next_action = str(readiness.get("next_action") or "").strip()
+    if next_action:
+        lines.append(f"- **Next action:** {next_action}")
+
     entity_gaps = readiness.get("prepopulated_entity_types_without_instances_live") or []
     rel_gaps = readiness.get("prepopulated_relationship_types_without_instances_live") or []
     blocking = readiness.get("blocking_reasons") or []
     prepopulated_types = readiness.get("prepopulated_entity_types") or []
     prepopulated_relationships = readiness.get("prepopulated_relationship_types") or []
+    prepopulation_tasks = readiness.get("prepopulation_tasks") or []
 
     if entity_gaps:
         lines.append(
@@ -85,6 +92,23 @@ def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
             + ", ".join(f"`{key}`" for key in rel_gaps)
         )
 
+    if prepopulation_tasks:
+        lines.append("- Prepopulation tasks:")
+        for task in prepopulation_tasks[:8]:
+            if not isinstance(task, dict):
+                continue
+            kind = str(task.get("kind") or "task")
+            if kind == "entity":
+                label = str(task.get("label") or "?")
+                live = task.get("live_instance_count", 0)
+                scanner = str(task.get("scanner_path") or "?")
+                lines.append(f"  - `{label}` ({live} live) → create `{scanner}`")
+            else:
+                key = str(task.get("key") or "?")
+                live = task.get("live_instance_count", 0)
+                scanner = str(task.get("scanner_path") or "?")
+                lines.append(f"  - `{key}` ({live} live) → create `{scanner}`")
+
     if prepopulated_types:
         lines.append("- Prepopulated entity coverage:")
         for row in prepopulated_types:
@@ -93,7 +117,9 @@ def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
             label = str(row.get("label") or "?")
             live = row.get("live_instance_count", 0)
             metadata = row.get("metadata_instance_count", 0)
-            lines.append(f"  - `{label}`: live={live}, metadata={metadata}")
+            required = row.get("required_properties") or []
+            req_hint = f", required={list(required)}" if required else ""
+            lines.append(f"  - `{label}`: live={live}, metadata={metadata}{req_hint}")
 
     if prepopulated_relationships:
         lines.append("- Prepopulated relationship coverage:")

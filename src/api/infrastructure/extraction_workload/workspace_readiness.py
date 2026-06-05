@@ -17,6 +17,108 @@ from management.domain.relationship_pairing import (
 from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
 
 
+def _entity_scanner_path(label: str) -> str:
+    return f"instance_generators/{label}.py"
+
+
+def _relationship_scanner_path(*, source: str, relationship: str, target: str) -> str:
+    return f"instance_generators/{source}_{relationship}_{target}.py"
+
+
+def _build_prepopulation_tasks(
+    *,
+    ontology: OntologyConfig | None,
+    live_entity_gaps: list[str],
+    live_relationship_gaps: list[str],
+    entity_instance_counts: dict[str, int],
+    relationship_instance_counts: dict[str, int],
+) -> list[dict[str, object]]:
+    tasks: list[dict[str, object]] = []
+    if ontology is None:
+        return tasks
+
+    for label in live_entity_gaps:
+        node_type = next((nt for nt in ontology.node_types if nt.label == label), None)
+        live_count = entity_instance_counts.get(label, 0)
+        tasks.append(
+            {
+                "kind": "entity",
+                "label": label,
+                "live_instance_count": live_count,
+                "scanner_path": _entity_scanner_path(label),
+                "output_json": f"instance_generators/out/{label}_instances.json",
+                "output_jsonl": f"instance_generators/out/{label}_instances.jsonl",
+                "required_properties": list(node_type.required_properties) if node_type else [],
+                "optional_properties": list(node_type.optional_properties) if node_type else [],
+                "action": (
+                    f"Copy _entity_scanner.example.py to {_entity_scanner_path(label)} "
+                    f"(filename must match label exactly), run PREPOPULATION_WORKFLOW.md steps 2–6."
+                ),
+            }
+        )
+
+    for key in live_relationship_gaps:
+        edge_type = next(
+            (et for et in ontology.edge_types if relationship_readiness_key(et) == key),
+            None,
+        )
+        source = edge_type.source_labels[0] if edge_type and edge_type.source_labels else ""
+        target = edge_type.target_labels[0] if edge_type and edge_type.target_labels else ""
+        rel = edge_type.label if edge_type else ""
+        scanner = (
+            _relationship_scanner_path(source=source, relationship=rel, target=target)
+            if source and target and rel
+            else f"instance_generators/{key}.py"
+        )
+        tasks.append(
+            {
+                "kind": "relationship",
+                "key": key,
+                "relationship_type": rel,
+                "source_entity_type": source,
+                "target_entity_type": target,
+                "live_instance_count": relationship_instance_counts.get(key, 0),
+                "scanner_path": scanner,
+                "output_json": f"instance_generators/out/{key}_instances.json",
+                "output_jsonl": f"instance_generators/out/{key}_instances.jsonl",
+                "action": (
+                    f"Copy _relationship_scanner.example.py to {scanner}, then run "
+                    "relationship steps in PREPOPULATION_WORKFLOW.md."
+                ),
+            }
+        )
+    return tasks
+
+
+def _build_next_action(
+    *,
+    live_entity_gaps: list[str],
+    live_relationship_gaps: list[str],
+    transition_eligible: bool,
+    blocking_reasons: list[str],
+) -> str:
+    if live_entity_gaps:
+        label = live_entity_gaps[0]
+        return (
+            f"Run entity prepopulation for `{label}`: create {_entity_scanner_path(label)} "
+            "from _entity_scanner.example.py (case-sensitive filename), then follow "
+            "PREPOPULATION_WORKFLOW.md steps 2–6."
+        )
+    if live_relationship_gaps:
+        key = live_relationship_gaps[0]
+        return (
+            f"Run relationship prepopulation for `{key}` using "
+            "_relationship_scanner.example.py and PREPOPULATION_WORKFLOW.md."
+        )
+    if transition_eligible:
+        return (
+            "All prepopulated types have live instances. Bootstrap prepopulation is complete."
+        )
+    if blocking_reasons:
+        return "Resolve blocking_reasons before continuing prepopulation."
+    return "Review kartograph_get_workspace_readiness and continue schema bootstrap."
+
+
 async def build_workload_readiness_snapshot(
     *,
     ontology: OntologyConfig | None,
@@ -65,6 +167,10 @@ async def build_workload_readiness_snapshot(
             "label": node_type.label,
             "metadata_instance_count": node_type.prepopulated_instance_count,
             "live_instance_count": entity_instance_counts.get(node_type.label, 0),
+            "required_properties": list(node_type.required_properties),
+            "optional_properties": list(node_type.optional_properties),
+            "scanner_path": _entity_scanner_path(node_type.label),
+            "needs_instances": entity_instance_counts.get(node_type.label, 0) == 0,
         }
         for node_type in (ontology.node_types if ontology else ())
         if node_type.prepopulated
@@ -81,6 +187,17 @@ async def build_workload_readiness_snapshot(
                 relationship_readiness_key(edge_type),
                 0,
             ),
+            "required_properties": list(edge_type.properties),
+            "scanner_path": _relationship_scanner_path(
+                source=edge_type.source_labels[0] if edge_type.source_labels else "source",
+                relationship=edge_type.label,
+                target=edge_type.target_labels[0] if edge_type.target_labels else "target",
+            ),
+            "needs_instances": relationship_instance_counts.get(
+                relationship_readiness_key(edge_type),
+                0,
+            )
+            == 0,
         }
         for edge_type in (ontology.edge_types if ontology else ())
         if edge_type.prepopulated
@@ -151,6 +268,20 @@ async def build_workload_readiness_snapshot(
         and live_prepopulated_ready
     )
 
+    prepopulation_tasks = _build_prepopulation_tasks(
+        ontology=ontology,
+        live_entity_gaps=list(live_entity_gaps),
+        live_relationship_gaps=list(live_relationship_gaps),
+        entity_instance_counts=entity_instance_counts,
+        relationship_instance_counts=relationship_instance_counts,
+    )
+    next_action = _build_next_action(
+        live_entity_gaps=list(live_entity_gaps),
+        live_relationship_gaps=list(live_relationship_gaps),
+        transition_eligible=transition_eligible,
+        blocking_reasons=blocking_reasons,
+    )
+
     return {
         "knowledge_graph_id": knowledge_graph_id,
         "has_minimum_entity_types": metadata_readiness.has_minimum_entity_types,
@@ -167,6 +298,8 @@ async def build_workload_readiness_snapshot(
         "prepopulated_relationship_types_without_instances_live": list(live_relationship_gaps),
         "prepopulated_entity_types": prepopulated_entity_types,
         "prepopulated_relationship_types": prepopulated_relationship_types,
+        "prepopulation_tasks": prepopulation_tasks,
+        "next_action": next_action,
         "blocking_reasons": blocking_reasons,
         "transition_eligible": transition_eligible,
     }

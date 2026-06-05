@@ -48,6 +48,12 @@ async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps(
     assert "folder" in snapshot["prepopulated_entity_types_without_instances_live"]
     assert snapshot["prepopulated_types_ready_live"] is False
     assert snapshot["prepopulated_relationship_types"][0]["live_instance_count"] == 1
+    assert snapshot["next_action"]
+    assert "folder" in snapshot["next_action"]
+    assert snapshot["prepopulation_tasks"]
+    assert snapshot["prepopulation_tasks"][0]["kind"] == "entity"
+    assert snapshot["prepopulation_tasks"][0]["scanner_path"] == "instance_generators/folder.py"
+    assert "required_properties" in snapshot["prepopulated_entity_types"][0]
 
 
 @pytest.mark.asyncio

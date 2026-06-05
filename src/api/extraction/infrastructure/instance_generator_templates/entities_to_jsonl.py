@@ -29,10 +29,16 @@ from typing import Any
 
 
 def deterministic_node_id(*, entity_label: str, slug: str, tenant_id: str = "") -> str:
+    """Stable node id prefix — normalized to lowercase for deterministic hashing."""
     normalized_type = entity_label.strip().lower()
     combined = f"{tenant_id}:{normalized_type}:{slug.strip()}"
     digest = hashlib.sha256(combined.encode()).hexdigest()[:16]
     return f"{normalized_type}:{digest}"
+
+
+def mutation_entity_label(entity_label: str) -> str:
+    """Return the CREATE label — must match ontology ``label`` exactly (case-sensitive)."""
+    return entity_label.strip()
 
 
 def instance_to_create_line(
@@ -55,7 +61,7 @@ def instance_to_create_line(
             slug=slug,
             tenant_id=tenant_id,
         ),
-        "label": entity_label.strip().lower(),
+        "label": mutation_entity_label(entity_label),
         "set_properties": set_properties,
     }
 
@@ -81,7 +87,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Convert entity scanner JSON to Kartograph node CREATE JSONL.",
     )
-    parser.add_argument("entity_label", help="Entity type label (e.g. test, api_endpoint).")
+    parser.add_argument(
+        "entity_label",
+        help="Entity type label matching ontology exactly (case-sensitive, e.g. APIEndpoint).",
+    )
     parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
     parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic node ids.")
     parser.add_argument("--data-source-id", default="schema-bootstrap")

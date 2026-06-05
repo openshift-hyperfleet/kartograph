@@ -47,6 +47,11 @@ def deterministic_edge_id(
     return f"{normalized_label}:{digest}"
 
 
+def mutation_relationship_label(relationship_label: str) -> str:
+    """Return the CREATE label — must match ontology ``label`` exactly (case-sensitive)."""
+    return relationship_label.strip()
+
+
 def relationship_to_create_line(
     *,
     relationship_label: str,
@@ -79,7 +84,7 @@ def relationship_to_create_line(
             end_id=end_id,
             tenant_id=tenant_id,
         ),
-        "label": relationship_label.strip().lower(),
+        "label": mutation_relationship_label(relationship_label),
         "start_id": start_id,
         "end_id": end_id,
         "set_properties": set_properties,
@@ -119,9 +124,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Convert relationship scanner JSON to Kartograph edge CREATE JSONL.",
     )
-    parser.add_argument("relationship_label", help="Relationship type label in the ontology.")
-    parser.add_argument("source_entity_type", help="Source endpoint entity type label.")
-    parser.add_argument("target_entity_type", help="Target endpoint entity type label.")
+    parser.add_argument(
+        "relationship_label",
+        help="Relationship type label matching ontology exactly (case-sensitive).",
+    )
+    parser.add_argument(
+        "source_entity_type",
+        help="Source entity type label matching ontology exactly (case-sensitive).",
+    )
+    parser.add_argument(
+        "target_entity_type",
+        help="Target entity type label matching ontology exactly (case-sensitive).",
+    )
     parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
     parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic ids.")
     parser.add_argument("--data-source-id", default="schema-bootstrap")

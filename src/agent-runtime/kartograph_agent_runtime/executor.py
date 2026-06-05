@@ -60,9 +60,10 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 (
                     "Read-only: `repository-files/`. "
                     "Writable: entire workspace except repository snapshots — "
-                    "`instance_generators/` for `{label}.py` and `out/{label}_instances.json(l)`. "
-                    "Platform converters: `entities_to_jsonl.py`, `relationships_to_jsonl.py`. "
-                    "Never `/tmp`. One batch per gap via apply-from-file."
+                    "see `instance_generators/PREPOPULATION_WORKFLOW.md`. "
+                    "`instance_generators/{Label}.py` and `out/{Label}_instances.json(l)` (case-sensitive). "
+                    "Platform: `entities_to_jsonl.py`, `relationships_to_jsonl.py`, `preview_instances.py`, "
+                    "`scanner_common.py`. Never `/tmp`. One batch per gap via apply-from-file."
                 ),
             ]
             for source in sources[:12]:

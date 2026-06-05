@@ -120,6 +120,8 @@ class WorkloadReadinessResponse(BaseModel):
     prepopulated_types_ready_live: bool = False
     prepopulated_entity_types: list[dict[str, object]] = Field(default_factory=list)
     prepopulated_relationship_types: list[dict[str, object]] = Field(default_factory=list)
+    prepopulation_tasks: list[dict[str, object]] = Field(default_factory=list)
+    next_action: str = ""
     blocking_reasons: list[str] = Field(default_factory=list)
     transition_eligible: bool
 

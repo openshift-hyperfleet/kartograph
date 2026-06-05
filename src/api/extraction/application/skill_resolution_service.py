@@ -59,16 +59,22 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
                 "Exception: the user explicitly says to save/apply or continues after reviewing your draft."
             ),
             (
-                "Prepopulation (prepopulated=true types): write instance_generators/{label}.py → "
-                "out/{label}_instances.json → entities_to_jsonl.py or relationships_to_jsonl.py → "
-                "validate/apply instance_generators/out/{label}_instances.jsonl in one batch. "
-                "Never /tmp, never hand-author CREATE lines. All entity gaps before relationship gaps."
+                "Prepopulation (prepopulated=true types): copy _entity_scanner.example.py to "
+                "instance_generators/{Label}.py (case-sensitive — must match ontology label exactly) → "
+                "out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py → "
+                "validate/apply instance_generators/out/{Label}_instances.jsonl in one batch. "
+                "Never /tmp (not persisted, invalid for apply-from-file). All entity gaps before relationship gaps."
+            ),
+            (
+                "Single prepopulation deliverable (one entity or relationship type): execute the full "
+                "PREPOPULATION_WORKFLOW.md pipeline end-to-end without stopping for permission. "
+                "Multiple deliverables in one message: one label per turn, summarize, then continue."
             ),
             (
                 "When readiness shows prepopulated gaps after schema save, execute immediately — do not ask "
-                "permission. One label per turn: copy _entity_scanner.example.py to {label}.py, customize "
-                "scan(), run pipeline, re-check readiness. Only ask when discovery strategy is ambiguous "
-                "or strict CREATE reports duplicates."
+                "permission. One label per turn unless the user requested a single type only (then finish fully). "
+                "Use readiness next_action and prepopulation_tasks for the suggested scanner path. "
+                "Only ask when discovery strategy is ambiguous or strict CREATE reports duplicates."
             ),
         ),
     },
@@ -122,15 +128,16 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (
-            "Per prepopulated gap: {label}.py scans repository-files/ → out/{label}_instances.json → "
-            "entities_to_jsonl.py or relationships_to_jsonl.py → out/{label}_instances.jsonl → "
-            "validate/apply-from-file (one batch). Entities before relationships. Primary edges only."
+            "Follow instance_generators/PREPOPULATION_WORKFLOW.md. Per gap: {Label}.py (case-sensitive filename) "
+            "→ out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py or "
+            "relationships_to_jsonl.py → validate/apply-from-file. Use scanner_common.generate_slug() and "
+            "dedupe_instances(). Entities before relationships. Primary edges only."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "
-            "blocking_reasons, prepopulated gaps, and transition_eligible. When gaps remain after "
-            "schema save, state which single prepopulation task you are executing next — do not poll "
-            "the user for permission to start."
+            "next_action, prepopulation_tasks, blocking_reasons, and transition_eligible. When gaps remain "
+            "after schema save, state which single prepopulation task you are executing next — do not poll "
+            "the user for permission to start unless the user asked for multiple types at once."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

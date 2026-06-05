@@ -48,6 +48,7 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
     assert second["set_properties"]["slug"] == "b-entity"
     assert first["label"] == "test"
     assert first["set_properties"]["data_source_id"] == "schema-bootstrap"
+    assert first["id"].startswith("test:")
 
     rerun = subprocess.run(
         [sys.executable, str(SCRIPT), "test", str(instances_path)],
@@ -94,3 +95,22 @@ def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(tmp_pat
 
     line = json.loads(proc.stdout.strip())
     assert line["set_properties"]["source_path"] == "pkg/a_test.go"
+
+
+def test_entities_to_jsonl_preserves_pascal_case_entity_label(tmp_path: Path) -> None:
+    instances_path = tmp_path / "APIEndpoint_instances.json"
+    instances_path.write_text(
+        json.dumps([{"slug": "get-healthz", "properties": {"method": "GET", "path": "/healthz"}}]),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "APIEndpoint", str(instances_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    line = json.loads(proc.stdout.strip())
+    assert line["label"] == "APIEndpoint"
+    assert line["id"].startswith("apiendpoint:")

@@ -166,7 +166,8 @@ def test_workload_get_schema_authoring_guide(workload_client: tuple[TestClient, 
     )
     assert response.status_code == 200
     assert "kartograph_get_schema_ontology" in response.json()["guide"]
-    assert "Instance generation cookbook" in response.json()["guide"]
+    assert "PREPOPULATION_WORKFLOW.md" in response.json()["guide"]
+    assert "case-sensitive" in response.json()["guide"]
 
 
 def test_workload_get_workspace_readiness(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:

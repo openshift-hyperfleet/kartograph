@@ -9,6 +9,8 @@ import zipfile
 
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from extraction.infrastructure.instance_generator_templates import (
+    EXAMPLES_DIR,
+    EXAMPLE_SCANNER_NAMES,
     TEMPLATES_DIR,
     TEMPLATE_SCRIPT_NAMES,
 )
@@ -129,6 +131,12 @@ class StickySessionWorkdirMaterializer:
             source = TEMPLATES_DIR / name
             if source.is_file():
                 shutil.copy2(source, target_dir / name)
+        examples_target = target_dir / "examples"
+        examples_target.mkdir(parents=True, exist_ok=True)
+        for name in EXAMPLE_SCANNER_NAMES:
+            source = EXAMPLES_DIR / name
+            if source.is_file():
+                shutil.copy2(source, examples_target / name)
         (target_dir / "out").mkdir(parents=True, exist_ok=True)
 
     @staticmethod

@@ -61,6 +61,14 @@ def test_agent_runtime_settings_default_max_turns() -> None:
     assert settings.max_turns == 500
 
 
+def test_agent_runtime_settings_accepts_one_hour_turn_timeout() -> None:
+    from kartograph_agent_runtime.settings import AgentRuntimeSettings
+
+    settings = AgentRuntimeSettings(KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS="3600")
+
+    assert settings.turn_timeout_seconds == 3600.0
+
+
 def test_push_thinking_deduplicates_and_caps_recent_lines() -> None:
     recent: list[str] = []
     for index in range(5):

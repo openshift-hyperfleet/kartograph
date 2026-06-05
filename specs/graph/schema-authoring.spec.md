@@ -102,6 +102,12 @@ The system SHALL guide the Graph Management Assistant through a six-phase schema
 - THEN it executes one prepopulation task per turn via generator script and apply-from-file
 - AND does not ask the user for permission to proceed unless strategy is ambiguous or CREATE is rejected
 
+#### Scenario: Entities before relationships during prepopulation
+- GIVEN readiness shows both prepopulated entity gaps and prepopulated relationship gaps
+- WHEN the assistant implements prepopulation
+- THEN it authors and runs entity scanner scripts for every entity gap before any relationship scanner
+- AND each scanner discovers instances across all `repository-files/` data sources
+
 ### Requirement: Workload Bulk Instance Authoring
 The system SHALL support bulk instance authoring for the Graph Management Assistant via workspace files and strict CREATE semantics.
 

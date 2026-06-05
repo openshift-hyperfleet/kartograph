@@ -25,20 +25,28 @@ implementation in the same turn when the user gave multiple deliverables.
 When `kartograph_get_workspace_readiness` shows prepopulated gaps **after the ontology is saved**,
 **execute immediately** — do not ask whether to proceed.
 
-**One prepopulation task per turn** = one entity type **or** one relationship type, end-to-end:
+**Prepopulation is script writing.** For each gap, author a Python scanner under `instance_generators/`
+that discovers **every** instance of that type across **all** data sources under `repository-files/`.
+Use Glob, Grep, and Read creatively per entity (HTTP route registration, test file naming, directory
+layout, OpenAPI specs, import graphs, etc.). Copy template scripts only as a starting point — customize
+the discovery logic for the type.
 
-1. Write or reuse `instance_generators/<script>.py` (use `instance_generator` from ontology when set).
-2. Script must scan **every** data source under `repository-files/` (all top-level folders).
+**One prepopulation task per turn** = one entity label **or** one relationship label, end-to-end:
+
+1. Explore `repository-files/` with Glob/Grep; design the scanner.
+2. Write `instance_generators/<label>.py` (honor `instance_generator` from ontology when set).
 3. `python3 instance_generators/<script>.py repository-files > instance_generators/out/<label>.json`
-4. `json_instances_to_jsonl.py` (entities) or `json_relationships_to_jsonl.py` (edges after nodes exist).
+4. `json_instances_to_jsonl.py` (entities) or `json_relationships_to_jsonl.py` (relationships).
 5. `kartograph_validate_graph_mutations_from_file` → `kartograph_apply_graph_mutations_from_file`
-6. `kartograph_get_workspace_readiness` — report counts and the **next** gap you will tackle.
+6. `kartograph_get_workspace_readiness` — report counts and the **next** task.
 
-**Order:** entity types with gaps first (e.g. `api_endpoint`, `test`), then relationship types
-(e.g. `repository → defines → api_endpoint`) once endpoint node slugs exist.
+**Order (strict):** complete **all** prepopulated **entity** types with gaps before **any**
+prepopulated **relationship** type. Example sequence: `repository` → `test` → `api_endpoint` → then
+`repository → contains → test` → `repository → defines → api_endpoint`. Relationship scripts output
+`source_slug` / `target_slug` pairs and require entity slugs to already exist.
 
-**Only ask the user when:** generator strategy is ambiguous, discovery cannot support a reliable
-script, or strict CREATE validation reports duplicates (then use UPDATE or skip-existing slugs).
+**Only ask the user when:** scanner strategy is ambiguous, the codebase cannot support reliable
+discovery, or strict CREATE validation reports duplicates (then use UPDATE or skip-existing slugs).
 
 ## Schema modeling rules
 

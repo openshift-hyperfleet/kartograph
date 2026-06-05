@@ -45,16 +45,20 @@ class TestExtractionSkillResolutionService:
         assert "3–5" in resolved.skills["capabilities_intake"]
         assert "Workspace discovery" in resolved.skills["bootstrap_workflow"]
         assert "Property vs entity" in resolved.skills["schema_modeling"]
-        assert "Execute-first" in resolved.skills["prepopulation"]
-        assert "should we proceed" in resolved.skills["prepopulation"]
-        assert "every folder" in resolved.skills["prepopulation"]
-        assert "repository-files/" in resolved.skills["prepopulation"]
+        assert "script-first" in resolved.skills["prepopulation"]
+        assert "Python" in resolved.skills["prepopulation"]
+        assert "all prepopulated entity-type gaps before any relationship" in resolved.skills[
+            "prepopulation"
+        ]
+        assert "creative" in resolved.skills["prepopulation"]
+        guardrails_text = " ".join(resolved.guardrails)
+        assert "Finish all entity-type gaps before any relationship-type gaps" in guardrails_text
+        assert "Python scanner scripts" in guardrails_text
         assert "do not poll" in resolved.skills["readiness_reporting"]
         assert "six-phase" in resolved.system_prompt.lower()
-        guardrails_text = " ".join(resolved.guardrails)
         assert "one phase per turn" in guardrails_text
         assert "do not ask whether to proceed" in guardrails_text
-        assert "one prepopulation task per turn" in guardrails_text
+        assert "One script task per turn" in guardrails_text
         assert "kartograph_save_schema_ontology" in guardrails_text
         assert "never hand-author CREATE ids" in guardrails_text
         assert len(resolved.prompt_hierarchy) > 0

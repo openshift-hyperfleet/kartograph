@@ -66,12 +66,13 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             ),
             (
                 "When kartograph_get_workspace_readiness shows prepopulated gaps after schema is saved, "
-                "default to executing prepopulation — do not ask whether to proceed. Complete one "
-                "prepopulation task per turn (one entity type or one relationship type): write or reuse "
-                "instance_generators/<script>.py, scan all repository-files/ data sources, run the "
-                "pipeline through apply-from-file, report results, then stop. Only ask the user when "
-                "generator strategy is ambiguous, discovery cannot support a script, or strict CREATE "
-                "reports duplicates."
+                "default to executing prepopulation — do not ask whether to proceed. Prepopulation means "
+                "authoring Python scanner scripts under instance_generators/ that find every instance "
+                "across all repository-files/ data sources (use Glob/Grep/AST creatively per type). "
+                "Finish all entity-type gaps before any relationship-type gaps. One script task per turn "
+                "(one entity label or one relationship label): write/run script → JSONL → apply-from-file, "
+                "then stop. Only ask when scanner strategy is ambiguous, code cannot support a script, "
+                "or strict CREATE reports duplicates."
             ),
         ),
     },
@@ -110,9 +111,9 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "(4) Prepopulation planning — which types/relationships are prepopulated vs manual (during "
             "schema design only; do not re-ask once schema is saved). "
             "(5) Save ontology — kartograph_save_schema_ontology only after user confirms the full schema. "
-            "(6) Implement prepopulation — one task per turn: write/run generator for one gap, full "
-            "pipeline through apply-from-file; all repository-files/ data sources; entities before "
-            "relationships; verify readiness; proceed to next gap without asking permission."
+            "(6) Implement prepopulation — script-first, one entity or relationship per turn: author "
+            "instance_generators/<label>.py to discover all instances creatively, run full pipeline; "
+            "complete every entity gap before starting relationship scripts; verify readiness between tasks."
         ),
         "schema_modeling": (
             "Property vs entity: distinguish/categorize → property on an existing type; "
@@ -126,14 +127,14 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (
-            "Execute-first prepopulation: when readiness lists prepopulated gaps, pick the next entity "
-            "gap (before relationships), then relationship gaps after entity nodes exist. Per task: "
-            "(1) copy/adapt a template or write instance_generators/<label>.py that scans every folder "
-            "under repository-files/ (all data sources); (2) Bash run → JSON stdout; "
-            "(3) json_instances_to_jsonl.py or json_relationships_to_jsonl.py; (4) validate-from-file; "
-            "(5) apply-from-file; (6) re-check readiness. Use instance_generator from ontology when set. "
-            "Do not ask 'should we proceed' — execute unless strategy is unclear or CREATE is rejected. "
-            "Bidirectional edges: primary direction only in generators."
+            "Execute-first, script-first prepopulation: gaps are solved by writing Python under "
+            "instance_generators/, not by manual instance listing. Use Read/Grep/Glob on repository-files/ "
+            "to design each scanner — find every instance across all data sources in creative, "
+            "type-specific ways (route tables, test file patterns, package paths, OpenAPI, etc.). "
+            "Ordering: exhaust all prepopulated entity-type gaps before any relationship-type gap. "
+            "Per turn, one label only: (1) write/adapt <label>.py; (2) Bash → JSON; (3) json_*_to_jsonl; "
+            "(4) validate/apply-from-file; (5) readiness. Relationship scripts emit source_slug/target_slug "
+            "JSON after entity nodes exist. Do not ask to proceed. Bidirectional: primary edges only."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "

@@ -12,7 +12,6 @@ Example:
 
   python3 instance_generators/entities_to_jsonl.py test \\
     --data-source-id schema-bootstrap \\
-    --source-path graph-management-assistant \\
     instance_generators/out/test_instances.json \\
     > instance_generators/out/test_instances.jsonl
 
@@ -42,15 +41,12 @@ def instance_to_create_line(
     slug: str,
     properties: dict[str, Any],
     data_source_id: str,
-    source_path: str,
     tenant_id: str,
 ) -> dict[str, Any]:
     set_properties = dict(properties)
     set_properties.setdefault("slug", slug)
     set_properties.setdefault("name", slug)
     set_properties["data_source_id"] = data_source_id
-    if source_path.strip():
-        set_properties["source_path"] = source_path.strip()
     return {
         "op": "CREATE",
         "type": "node",
@@ -89,11 +85,6 @@ def main() -> int:
     parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
     parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic node ids.")
     parser.add_argument("--data-source-id", default="schema-bootstrap")
-    parser.add_argument(
-        "--source-path",
-        default="",
-        help="Optional provenance path stamped on each CREATE when set.",
-    )
     args = parser.parse_args()
 
     raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
@@ -104,7 +95,6 @@ def main() -> int:
             slug=row["slug"],
             properties=row["properties"],
             data_source_id=args.data_source_id,
-            source_path=args.source_path,
             tenant_id=args.tenant_id,
         )
         sys.stdout.write(json.dumps(line, separators=(",", ":")) + "\n")

@@ -37,7 +37,7 @@ When `kartograph_get_workspace_readiness` shows gaps after ontology save, **exec
 ```bash
 python3 instance_generators/test.py repository-files > instance_generators/out/test_instances.json
 python3 instance_generators/entities_to_jsonl.py test \\
-  --data-source-id schema-bootstrap --source-path graph-management-assistant \\
+  --data-source-id schema-bootstrap \\
   instance_generators/out/test_instances.json > instance_generators/out/test_instances.jsonl
 # validate-from-file → apply-from-file path=instance_generators/out/test_instances.jsonl
 ```
@@ -109,7 +109,7 @@ Relationship scanner convention: `out/{source}_{label}_{target}_instances.json`.
 
 ## Instance mutations (JSONL)
 
-- CREATE requires `data_source_id` and `slug` on nodes. Add `source_path` only when provenance matters.
+- CREATE requires `data_source_id` and `slug` on nodes. Put `source_path` in scanner `properties` when needed.
 - CREATE is strict — use UPDATE for existing instances.
 - Never hand-author bulk CREATE lines in chat; use `entities_to_jsonl.py` / `relationships_to_jsonl.py`.
 - Create all entity nodes before relationship edges.

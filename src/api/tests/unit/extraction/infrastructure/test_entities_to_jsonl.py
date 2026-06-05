@@ -74,3 +74,23 @@ def test_entities_to_jsonl_omits_source_path_when_not_configured(tmp_path: Path)
 
     line = json.loads(proc.stdout.strip())
     assert "source_path" not in line["set_properties"]
+
+
+def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(tmp_path: Path) -> None:
+    instances_path = tmp_path / "test_instances.json"
+    instances_path.write_text(
+        json.dumps(
+            [{"slug": "a-entity", "properties": {"name": "A", "source_path": "pkg/a_test.go"}}]
+        ),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "test", str(instances_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    line = json.loads(proc.stdout.strip())
+    assert line["set_properties"]["source_path"] == "pkg/a_test.go"

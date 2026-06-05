@@ -45,4 +45,6 @@ python3 instance_generators/relationships_to_jsonl.py defines repository test \
 
 **Relationships:** `[{"source_slug": "...", "target_slug": "...", "properties": {}}]`
 
+Include `source_path` in `properties` only when you need provenance on that instance.
+
 Never write output to `/tmp` — only `instance_generators/out/` is valid for apply-from-file.

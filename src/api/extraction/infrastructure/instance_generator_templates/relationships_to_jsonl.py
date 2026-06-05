@@ -56,7 +56,6 @@ def relationship_to_create_line(
     target_slug: str,
     properties: dict[str, Any],
     data_source_id: str,
-    source_path: str,
     tenant_id: str,
 ) -> dict[str, Any]:
     start_id = deterministic_node_id(
@@ -71,8 +70,6 @@ def relationship_to_create_line(
     )
     set_properties = dict(properties)
     set_properties["data_source_id"] = data_source_id
-    if source_path.strip():
-        set_properties["source_path"] = source_path.strip()
     return {
         "op": "CREATE",
         "type": "edge",
@@ -128,11 +125,6 @@ def main() -> int:
     parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
     parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic ids.")
     parser.add_argument("--data-source-id", default="schema-bootstrap")
-    parser.add_argument(
-        "--source-path",
-        default="",
-        help="Optional provenance path stamped on each CREATE when set.",
-    )
     args = parser.parse_args()
 
     raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
@@ -146,7 +138,6 @@ def main() -> int:
             target_slug=row["target_slug"],
             properties=row["properties"],
             data_source_id=args.data_source_id,
-            source_path=args.source_path,
             tenant_id=args.tenant_id,
         )
         sys.stdout.write(json.dumps(line, separators=(",", ":")) + "\n")

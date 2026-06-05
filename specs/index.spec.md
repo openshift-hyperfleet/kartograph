@@ -30,6 +30,7 @@ The persistence and query engine for property graph data.
 | [Queries](graph/queries.spec.md) | Reading nodes, edges, and subgraphs |
 | [Schema](graph/schema.spec.md) | Type definitions and schema management |
 | [Schema Authoring](graph/schema-authoring.spec.md) | Bootstrap and ongoing schema authoring lifecycle |
+| [Bidirectional Relationships](graph/bidirectional-relationships.spec.md) | Paired inverse relationship types and twin edge instances |
 | [Bulk Loading](graph/bulk-loading.spec.md) | High-throughput graph ingestion |
 
 ### [Management](management/) — Control Plane

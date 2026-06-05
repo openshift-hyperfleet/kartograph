@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from management.domain.value_objects import OntologyConfig
+from management.domain.relationship_pairing import resolve_inverse_label_for_primary
+from management.domain.value_objects import EdgeTypeDefinition, OntologyConfig
 
 _SYSTEM_NODE_PROPERTIES = frozenset(
     {
@@ -26,6 +27,14 @@ def _instance_properties(raw: dict[str, Any]) -> dict[str, Any]:
         for key, value in raw.items()
         if key not in _SYSTEM_NODE_PROPERTIES and not key.startswith("_")
     }
+
+
+def _reverse_relationship_label(edge_type: EdgeTypeDefinition) -> str | None:
+    if edge_type.auto_generated or edge_type.inverse_of:
+        return None
+    if not edge_type.bidirectional:
+        return None
+    return resolve_inverse_label_for_primary(edge_type)
 
 
 def build_design_artifacts(
@@ -156,14 +165,17 @@ def build_design_artifacts(
                         composite_key = key
                         type_instances = instances
                         break
+            reverse_label = _reverse_relationship_label(edge_type)
             relationships.append(
                 {
                     "key": composite_key,
                     "source_entity_type": source_label,
                     "target_entity_type": target_label,
                     "relationship_type": edge_type.label,
-                    "reverse_relationship_type": None,
-                    "reverse_relationship_description": None,
+                    "reverse_relationship_type": reverse_label,
+                    "reverse_relationship_description": (
+                        f"Inverse of `{edge_type.label}`" if reverse_label else None
+                    ),
                     "prepopulated_instances": edge_type.prepopulated,
                     "description": edge_type.description or None,
                     "instance_count": len(type_instances),

@@ -61,4 +61,14 @@ def edge_type_metadata(edge_type) -> dict:
     }
     if edge_type.instance_generator:
         metadata["instance_generator"] = edge_type.instance_generator
+    if edge_type.bidirectional:
+        metadata["bidirectional"] = True
+    if edge_type.inverse_label:
+        metadata["inverse_label"] = edge_type.inverse_label
+    if edge_type.inverse_of:
+        metadata["inverse_of"] = edge_type.inverse_of
+    if edge_type.auto_generated:
+        metadata["auto_generated"] = True
+    if edge_type.bidirectional_pair_key:
+        metadata["bidirectional_pair_key"] = edge_type.bidirectional_pair_key
     return metadata

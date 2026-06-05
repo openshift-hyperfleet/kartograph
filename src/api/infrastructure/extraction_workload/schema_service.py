@@ -14,6 +14,7 @@ from infrastructure.extraction_workload.graph_mutation_writer import (
 )
 from infrastructure.extraction_workload.mutation_preflight import (
     parse_mutation_jsonl,
+    prepare_mutation_operations,
     validate_mutation_jsonl,
 )
 from infrastructure.extraction_workload.workspace_readiness import (
@@ -70,18 +71,23 @@ class GraphWorkloadSchemaService:
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:
+        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
         errors = await validate_mutation_jsonl(
             jsonl_content=jsonl,
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
             graph_reader=self._graph_reader,
             existing_type_keys=await self._existing_type_keys(knowledge_graph_id),
+            ontology=ontology,
         )
         operation_count = 0
-        try:
-            operation_count = len(parse_mutation_jsonl(jsonl))
-        except CanonicalSchemaMutationError:
-            operation_count = 0
+        expanded_ops, prep_errors = await prepare_mutation_operations(
+            jsonl_content=jsonl,
+            tenant_id=tenant_id,
+            ontology=ontology,
+        )
+        if not prep_errors and expanded_ops is not None:
+            operation_count = len(expanded_ops)
         return {
             "valid": not errors,
             "errors": errors,
@@ -95,18 +101,27 @@ class GraphWorkloadSchemaService:
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:
+        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
         preflight_errors = await validate_mutation_jsonl(
             jsonl_content=jsonl,
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
             graph_reader=self._graph_reader,
             existing_type_keys=await self._existing_type_keys(knowledge_graph_id),
+            ontology=ontology,
         )
         if preflight_errors:
             return {"applied": False, "errors": preflight_errors}
 
+        operations, prep_errors = await prepare_mutation_operations(
+            jsonl_content=jsonl,
+            tenant_id=tenant_id,
+            ontology=ontology,
+        )
+        if prep_errors:
+            return {"applied": False, "errors": prep_errors}
+        assert operations is not None
         try:
-            operations = parse_mutation_jsonl(jsonl)
             define_ops, instance_ops = GraphWorkloadGraphMutationWriter.split_operations(
                 operations
             )

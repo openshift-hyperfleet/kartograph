@@ -18,7 +18,9 @@ from infrastructure.extraction_workload.dependencies import (
     get_workload_schema_service,
 )
 from management.domain.ontology_prepopulation import PrepopulationValidationError
+from management.domain.relationship_pairing import ontology_config_from_authoring_payload
 from management.domain.value_objects import OntologyConfig
+from management.ports.exceptions import CanonicalSchemaMutationError
 
 router = APIRouter(prefix="/workloads", tags=["extraction-workloads"])
 
@@ -184,13 +186,13 @@ async def workload_save_schema_ontology(
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadOntologyResponse:
     _require_chat_scope(auth)
-    config = OntologyConfig.from_dict(request.model_dump())
+    config = ontology_config_from_authoring_payload(request.model_dump())
     try:
         saved = await schema_service.replace_ontology(
             knowledge_graph_id=auth.knowledge_graph_id,
             config=config,
         )
-    except PrepopulationValidationError as e:
+    except (PrepopulationValidationError, CanonicalSchemaMutationError) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),

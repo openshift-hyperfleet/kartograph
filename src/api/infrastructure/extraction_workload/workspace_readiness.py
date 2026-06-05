@@ -9,6 +9,11 @@ from management.application.workspace_readiness import (
     prepopulated_gaps_from_live_counts,
 )
 from management.domain.ontology_prepopulation import relationship_readiness_key
+from management.domain.relationship_pairing import (
+    bidirectional_pair_key,
+    resolve_inverse_label_for_primary,
+    twin_validation_errors,
+)
 from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
 
 
@@ -97,6 +102,47 @@ async def build_workload_readiness_snapshot(
         blocking_reasons.append(
             "Live graph missing prepopulated relationship instances: "
             + ", ".join(live_relationship_gaps)
+        )
+
+    if ontology is not None and graph_reader is not None:
+        bidirectional_counts: dict[str, int] = {}
+        for edge_type in ontology.edge_types:
+            if edge_type.auto_generated or edge_type.inverse_of or not edge_type.bidirectional:
+                continue
+            if not edge_type.source_labels or not edge_type.target_labels:
+                continue
+            source_label = edge_type.source_labels[0]
+            target_label = edge_type.target_labels[0]
+            primary_key = bidirectional_pair_key(
+                source_label=source_label,
+                relationship_label=edge_type.label,
+                target_label=target_label,
+            )
+            inverse_label = resolve_inverse_label_for_primary(edge_type)
+            inverse_key = bidirectional_pair_key(
+                source_label=target_label,
+                relationship_label=inverse_label,
+                target_label=source_label,
+            )
+            bidirectional_counts[primary_key] = await graph_reader.count_relationship_instances(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                relationship_type=edge_type.label,
+                source_entity_type=source_label,
+                target_entity_type=target_label,
+            )
+            bidirectional_counts[inverse_key] = await graph_reader.count_relationship_instances(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                relationship_type=inverse_label,
+                source_entity_type=target_label,
+                target_entity_type=source_label,
+            )
+        blocking_reasons.extend(
+            twin_validation_errors(
+                ontology=ontology,
+                relationship_counts=bidirectional_counts,
+            )
         )
 
     transition_eligible = (

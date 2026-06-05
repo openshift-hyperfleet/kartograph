@@ -335,6 +335,22 @@ class EdgeTypeDefinitionModel(BaseModel):
         default=None,
         description="Optional workspace-relative script under instance_generators/ for prepopulation",
     )
+    bidirectional: bool = Field(
+        default=True,
+        description="When true, platform auto-generates inverse type and twin edge instances",
+    )
+    inverse_label: str | None = Field(
+        default=None,
+        description="Optional explicit inverse relationship label (primary types only)",
+    )
+    inverse_of: str | None = Field(
+        default=None,
+        description="Primary label this auto-generated inverse type mirrors",
+    )
+    auto_generated: bool = Field(
+        default=False,
+        description="True when this edge type was created by bidirectional pairing",
+    )
 
     def to_domain(self) -> EdgeTypeDefinition:
         """Convert to domain EdgeTypeDefinition value object."""
@@ -347,6 +363,10 @@ class EdgeTypeDefinitionModel(BaseModel):
             prepopulated=self.prepopulated,
             prepopulated_instance_count=self.prepopulated_instance_count,
             instance_generator=self.instance_generator,
+            bidirectional=self.bidirectional,
+            inverse_label=self.inverse_label,
+            inverse_of=self.inverse_of,
+            auto_generated=self.auto_generated,
         )
 
     @classmethod
@@ -361,6 +381,10 @@ class EdgeTypeDefinitionModel(BaseModel):
             prepopulated=et.prepopulated,
             prepopulated_instance_count=et.prepopulated_instance_count,
             instance_generator=et.instance_generator,
+            bidirectional=et.bidirectional,
+            inverse_label=et.inverse_label,
+            inverse_of=et.inverse_of,
+            auto_generated=et.auto_generated,
         )
 
 

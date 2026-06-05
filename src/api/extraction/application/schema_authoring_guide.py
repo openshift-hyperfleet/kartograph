@@ -57,10 +57,16 @@ Each entry in `edge_types`:
   "properties": [],
   "prepopulated": true,
   "prepopulated_instance_count": 0,
-  "instance_generator": "my_edges.py"
+  "instance_generator": "my_edges.py",
+  "bidirectional": true,
+  "inverse_label": "contained_in"
 }
 ```
 
+- `bidirectional`: default `true` for new relationship types — platform auto-creates inverse type and twin edge instances.
+- `inverse_label`: optional override; otherwise derived (`contains` → `contained_in`, else `{label}_inverse`).
+- Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
+- Author **primary direction only** in generators; inverse instances are created automatically on apply.
 - `source_labels` / `target_labels`: allowed node type labels for edge endpoints.
 - `instance_generator`: optional script under `instance_generators/` for relationship prepopulation.
 - `prepopulated`: when true, bootstrap transition requires at least one instance of this

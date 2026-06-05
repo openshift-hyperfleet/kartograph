@@ -12,3 +12,6 @@ def test_authoring_guide_documents_bootstrap_and_modeling_guidance() -> None:
     assert "read-only" in SCHEMA_AUTHORING_GUIDE
     assert "Property vs entity" in SCHEMA_AUTHORING_GUIDE
     assert "Never hand-author bulk CREATE ids" in SCHEMA_AUTHORING_GUIDE
+    assert "## Prepopulation execution (default)" in SCHEMA_AUTHORING_GUIDE
+    assert "do not ask whether to proceed" in SCHEMA_AUTHORING_GUIDE
+    assert "every" in SCHEMA_AUTHORING_GUIDE.lower()

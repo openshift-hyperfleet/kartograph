@@ -64,6 +64,15 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
                 "read kartograph_get_schema_ontology and kartograph_get_schema_authoring_guide, merge "
                 "a fix, then retry once."
             ),
+            (
+                "When kartograph_get_workspace_readiness shows prepopulated gaps after schema is saved, "
+                "default to executing prepopulation — do not ask whether to proceed. Complete one "
+                "prepopulation task per turn (one entity type or one relationship type): write or reuse "
+                "instance_generators/<script>.py, scan all repository-files/ data sources, run the "
+                "pipeline through apply-from-file, report results, then stop. Only ask the user when "
+                "generator strategy is ambiguous, discovery cannot support a script, or strict CREATE "
+                "reports duplicates."
+            ),
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
@@ -98,10 +107,12 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "(1) Understand goals — 3–5 questions the graph must answer. "
             "(2) Workspace discovery — Glob/Grep on repository-files/, cite file counts and patterns. "
             "(3) Draft schema + Q&A — propose types/properties/relationships; show workspace examples. "
-            "(4) Prepopulation planning — which types/relationships are prepopulated vs manual. "
+            "(4) Prepopulation planning — which types/relationships are prepopulated vs manual (during "
+            "schema design only; do not re-ask once schema is saved). "
             "(5) Save ontology — kartograph_save_schema_ontology only after user confirms the full schema. "
-            "(6) Implement prepopulation — generators → json_*_to_jsonl → validate-from-file → "
-            "apply-from-file; entities first, then edges; verify with kartograph_get_workspace_readiness."
+            "(6) Implement prepopulation — one task per turn: write/run generator for one gap, full "
+            "pipeline through apply-from-file; all repository-files/ data sources; entities before "
+            "relationships; verify readiness; proceed to next gap without asking permission."
         ),
         "schema_modeling": (
             "Property vs entity: distinguish/categorize → property on an existing type; "
@@ -115,14 +126,20 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (
-            "Before prepopulation planning: Glob/Grep repository-files/ and cite counts from the workspace "
-            "appendix. Write scripts/JSON/JSONL only under instance_generators/ (repository-files/ is "
-            "read-only). For prepopulated types: run script with Bash, convert with json_*_to_jsonl, "
-            "validate then apply-from-file. Bidirectional edges: primary direction only in generators."
+            "Execute-first prepopulation: when readiness lists prepopulated gaps, pick the next entity "
+            "gap (before relationships), then relationship gaps after entity nodes exist. Per task: "
+            "(1) copy/adapt a template or write instance_generators/<label>.py that scans every folder "
+            "under repository-files/ (all data sources); (2) Bash run → JSON stdout; "
+            "(3) json_instances_to_jsonl.py or json_relationships_to_jsonl.py; (4) validate-from-file; "
+            "(5) apply-from-file; (6) re-check readiness. Use instance_generator from ontology when set. "
+            "Do not ask 'should we proceed' — execute unless strategy is unclear or CREATE is rejected. "
+            "Bidirectional edges: primary direction only in generators."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "
-            "blocking_reasons, prepopulated gaps, and transition_eligible in your reply."
+            "blocking_reasons, prepopulated gaps, and transition_eligible. When gaps remain after "
+            "schema save, state which single prepopulation task you are executing next — do not poll "
+            "the user for permission to start."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

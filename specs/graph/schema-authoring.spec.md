@@ -96,6 +96,12 @@ The system SHALL guide the Graph Management Assistant through a six-phase schema
 - WHEN skills are resolved
 - THEN prepopulation guidance requires Glob/Grep discovery on `repository-files/` first
 
+#### Scenario: Execute-first prepopulation after schema save
+- GIVEN the ontology is saved and readiness shows prepopulated entity or relationship gaps
+- WHEN the Graph Management Assistant continues schema bootstrap
+- THEN it executes one prepopulation task per turn via generator script and apply-from-file
+- AND does not ask the user for permission to proceed unless strategy is ambiguous or CREATE is rejected
+
 ### Requirement: Workload Bulk Instance Authoring
 The system SHALL support bulk instance authoring for the Graph Management Assistant via workspace files and strict CREATE semantics.
 

@@ -18,7 +18,27 @@ implementation in the same turn when the user gave multiple deliverables.
 3. **Draft schema + validation Q&A** — Propose entity types, properties, and relationships; cite workspace examples.
 4. **Prepopulation planning** — Decide prepopulated vs manual per type; required properties; generator strategy.
 5. **Save ontology** — `kartograph_save_schema_ontology` only after the user confirms the full schema.
-6. **Implement prepopulation** — Bash generators → `json_*_to_jsonl.py` → validate-from-file → apply-from-file; entities before edges; verify readiness.
+6. **Implement prepopulation** — one task per turn (see below); entities before edges; verify readiness.
+
+## Prepopulation execution (default)
+
+When `kartograph_get_workspace_readiness` shows prepopulated gaps **after the ontology is saved**,
+**execute immediately** — do not ask whether to proceed.
+
+**One prepopulation task per turn** = one entity type **or** one relationship type, end-to-end:
+
+1. Write or reuse `instance_generators/<script>.py` (use `instance_generator` from ontology when set).
+2. Script must scan **every** data source under `repository-files/` (all top-level folders).
+3. `python3 instance_generators/<script>.py repository-files > instance_generators/out/<label>.json`
+4. `json_instances_to_jsonl.py` (entities) or `json_relationships_to_jsonl.py` (edges after nodes exist).
+5. `kartograph_validate_graph_mutations_from_file` → `kartograph_apply_graph_mutations_from_file`
+6. `kartograph_get_workspace_readiness` — report counts and the **next** gap you will tackle.
+
+**Order:** entity types with gaps first (e.g. `api_endpoint`, `test`), then relationship types
+(e.g. `repository → defines → api_endpoint`) once endpoint node slugs exist.
+
+**Only ask the user when:** generator strategy is ambiguous, discovery cannot support a reliable
+script, or strict CREATE validation reports duplicates (then use UPDATE or skip-existing slugs).
 
 ## Schema modeling rules
 

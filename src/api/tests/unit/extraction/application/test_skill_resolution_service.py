@@ -45,11 +45,16 @@ class TestExtractionSkillResolutionService:
         assert "3–5" in resolved.skills["capabilities_intake"]
         assert "Workspace discovery" in resolved.skills["bootstrap_workflow"]
         assert "Property vs entity" in resolved.skills["schema_modeling"]
-        assert "read-only" in resolved.skills["prepopulation"]
-        assert "blocking_reasons" in resolved.skills["readiness_reporting"]
+        assert "Execute-first" in resolved.skills["prepopulation"]
+        assert "should we proceed" in resolved.skills["prepopulation"]
+        assert "every folder" in resolved.skills["prepopulation"]
+        assert "repository-files/" in resolved.skills["prepopulation"]
+        assert "do not poll" in resolved.skills["readiness_reporting"]
         assert "six-phase" in resolved.system_prompt.lower()
         guardrails_text = " ".join(resolved.guardrails)
         assert "one phase per turn" in guardrails_text
+        assert "do not ask whether to proceed" in guardrails_text
+        assert "one prepopulation task per turn" in guardrails_text
         assert "kartograph_save_schema_ontology" in guardrails_text
         assert "never hand-author CREATE ids" in guardrails_text
         assert len(resolved.prompt_hierarchy) > 0

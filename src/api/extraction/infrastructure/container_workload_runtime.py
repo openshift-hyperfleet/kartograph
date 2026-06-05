@@ -8,6 +8,9 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
+from extraction.infrastructure.sticky_session_workspace_binds import (
+    build_sticky_session_workspace_binds,
+)
 from extraction.infrastructure.vertex_runtime_env import build_vertex_container_env
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
@@ -306,11 +309,12 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                     "KARTOGRAPH_API_BASE_URL": bootstrap.api_base_url,
                 }
             )
+            binds.append(f"{bootstrap.host_skills_dir}:{self._container_skills_mount}:ro")
             binds.extend(
-                [
-                    f"{bootstrap.host_skills_dir}:{self._container_skills_mount}:ro",
-                    f"{bootstrap.host_session_work_dir}:{self._container_work_mount}:ro",
-                ]
+                build_sticky_session_workspace_binds(
+                    host_session_work_dir=bootstrap.host_session_work_dir,
+                    container_work_mount=self._container_work_mount,
+                )
             )
 
         if self._vertex_enabled:

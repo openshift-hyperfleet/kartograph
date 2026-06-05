@@ -88,6 +88,5 @@ def test_build_agent_system_prompt_compact_omits_skills_and_full_tools_table() -
 
     assert "**prepopulation**" not in prompt
     assert "Quick workflow" not in prompt
-    assert "json_instances_to_jsonl.py" in prompt
-    assert "validate-from-file" in prompt
-    assert "apply-from-file" in prompt
+    assert "entities_to_jsonl.py" in prompt
+    assert "never /tmp" in prompt.lower() or "Never /tmp" in prompt

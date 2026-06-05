@@ -1,50 +1,49 @@
-# Instance generators (examples)
+# Instance generators
 
-These scripts are **starting examples**, not fixed entity types. Copy or author your own
-`instance_generators/<your_script>.py` for each prepopulated entity type you define in the ontology.
+Prepopulation for `prepopulated: true` types uses **three kinds of files**:
 
-## Usage
+| File | Who writes it | Purpose |
+|------|---------------|---------|
+| `{label}.py` | Agent | Scans `repository-files/` → JSON array on stdout |
+| `entities_to_jsonl.py` | Platform | `{label}_instances.json` → `{label}_instances.jsonl` |
+| `relationships_to_jsonl.py` | Platform | `{key}_instances.json` → `{key}_instances.jsonl` |
 
-From the session workspace root (`/workspace` in the agent container):
+Copy `_entity_scanner.example.py` to `{entity_label}.py` and replace the `scan()` body.
 
-```bash
-python3 instance_generators/data_source.py repository-files
-python3 instance_generators/folder.py repository-files
-python3 instance_generators/source_file.py repository-files
-```
-
-Bulk pipeline (generator → JSONL → validate → apply):
+## Entity prepopulation (one type per turn)
 
 ```bash
-mkdir -p instance_generators/out
-python3 instance_generators/source_file.py repository-files \
-  > instance_generators/out/source_file.json
-python3 instance_generators/json_instances_to_jsonl.py source_file \
+python3 instance_generators/test.py repository-files \
+  > instance_generators/out/test_instances.json
+
+python3 instance_generators/entities_to_jsonl.py test \
   --data-source-id schema-bootstrap \
   --source-path graph-management-assistant \
-  instance_generators/out/source_file.json \
-  > instance_generators/out/source_file.jsonl
-# kartograph_validate_graph_mutations_from_file → kartograph_apply_graph_mutations_from_file
+  instance_generators/out/test_instances.json \
+  > instance_generators/out/test_instances.jsonl
 ```
 
-## Contract
+Then `kartograph_validate_graph_mutations_from_file` and
+`kartograph_apply_graph_mutations_from_file` with path
+`instance_generators/out/test_instances.jsonl` (one batch for all instances).
 
-- **Input:** path to `repository-files/` (one folder per connected data source).
-- **Output:** JSON array on stdout: `[{"slug": "...", "properties": {...}}, ...]`
-- **Deterministic:** sorted iteration, no timestamps in output.
-- **Customize:** copy a template script for your entity type label, adjust property names to match your ontology, then run and convert output to graph CREATE mutations.
+## Relationship prepopulation (after all entity gaps)
 
-## Templates
+Naming: `out/{source}_{relationship}_{target}_instances.json` (e.g. `repository_defines_test_instances.json`).
 
-| Script | Use when |
-|--------|----------|
-| `data_source.py` | One instance per top-level folder under `repository-files/` |
-| `folder.py` | Directory hierarchy anchors per data source |
-| `source_file.py` | One instance per source file (common code/doc extensions) |
-| `json_instances_to_jsonl.py` | Convert any generator JSON array to CREATE JSONL for one entity label |
-| `json_relationships_to_jsonl.py` | Convert relationship JSON (`source_slug`/`target_slug`) to edge CREATE JSONL |
+```bash
+python3 instance_generators/repository_defines_test.py repository-files \
+  > instance_generators/out/repository_defines_test_instances.json
 
-Set `instance_generator` on the entity or relationship type in the ontology (e.g. `"source_file.py"` or
-`"my_custom_tests.py"`) to document which script the assistant should run.
+python3 instance_generators/relationships_to_jsonl.py defines repository test \
+  instance_generators/out/repository_defines_test_instances.json \
+  > instance_generators/out/repository_defines_test_instances.jsonl
+```
 
-After generating slugs, convert to JSONL, dry-run validate, then apply from file.
+## Scanner JSON contract
+
+**Entities:** `[{"slug": "kebab-case", "properties": {...}}]`
+
+**Relationships:** `[{"source_slug": "...", "target_slug": "...", "properties": {}}]`
+
+Never write output to `/tmp` — only `instance_generators/out/` is valid for apply-from-file.

@@ -168,13 +168,12 @@ def test_materializer_copies_instance_generator_templates(tmp_path: Path) -> Non
     generators_dir = session_root / "instance_generators"
     assert generators_dir.is_dir()
     for name in (
-        "data_source.py",
-        "folder.py",
-        "source_file.py",
-        "json_instances_to_jsonl.py",
-        "json_relationships_to_jsonl.py",
+        "_entity_scanner.example.py",
+        "entities_to_jsonl.py",
+        "relationships_to_jsonl.py",
         "README.md",
     ):
         assert (generators_dir / name).is_file()
     readme = (generators_dir / "README.md").read_text(encoding="utf-8")
     assert "repository-files" in readme
+    assert (generators_dir / "out").is_dir()

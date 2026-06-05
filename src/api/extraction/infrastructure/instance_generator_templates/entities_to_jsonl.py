@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
-"""Convert generator JSON output to Kartograph CREATE JSONL (entity nodes).
+"""Convert entity scanner JSON to Kartograph CREATE JSONL (batch apply).
 
-Reads a JSON array from a file or stdin:
+Input JSON array (from ``{label}.py`` scanner stdout):
 
   [{"slug": "my-entity", "properties": {"name": "My Entity", ...}}, ...]
 
-Writes one CREATE line per instance, sorted by slug. Node ids are deterministic from
-entity label + slug (SHA256, same algorithm as the platform EntityIdGenerator with
-an empty tenant scope unless --tenant-id is passed).
-
 Example:
 
-  python3 instance_generators/source_file.py repository-files \\
-    > instance_generators/out/files.json
+  python3 instance_generators/test.py repository-files \\
+    > instance_generators/out/test_instances.json
 
-  python3 instance_generators/json_instances_to_jsonl.py source_file \\
+  python3 instance_generators/entities_to_jsonl.py test \\
     --data-source-id schema-bootstrap \\
     --source-path graph-management-assistant \\
-    instance_generators/out/files.json \\
-    > instance_generators/out/files.jsonl
+    instance_generators/out/test_instances.json \\
+    > instance_generators/out/test_instances.jsonl
 
-  # Then validate and apply via Kartograph schema tools (from-file).
+  # kartograph_validate_graph_mutations_from_file → apply-from-file (one batch).
 """
 
 from __future__ import annotations
@@ -86,39 +82,16 @@ def load_instances(payload: Any) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert generator JSON array to Kartograph node CREATE JSONL.",
+        description="Convert entity scanner JSON to Kartograph node CREATE JSONL.",
     )
-    parser.add_argument(
-        "entity_label",
-        help="Entity type label in the ontology (e.g. source_file, folder).",
-    )
-    parser.add_argument(
-        "input",
-        nargs="?",
-        help="Path to JSON file; omit to read stdin.",
-    )
-    parser.add_argument(
-        "--tenant-id",
-        default="",
-        help="Tenant id for deterministic node ids (optional).",
-    )
-    parser.add_argument(
-        "--data-source-id",
-        default="schema-bootstrap",
-        help="data_source_id stamped on each CREATE line.",
-    )
-    parser.add_argument(
-        "--source-path",
-        default="graph-management-assistant",
-        help="source_path stamped on each CREATE line.",
-    )
+    parser.add_argument("entity_label", help="Entity type label (e.g. test, api_endpoint).")
+    parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
+    parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic node ids.")
+    parser.add_argument("--data-source-id", default="schema-bootstrap")
+    parser.add_argument("--source-path", default="graph-management-assistant")
     args = parser.parse_args()
 
-    if args.input:
-        raw = Path(args.input).read_text(encoding="utf-8")
-    else:
-        raw = sys.stdin.read()
-
+    raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
     instances = load_instances(json.loads(raw))
     for row in instances:
         line = instance_to_create_line(

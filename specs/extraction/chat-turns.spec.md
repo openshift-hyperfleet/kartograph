@@ -87,7 +87,7 @@ The system SHALL expose schema, mutation, and workspace tooling appropriate for 
 - GIVEN an active graph-management chat turn in schema bootstrap mode
 - WHEN the agent runtime starts
 - THEN Bash is an allowed tool scoped to the session workspace
-- AND `instance_generators/` contains example scripts the agent may copy or extend
+- AND `instance_generators/` contains `_entity_scanner.example.py`, `entities_to_jsonl.py`, and `relationships_to_jsonl.py`
 
 #### Scenario: Compact follow-up prompts
 - GIVEN a graph-management session with prior user messages in the turn history

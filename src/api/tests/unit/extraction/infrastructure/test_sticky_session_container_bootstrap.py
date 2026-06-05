@@ -53,7 +53,9 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     assert spec.network == "kartograph_kartograph"
     assert spec.env["KARTOGRAPH_WORKLOAD_TOKEN"] == credentials.token
     assert "/tmp/skills:/app/skills:ro" in spec.binds
-    assert "/tmp/session-work:/workspace:ro" in spec.binds
+    assert "/tmp/session-work/repository-files:/workspace/repository-files:ro" in spec.binds
+    assert "/tmp/session-work/instance_generators:/workspace/instance_generators" in spec.binds
+    assert "/tmp/session-work/sources-index.json:/workspace/sources-index.json:ro" in spec.binds
     assert "/host/.config/gcloud:/gcloud/config:ro" in spec.binds
     assert spec.env["CLOUDSDK_CONFIG"] == "/gcloud/config"
     assert spec.env["GOOGLE_APPLICATION_CREDENTIALS"] == (

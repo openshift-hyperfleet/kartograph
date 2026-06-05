@@ -58,13 +58,10 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
                 "## Session workspace",
                 f"Workspace mount: `{settings.workspace_dir}`",
                 (
-                    "Prepared repository files live under "
-                    "`repository-files/<data_source_name>/` (read-only). "
-                    "`ingestion-context/` is read-only. "
-                    "Writable outputs: `instance_generators/` only (scripts, JSON, JSONL under "
-                    "`instance_generators/out/`). "
-                    "Run generators with Bash: `python3 instance_generators/<script>.py repository-files`. "
-                    "Use Read, Grep, Glob on repository-files; Bash for generators."
+                    "Read-only: `repository-files/`, `ingestion-context/`. "
+                    "Writable: `instance_generators/` — `{label}.py` and `out/{label}_instances.json(l)`. "
+                    "Platform converters: `entities_to_jsonl.py`, `relationships_to_jsonl.py`. "
+                    "Never `/tmp`. One batch per gap via apply-from-file."
                 ),
             ]
             for source in sources[:12]:

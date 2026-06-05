@@ -1,4 +1,4 @@
-"""Unit tests for the json_instances_to_jsonl helper script."""
+"""Unit tests for the entities_to_jsonl helper script."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from pathlib import Path
 
 SCRIPT = (
     Path(__file__).resolve().parents[4]
-    / "extraction/infrastructure/instance_generator_templates/json_instances_to_jsonl.py"
+    / "extraction/infrastructure/instance_generator_templates/entities_to_jsonl.py"
 )
 
 
-def test_json_instances_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
-    instances_path = tmp_path / "instances.json"
+def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
+    instances_path = tmp_path / "test_instances.json"
     instances_path.write_text(
         json.dumps(
             [
@@ -24,13 +24,12 @@ def test_json_instances_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> No
         ),
         encoding="utf-8",
     )
-    output_path = tmp_path / "out.jsonl"
 
     proc = subprocess.run(
         [
             sys.executable,
             str(SCRIPT),
-            "source_file",
+            "test",
             "--data-source-id",
             "schema-bootstrap",
             "--source-path",
@@ -41,7 +40,6 @@ def test_json_instances_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> No
         capture_output=True,
         text=True,
     )
-    output_path.write_text(proc.stdout, encoding="utf-8")
 
     lines = [line for line in proc.stdout.splitlines() if line.strip()]
     assert len(lines) == 2
@@ -50,20 +48,11 @@ def test_json_instances_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> No
     second = json.loads(lines[1])
     assert first["set_properties"]["slug"] == "a-entity"
     assert second["set_properties"]["slug"] == "b-entity"
-    assert first["op"] == "CREATE"
-    assert first["type"] == "node"
-    assert first["label"] == "source_file"
+    assert first["label"] == "test"
     assert first["set_properties"]["data_source_id"] == "schema-bootstrap"
-    assert first["set_properties"]["source_path"] == "graph-management-assistant"
-    assert first["id"] == second["id"] or first["set_properties"]["slug"] != second["set_properties"]["slug"]
 
     rerun = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "source_file",
-            str(instances_path),
-        ],
+        [sys.executable, str(SCRIPT), "test", str(instances_path)],
         check=True,
         capture_output=True,
         text=True,

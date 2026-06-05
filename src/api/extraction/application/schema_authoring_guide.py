@@ -4,202 +4,121 @@ SCHEMA_AUTHORING_GUIDE = """
 # Kartograph schema authoring (Graph Management Assistant)
 
 Use the Kartograph schema tools — never probe undocumented HTTP routes.
-Use Read, Grep, Glob, and Bash against the session workspace mount. Prebuilt generator scripts
-live under `instance_generators/` (see README there). Write scripts and JSON/JSONL outputs
-only under `instance_generators/` — `repository-files/` and `ingestion-context/` are read-only.
+
+## Workspace layout
+
+| Path | Access | Purpose |
+|------|--------|---------|
+| `repository-files/<data_source>/` | read-only | Source repos for Glob/Grep/Read |
+| `ingestion-context/` | read-only | Sync metadata |
+| `instance_generators/` | **writable** | `{label}.py` scanners + `out/*_instances.json(l)` |
+
+Never write to `/tmp`. Apply-from-file paths must be under `instance_generators/out/`
+(e.g. `instance_generators/out/test_instances.jsonl`).
+
+Bundled platform scripts (do not edit): `entities_to_jsonl.py`, `relationships_to_jsonl.py`.
+Copy `_entity_scanner.example.py` to `{label}.py` for each prepopulated type.
 
 ## Bootstrap workflow (6 phases)
 
-Complete these in order. Do not mix schema design, prepopulation planning, and bulk
-implementation in the same turn when the user gave multiple deliverables.
+1. **Understand goals** — 3–5 questions the graph must answer.
+2. **Workspace discovery** — Glob/Grep under `repository-files/`.
+3. **Draft schema + Q&A** — types, properties, relationships; mark `prepopulated: true` where needed.
+4. **Prepopulation planning** — which types get scanners (during design only).
+5. **Save ontology** — after user confirms the full schema.
+6. **Implement prepopulation** — one prepopulated label per turn (below).
 
-1. **Understand goals** — Ask what questions the graph must answer; collect 3–5 stakeholder use cases.
-2. **Workspace discovery** — Glob/Grep under `repository-files/`; report file counts, extensions, and code patterns.
-3. **Draft schema + validation Q&A** — Propose entity types, properties, and relationships; cite workspace examples.
-4. **Prepopulation planning** — Decide prepopulated vs manual per type; required properties; generator strategy.
-5. **Save ontology** — `kartograph_save_schema_ontology` only after the user confirms the full schema.
-6. **Implement prepopulation** — one task per turn (see below); entities before edges; verify readiness.
+## Prepopulation execution
 
-## Prepopulation execution (default)
+When `kartograph_get_workspace_readiness` shows gaps after ontology save, **execute immediately**.
 
-When `kartograph_get_workspace_readiness` shows prepopulated gaps **after the ontology is saved**,
-**execute immediately** — do not ask whether to proceed.
+**Entities** (all entity gaps before any relationship gap):
 
-**Prepopulation is script writing.** For each gap, author a Python scanner under `instance_generators/`
-that discovers **every** instance of that type across **all** data sources under `repository-files/`.
-Use Glob, Grep, and Read creatively per entity (HTTP route registration, test file naming, directory
-layout, OpenAPI specs, import graphs, etc.). Copy template scripts only as a starting point — customize
-the discovery logic for the type.
+```bash
+python3 instance_generators/test.py repository-files > instance_generators/out/test_instances.json
+python3 instance_generators/entities_to_jsonl.py test \\
+  --data-source-id schema-bootstrap --source-path graph-management-assistant \\
+  instance_generators/out/test_instances.json > instance_generators/out/test_instances.jsonl
+# validate-from-file → apply-from-file path=instance_generators/out/test_instances.jsonl
+```
 
-**One prepopulation task per turn** = one entity label **or** one relationship label, end-to-end:
+**Relationships** (after entity slugs exist; name files `{source}_{rel}_{target}_instances.*`):
 
-1. Explore `repository-files/` with Glob/Grep; design the scanner.
-2. Write `instance_generators/<label>.py` (honor `instance_generator` from ontology when set).
-3. `python3 instance_generators/<script>.py repository-files > instance_generators/out/<label>.json`
-4. `json_instances_to_jsonl.py` (entities) or `json_relationships_to_jsonl.py` (relationships).
-5. `kartograph_validate_graph_mutations_from_file` → `kartograph_apply_graph_mutations_from_file`
-6. `kartograph_get_workspace_readiness` — report counts and the **next** task.
+```bash
+python3 instance_generators/repository_defines_test.py repository-files \\
+  > instance_generators/out/repository_defines_test_instances.json
+python3 instance_generators/relationships_to_jsonl.py defines repository test \\
+  instance_generators/out/repository_defines_test_instances.json \\
+  > instance_generators/out/repository_defines_test_instances.jsonl
+```
 
-**Order (strict):** complete **all** prepopulated **entity** types with gaps before **any**
-prepopulated **relationship** type. Example sequence: `repository` → `test` → `api_endpoint` → then
-`repository → contains → test` → `repository → defines → api_endpoint`. Relationship scripts output
-`source_slug` / `target_slug` pairs and require entity slugs to already exist.
-
-**Only ask the user when:** scanner strategy is ambiguous, the codebase cannot support reliable
-discovery, or strict CREATE validation reports duplicates (then use UPDATE or skip-existing slugs).
+Scanner stdout contract:
+- Entities: `[{"slug": "...", "properties": {...}}]`
+- Relationships: `[{"source_slug": "...", "target_slug": "...", "properties": {}}]`
 
 ## Schema modeling rules
 
-- **Property vs entity:** distinguish/categorize (e.g. tier0/tier1) → property on an existing type;
-  track which/what or needs relationships → entity type + edges.
-- **Bidirectional relationships** default on — author primary direction only; platform creates inverse type
-  and twin edge instances. Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
-- For asymmetric edges, confirm direction explicitly (X → rel → Y).
+- **Property vs entity:** categorize → property; track instances/relationships → entity + edges.
+- **Bidirectional relationships** default on — author primary direction only; platform creates inverse + twins.
+- Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
 
 ## Workspace discovery patterns
 
 | Target | Glob / Grep hints |
 |--------|-------------------|
-| Tests | `**/*_test.go`, `**/test_*.go`, `**/*_test.py`, `**/tests/**` |
-| API endpoints / handlers | `Grep` for route registrations, `@app.`, `HandleFunc`, OpenAPI paths |
-| Source files | `Glob **/*.{go,py,ts,java,yaml,md}` per data source folder |
-
-Cite the session workspace appendix for per-repo file counts and extension summaries before prepopulation Q&A.
+| Tests | `**/*_test.go`, `**/test_*.go`, `**/*_test.py` |
+| API endpoints | route registrations, `@app.`, `HandleFunc`, OpenAPI paths |
+| Source files | `Glob **/*.{go,py,ts,java,yaml,md}` per data source |
 
 ## Tool workflow
 
-1. Call `kartograph_get_schema_authoring_guide` (this document).
-2. Call `kartograph_get_workspace_readiness` to see prepopulated gaps and live instance counts.
-3. Call `kartograph_get_schema_ontology` to read the current entity/relationship types.
-4. Edit the ontology JSON (full replace) and call `kartograph_save_schema_ontology`.
-5. For prepopulated types at scale: run a script under `instance_generators/` (examples:
-   `data_source.py`, `folder.py`, `source_file.py`, or your own), then
-   `python3 instance_generators/json_instances_to_jsonl.py <entity_label> out/instances.json`.
-6. After entity nodes exist, convert relationship JSON with
-   `json_relationships_to_jsonl.py <edge_label> <source_entity> <target_entity> out/relationships.json`.
-7. Optional: `kartograph_check_graph_slugs` to batch-check which slugs already exist before CREATE.
-8. Dry-run with `kartograph_validate_graph_mutations_from_file`, then apply with
-   `kartograph_apply_graph_mutations_from_file` (or inline tools for small fixes).
-9. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`.
+1. `kartograph_get_schema_authoring_guide` · `kartograph_get_workspace_readiness` · `kartograph_get_schema_ontology`
+2. `kartograph_save_schema_ontology` when schema is confirmed
+3. Prepopulation pipeline above per gap
+4. `kartograph_validate_graph_mutations_from_file` → `kartograph_apply_graph_mutations_from_file`
+5. Verify with `kartograph_list_instances_by_type` and readiness
 
-## Entity type (node type) shape
-
-Each entry in `node_types`:
+## Entity type shape
 
 ```json
 {
-  "label": "service",
-  "description": "Deployable software service",
+  "label": "test",
+  "description": "Automated test file",
   "required_properties": ["name"],
-  "optional_properties": ["team"],
-  "prepopulated": false,
-  "prepopulated_instance_count": 0,
-  "instance_generator": "source_file.py"
+  "optional_properties": ["file_path"],
+  "prepopulated": true,
+  "prepopulated_instance_count": 0
 }
 ```
 
-- `label`: lowercase snake_case type name (required).
-- `prepopulated`: when true, bootstrap transition requires at least one instance.
-- `instance_generator`: optional script name under `instance_generators/` (example templates or your own).
-- Saving replaces the entire ontology — read first, merge your edits, then save.
+Scanner script convention: `instance_generators/{label}.py` → `out/{label}_instances.json`.
 
-## Relationship type (edge type) shape
-
-Each entry in `edge_types`:
+## Relationship type shape
 
 ```json
 {
-  "label": "contains",
-  "description": "Test exercises an API endpoint",
-  "source_labels": ["test"],
+  "label": "defines",
+  "source_labels": ["repository"],
   "target_labels": ["api_endpoint"],
-  "properties": [],
   "prepopulated": true,
-  "prepopulated_instance_count": 0,
-  "instance_generator": "my_edges.py",
-  "bidirectional": true,
-  "inverse_label": "contained_in"
+  "bidirectional": true
 }
 ```
 
-- `bidirectional`: default `true` for new relationship types — platform auto-creates inverse type and twin edge instances.
-- `inverse_label`: optional override; otherwise derived (`contains` → `contained_in`, else `{label}_inverse`).
-- Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
-- Author **primary direction only** in generators; inverse instances are created automatically on apply.
-- `source_labels` / `target_labels`: allowed node type labels for edge endpoints.
-- `instance_generator`: optional script under `instance_generators/` for relationship prepopulation.
-- `prepopulated`: when true, bootstrap transition requires at least one instance of this
-  relationship type. Every listed source and target entity type must also have
-  `prepopulated: true`.
+Relationship scanner convention: `out/{source}_{label}_{target}_instances.json`.
 
 ## Instance mutations (JSONL)
 
-Apply after types exist. One JSON object per line.
-
-Create entity instance:
-
-```json
-{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service","set_properties":{"name":"api-gateway","slug":"api-gateway","data_source_id":"schema-bootstrap","source_path":"graph-management-assistant"}}
-```
-
-Create relationship instance (requires entity node IDs from prior CREATE or list tool):
-
-```json
-{"op":"CREATE","type":"edge","id":"depends_on:0123456789abc001","label":"depends_on","start_id":"service:0123456789abcdef","end_id":"service:fedcba9876543210","set_properties":{"data_source_id":"schema-bootstrap","source_path":"graph-management-assistant"}}
-```
-
-Rules:
-- `id` format: `{label}:{16 lowercase hex chars}` — generate with `secrets.token_hex(8)`.
-- CREATE requires `data_source_id` and `source_path` in `set_properties`.
-- Node CREATE requires `slug` in `set_properties` (kebab-case, unique per type).
-- `knowledge_graph_id` is stamped by the platform — do not set it.
-- For large sets: Bash + custom script under `instance_generators/` → `json_*_to_jsonl.py` → apply-from-file.
-  Never hand-author bulk CREATE ids in chat — use converter scripts for deterministic ids.
-- CREATE is strict: existing types/instances must be changed with UPDATE, not CREATE again.
-- Dry-run before apply: `kartograph_validate_graph_mutations` or `kartograph_validate_graph_mutations_from_file`.
+- CREATE requires `data_source_id`, `source_path`, and `slug` on nodes.
+- CREATE is strict — use UPDATE for existing instances.
+- Never hand-author bulk CREATE lines in chat; use `entities_to_jsonl.py` / `relationships_to_jsonl.py`.
 - Create all entity nodes before relationship edges.
-- Sort instances deterministically (by slug or path) before emitting CREATE lines.
-
-## Instance generation cookbook
-
-Scan prepared files under `repository-files/<data_source_slug>/` (see session workspace appendix).
-
-| Pattern | When to use | Scan strategy | Slug rule | Key properties |
-|---------|-------------|---------------|-----------|----------------|
-| **data_source** | One instance per connected repo | Top-level folders under `repository-files/` | folder name | `name`, `source_type`, `file_count` |
-| **folder** | Directory hierarchy anchors | `Glob **/*` dirs per data source | `folder-{path-kebab}` | `folder_path`, `data_source`, child counts |
-| **source_file** | File-level extraction jobs | `Glob **/*.{go,py,yaml,md,json,...}` | path → kebab (`pkg-api-foo-go`) | `file_path`, `source_path`, `name` |
-
-Workflow for bulk prepopulation:
-1. Mark the entity type `prepopulated: true` and save ontology.
-2. Use Glob to list candidate paths (exclude dot-directories).
-3. Derive slugs deterministically from relative paths.
-4. Call `kartograph_search_graph_by_slug` for a sample slug to avoid duplicates.
-5. Emit JSONL CREATE batches via `kartograph_apply_graph_mutations`.
-6. Confirm coverage with `kartograph_list_instances_by_type`.
-7. For prepopulated relationships: use `kartograph_list_relationship_instances` or entity lists to resolve `start_id`/`end_id`, then CREATE edges.
 
 ## Readiness checklist
 
-Bootstrap transition needs:
-- At least one entity type and one relationship type.
-- Every `prepopulated=true` entity type must have at least one live instance.
-- Every `prepopulated=true` relationship type must have at least one live edge instance.
-- A prepopulated relationship type may only reference entity types that are also prepopulated.
+- Every `prepopulated=true` entity type needs ≥1 live instance.
+- Every `prepopulated=true` relationship type needs ≥1 live edge.
+- Prepopulated relationships may only reference prepopulated entity types.
 
-Call `kartograph_get_workspace_readiness` for:
-- `prepopulated_entity_types_without_instances_live` — entity types still needing CREATE lines.
-- `prepopulated_relationship_types_without_instances_live` — relationship keys still needing edge CREATE lines.
-- `prepopulated_entity_types` / `prepopulated_relationship_types` — metadata vs live counts.
-- `blocking_reasons` — transition blockers.
-
-After applying instance mutations, ontology `prepopulated_instance_count` metadata is refreshed automatically from live graph totals.
-
-## Repository context
-
-Prepared JobPackage files live under `repository-files/<data_source_name>/` relative to the
-workspace mount (one folder per connected data source; names are slugified data source names
-such as `hyperfleet-api`). Use Read, Grep, and Glob on those paths — not HTTP discovery.
-The session workspace appendix lists data sources, file counts, sample paths, and extension
-hints when available.
+Call `kartograph_get_workspace_readiness` for gaps and `blocking_reasons`.
 """.strip()

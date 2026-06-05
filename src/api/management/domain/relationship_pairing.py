@@ -145,7 +145,7 @@ def deterministic_twin_edge_id(
     end_id: str,
     tenant_id: str = "",
 ) -> str:
-    """Match json_relationships_to_jsonl deterministic edge id rules."""
+    """Match relationships_to_jsonl deterministic edge id rules."""
     normalized_label = relationship_label.strip().lower()
     combined = f"{tenant_id}:{start_id.strip()}:{normalized_label}:{end_id.strip()}"
     digest = hashlib.sha256(combined.encode()).hexdigest()[:16]

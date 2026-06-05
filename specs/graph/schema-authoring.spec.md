@@ -122,16 +122,17 @@ The system SHALL support bulk instance authoring for the Graph Management Assist
 - WHEN the assistant applies mutations from that file path
 - THEN the system reads the full file and applies all valid operations in one request
 
-#### Scenario: Optional instance generator metadata
-- GIVEN an entity type with `instance_generator` set to a script name under `instance_generators/`
-- WHEN the ontology is saved and read back
-- THEN the script name is preserved as authoring metadata for the assistant
-
 #### Scenario: Session workspace generator templates
 - GIVEN a sticky session work directory is prepared
 - WHEN the assistant lists `instance_generators/`
-- THEN example generator scripts and JSONL converter helpers are present
-- AND the assistant may add custom generator scripts alongside them
+- THEN `_entity_scanner.example.py`, `entities_to_jsonl.py`, and `relationships_to_jsonl.py` are present
+- AND the assistant authors `{label}.py` scanners that emit `out/{label}_instances.json`
+
+#### Scenario: Batch entity prepopulation pipeline
+- GIVEN a prepopulated entity type with a readiness gap
+- WHEN the assistant runs `{label}.py` and `entities_to_jsonl.py`
+- THEN it produces `instance_generators/out/{label}_instances.jsonl`
+- AND applies all CREATE lines in one validate/apply-from-file batch
 
 ### Requirement: Bidirectional Relationship Pairing
 The system SHALL default new relationship types to bidirectional pairing. See [Bidirectional Relationships](bidirectional-relationships.spec.md).

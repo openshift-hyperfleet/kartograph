@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
-"""Convert relationship generator JSON to Kartograph edge CREATE JSONL.
+"""Convert relationship scanner JSON to Kartograph edge CREATE JSONL (batch apply).
 
 Input JSON array:
 
-  [
-    {
-      "source_slug": "entity-a",
-      "target_slug": "entity-b",
-      "properties": {"confidence": 0.9}
-    }
-  ]
+  [{"source_slug": "repo-a", "target_slug": "test-b", "properties": {}}]
 
-Endpoint node ids are derived deterministically from source/target entity type labels
-and slugs (same hashing rules as the platform). Run after entity nodes exist.
+Run after entity nodes exist. Author primary direction only; platform creates twin inverse edges.
 
 Example:
 
-  python3 instance_generators/json_relationships_to_jsonl.py depends_on service service \\
-    instance_generators/out/depends_on.json \\
-    > instance_generators/out/depends_on.jsonl
+  python3 instance_generators/repository_defines_test.py repository-files \\
+    > instance_generators/out/repository_defines_test_instances.json
+
+  python3 instance_generators/relationships_to_jsonl.py defines repository test \\
+    instance_generators/out/repository_defines_test_instances.json \\
+    > instance_generators/out/repository_defines_test_instances.jsonl
 """
 
 from __future__ import annotations
@@ -123,7 +119,7 @@ def load_relationships(payload: Any) -> list[dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert relationship generator JSON to Kartograph edge CREATE JSONL.",
+        description="Convert relationship scanner JSON to Kartograph edge CREATE JSONL.",
     )
     parser.add_argument("relationship_label", help="Relationship type label in the ontology.")
     parser.add_argument("source_entity_type", help="Source endpoint entity type label.")

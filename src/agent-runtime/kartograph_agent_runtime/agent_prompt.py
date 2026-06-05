@@ -44,7 +44,7 @@ _TOOLS_QUICK_REFERENCE = """
 1. `kartograph_get_schema_authoring_guide`
 2. `kartograph_get_workspace_readiness`
 3. `kartograph_get_schema_ontology`
-4. For large prepopulation: Bash `python3 instance_generators/<template>.py repository-files`
+4. Prepopulation: `{label}.py` → `out/{label}_instances.json` → `entities_to_jsonl.py` → apply-from-file
 5. Model types → `kartograph_save_schema_ontology`
 6. Apply CREATE mutations → `kartograph_apply_graph_mutations` (small fixes inline; bulk via generator output)
 7. Create relationship edges after entity IDs are known
@@ -54,9 +54,9 @@ Writes persist to the platform database for the active knowledge graph.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (
-    "Tools: kartograph_* schema MCP tools, plus Read/Grep/Glob/Bash on the workspace. "
-    "Bulk prepopulation: Bash generator → `json_instances_to_jsonl.py` → validate-from-file → apply-from-file. "
-    "CREATE is strict (use UPDATE to edit existing instances)."
+    "Tools: kartograph_* schema MCP tools, plus Read/Grep/Glob/Bash. "
+    "Prepopulation: {label}.py → out/{label}_instances.json → entities_to_jsonl.py or "
+    "relationships_to_jsonl.py → validate/apply out/{label}_instances.jsonl. Never /tmp."
 )
 
 

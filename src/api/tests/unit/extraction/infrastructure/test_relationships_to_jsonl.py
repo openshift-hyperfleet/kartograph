@@ -1,4 +1,4 @@
-"""Unit tests for json_relationships_to_jsonl helper."""
+"""Unit tests for relationships_to_jsonl helper."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from pathlib import Path
 
 SCRIPT = (
     Path(__file__).resolve().parents[4]
-    / "extraction/infrastructure/instance_generator_templates/json_relationships_to_jsonl.py"
+    / "extraction/infrastructure/instance_generator_templates/relationships_to_jsonl.py"
 )
 
 
-def test_json_relationships_to_jsonl_emits_edge_create_lines(tmp_path: Path) -> None:
-    input_path = tmp_path / "relationships.json"
+def test_relationships_to_jsonl_emits_edge_create_lines(tmp_path: Path) -> None:
+    input_path = tmp_path / "repository_defines_test_instances.json"
     input_path.write_text(
         json.dumps(
             [

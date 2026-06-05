@@ -113,6 +113,7 @@ class StickySessionWorkdirMaterializer:
             source = TEMPLATES_DIR / name
             if source.is_file():
                 shutil.copy2(source, target_dir / name)
+        (target_dir / "out").mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _extension_counts(root: Path) -> dict[str, int]:

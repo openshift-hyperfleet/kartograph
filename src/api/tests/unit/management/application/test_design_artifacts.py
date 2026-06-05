@@ -63,6 +63,39 @@ def test_build_design_artifacts_merges_ontology_with_graph_instances() -> None:
     assert payload["relationships"][0]["instances"][0]["source_slug"] == "api-gateway"
 
 
+def test_build_design_artifacts_reports_true_instance_count_when_payload_truncated() -> None:
+    graph_data = {
+        "nodes": [
+            {
+                "id": f"age-{index}",
+                "type": "service",
+                "slug": f"service-{index:04d}",
+                "knowledge_graph_id": "kg-1",
+            }
+            for index in range(600)
+        ],
+        "edges": [],
+    }
+
+    payload = build_design_artifacts(
+        knowledge_graph_id="kg-1",
+        ontology=OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(label="service", description="Service", prepopulated=True),
+            ),
+        ),
+        graph_data=graph_data,
+        limit=500,
+    )
+
+    service = payload["entities"]["service"]
+    assert service["instance_count"] == 600
+    assert service["instances_returned"] == 500
+    assert service["instances_truncated"] is True
+    assert len(service["instances"]) == 500
+    assert payload["limits"]["entity_instances_truncated"] is True
+
+
 def test_build_design_artifacts_filters_other_knowledge_graphs() -> None:
     payload = build_design_artifacts(
         knowledge_graph_id="kg-1",

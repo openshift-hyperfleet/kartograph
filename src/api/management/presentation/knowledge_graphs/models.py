@@ -462,6 +462,8 @@ class DesignArtifactEntityTypeModel(BaseModel):
     property_definitions: dict[str, str] = Field(default_factory=dict)
     prepopulated_instances: bool | str = False
     instance_count: int = 0
+    instances_returned: int = 0
+    instances_truncated: bool = False
     instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
 
 
@@ -477,6 +479,8 @@ class DesignArtifactRelationshipTypeModel(BaseModel):
     prepopulated_instances: bool | str = False
     description: str | None = None
     instance_count: int = 0
+    instances_returned: int = 0
+    instances_truncated: bool = False
     instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
     required_parameters: list[str] = Field(default_factory=list)
     optional_parameters: list[str] = Field(default_factory=list)

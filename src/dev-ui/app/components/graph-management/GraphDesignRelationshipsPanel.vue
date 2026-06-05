@@ -208,6 +208,10 @@ defineExpose({ refresh: fetchRelationships })
                       class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/inst:rotate-180"
                     />
                     Instances
+                    <span v-if="rel.instances_truncated" class="font-normal text-muted-foreground">
+                      (showing {{ rel.instances_returned ?? rel.instances.length }} of
+                      {{ rel.instance_count }})
+                    </span>
                   </summary>
                   <div class="space-y-2 border-t p-2">
                     <ul class="space-y-1 text-xs">
@@ -243,7 +247,7 @@ defineExpose({ refresh: fetchRelationships })
                       <span class="text-xs text-muted-foreground">
                         Page {{ pageSlice(instancePage, rel.key, rel.instances).page + 1 }} /
                         {{ pageSlice(instancePage, rel.key, rel.instances).totalPages }}
-                        ({{ pageSlice(instancePage, rel.key, rel.instances).total }} total)
+                        ({{ rel.instances_truncated ? `${rel.instances_returned ?? rel.instances.length} loaded of ${rel.instance_count}` : pageSlice(instancePage, rel.key, rel.instances).total }} total)
                       </span>
                       <Button
                         variant="outline"
@@ -271,8 +275,10 @@ defineExpose({ refresh: fetchRelationships })
           v-if="data.limits.relationship_instances_truncated"
           class="text-xs text-muted-foreground"
         >
-          Showing the first {{ data.limits.relationship_instances_returned }} of
-          {{ data.counts.relationship_instances }} relationship instances.
+          Relationship counts reflect the full graph. The browsable instance list is capped at
+          {{ data.limits.relationship_instances_returned }} of
+          {{ data.counts.relationship_instances }} total instances (API limit
+          {{ data.limits.requested }}).
         </p>
       </template>
     </template>

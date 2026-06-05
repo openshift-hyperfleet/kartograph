@@ -58,6 +58,24 @@ def build_design_artifacts(
 
     node_by_age_id = {str(node.get("id")): node for node in nodes if node.get("id")}
 
+    def _node_instance(node: dict[str, Any]) -> dict[str, Any]:
+        slug = str(node.get("slug") or node.get("domainId") or node.get("id") or "")
+        return {
+            "slug": slug,
+            "properties": _instance_properties(node),
+        }
+
+    full_instances_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for node in sorted(
+        nodes,
+        key=lambda item: (
+            str(item.get("type") or ""),
+            str(item.get("slug") or item.get("domainId") or item.get("id") or ""),
+        ),
+    ):
+        entity_type = str(node.get("type") or "unknown")
+        full_instances_by_type[entity_type].append(_node_instance(node))
+
     instances_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     sorted_nodes = sorted(
         nodes,
@@ -70,13 +88,7 @@ def build_design_artifacts(
 
     for node in truncated_nodes:
         entity_type = str(node.get("type") or "unknown")
-        slug = str(node.get("slug") or node.get("domainId") or node.get("id") or "")
-        instances_by_type[entity_type].append(
-            {
-                "slug": slug,
-                "properties": _instance_properties(node),
-            }
-        )
+        instances_by_type[entity_type].append(_node_instance(node))
 
     entities: dict[str, dict[str, Any]] = {}
     if ontology is not None:
@@ -88,6 +100,7 @@ def build_design_artifacts(
                 for prop in (*required, *optional)
             }
             type_instances = instances_by_type.get(node_type.label, [])
+            total_instances = len(full_instances_by_type.get(node_type.label, []))
             entities[node_type.label] = {
                 "type": node_type.label,
                 "description": node_type.description,
@@ -95,13 +108,16 @@ def build_design_artifacts(
                 "optional_properties": optional,
                 "property_definitions": property_definitions,
                 "prepopulated_instances": node_type.prepopulated,
-                "instance_count": len(instances_by_type.get(node_type.label, [])),
+                "instance_count": total_instances,
+                "instances_returned": len(type_instances),
+                "instances_truncated": total_instances > len(type_instances),
                 "instances": type_instances,
             }
 
     for entity_type, type_instances in instances_by_type.items():
         if entity_type in entities:
             continue
+        total_instances = len(full_instances_by_type.get(entity_type, []))
         entities[entity_type] = {
             "type": entity_type,
             "description": "",
@@ -109,32 +125,27 @@ def build_design_artifacts(
             "optional_properties": [],
             "property_definitions": {},
             "prepopulated_instances": False,
-            "instance_count": len(type_instances),
+            "instance_count": total_instances,
+            "instances_returned": len(type_instances),
+            "instances_truncated": total_instances > len(type_instances),
             "instances": type_instances,
         }
 
     relationship_instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    sorted_edges = sorted(
-        edges,
-        key=lambda edge: (
-            str(edge.get("type") or ""),
-            str(edge.get("source") or ""),
-            str(edge.get("target") or ""),
-        ),
-    )
-    truncated_edges = sorted_edges[:limit]
+    full_relationship_instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
-    for edge in truncated_edges:
+    def _edge_instance(edge: dict[str, Any]) -> dict[str, Any] | None:
         source_node = node_by_age_id.get(str(edge.get("source")))
         target_node = node_by_age_id.get(str(edge.get("target")))
         if source_node is None or target_node is None:
-            continue
+            return None
         source_type = str(source_node.get("type") or "unknown")
         target_type = str(target_node.get("type") or "unknown")
         relationship_type = str(edge.get("type") or "unknown")
         composite_key = f"{source_type}|{relationship_type}|{target_type}"
-        relationship_instances[composite_key].append(
-            {
+        return {
+            "composite_key": composite_key,
+            "instance": {
                 "source_slug": str(
                     source_node.get("slug")
                     or source_node.get("domainId")
@@ -148,8 +159,29 @@ def build_design_artifacts(
                     or ""
                 ),
                 "properties": _instance_properties(edge),
-            }
-        )
+            },
+        }
+
+    sorted_edges = sorted(
+        edges,
+        key=lambda edge: (
+            str(edge.get("type") or ""),
+            str(edge.get("source") or ""),
+            str(edge.get("target") or ""),
+        ),
+    )
+    for edge in sorted_edges:
+        parsed = _edge_instance(edge)
+        if parsed is None:
+            continue
+        full_relationship_instances[parsed["composite_key"]].append(parsed["instance"])
+
+    truncated_edges = sorted_edges[:limit]
+    for edge in truncated_edges:
+        parsed = _edge_instance(edge)
+        if parsed is None:
+            continue
+        relationship_instances[parsed["composite_key"]].append(parsed["instance"])
 
     relationships: list[dict[str, Any]] = []
     if ontology is not None:
@@ -166,6 +198,7 @@ def build_design_artifacts(
                         type_instances = instances
                         break
             reverse_label = _reverse_relationship_label(edge_type)
+            total_instances = len(full_relationship_instances.get(composite_key, []))
             relationships.append(
                 {
                     "key": composite_key,
@@ -178,7 +211,9 @@ def build_design_artifacts(
                     ),
                     "prepopulated_instances": edge_type.prepopulated,
                     "description": edge_type.description or None,
-                    "instance_count": len(type_instances),
+                    "instance_count": total_instances,
+                    "instances_returned": len(type_instances),
+                    "instances_truncated": total_instances > len(type_instances),
                     "instances": type_instances,
                     "required_parameters": list(edge_type.properties),
                     "optional_parameters": [],
@@ -196,6 +231,7 @@ def build_design_artifacts(
         parts = composite_key.split("|")
         if len(parts) != 3:
             continue
+        total_instances = len(full_relationship_instances.get(composite_key, []))
         relationships.append(
             {
                 "key": composite_key,
@@ -206,7 +242,9 @@ def build_design_artifacts(
                 "reverse_relationship_description": None,
                 "prepopulated_instances": False,
                 "description": None,
-                "instance_count": len(type_instances),
+                "instance_count": total_instances,
+                "instances_returned": len(type_instances),
+                "instances_truncated": total_instances > len(type_instances),
                 "instances": type_instances,
                 "required_parameters": [],
                 "optional_parameters": [],

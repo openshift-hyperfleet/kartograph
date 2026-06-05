@@ -215,6 +215,10 @@ defineExpose({ refresh: fetchEntities })
                       class="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/inst:rotate-180"
                     />
                     Instances
+                    <span v-if="row.instances_truncated" class="font-normal text-muted-foreground">
+                      (showing {{ row.instances_returned ?? row.instances?.length ?? 0 }} of
+                      {{ row.instance_count }})
+                    </span>
                   </summary>
                   <div class="space-y-2 border-t p-2">
                     <ul class="space-y-1 text-xs">
@@ -248,7 +252,7 @@ defineExpose({ refresh: fetchEntities })
                       <span class="text-xs text-muted-foreground">
                         Page {{ pageSlice(instancePage, row.type, row.instances || []).page + 1 }} /
                         {{ pageSlice(instancePage, row.type, row.instances || []).totalPages }}
-                        ({{ pageSlice(instancePage, row.type, row.instances || []).total }} total)
+                        ({{ row.instances_truncated ? `${row.instances_returned ?? row.instances?.length ?? 0} loaded of ${row.instance_count}` : pageSlice(instancePage, row.type, row.instances || []).total }} total)
                       </span>
                       <Button
                         variant="outline"
@@ -274,8 +278,10 @@ defineExpose({ refresh: fetchEntities })
           v-if="data.limits.entity_instances_truncated"
           class="text-xs text-muted-foreground"
         >
-          Showing the first {{ data.limits.entity_instances_returned }} of
-          {{ data.counts.entity_instances }} entity instances. Increase the API limit to inspect more.
+          Instance counts reflect the full graph. The browsable instance list is capped at
+          {{ data.limits.entity_instances_returned }} of {{ data.counts.entity_instances }}
+          total instances across all types (API limit {{ data.limits.requested }}). Per-type badges
+          still show true totals.
         </p>
       </template>
     </template>

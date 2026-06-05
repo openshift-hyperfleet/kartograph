@@ -46,6 +46,8 @@ export interface DesignArtifactEntityType {
   property_definitions?: Record<string, string>
   prepopulated_instances?: string | boolean
   instance_count: number
+  instances_returned?: number
+  instances_truncated?: boolean
   instances?: DesignArtifactInstance[]
 }
 
@@ -59,6 +61,8 @@ export interface DesignArtifactRelationshipType {
   prepopulated_instances?: string | boolean
   description: string | null
   instance_count: number
+  instances_returned?: number
+  instances_truncated?: boolean
   instances: DesignArtifactInstance[]
   required_parameters: string[]
   optional_parameters: string[]

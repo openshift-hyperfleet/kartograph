@@ -5,9 +5,40 @@ SCHEMA_AUTHORING_GUIDE = """
 
 Use the Kartograph schema tools — never probe undocumented HTTP routes.
 Use Read, Grep, Glob, and Bash against the session workspace mount. Prebuilt generator scripts
-live under `instance_generators/` (see README there).
+live under `instance_generators/` (see README there). Write scripts and JSON/JSONL outputs
+only under `instance_generators/` — `repository-files/` and `ingestion-context/` are read-only.
 
-## Workflow
+## Bootstrap workflow (6 phases)
+
+Complete these in order. Do not mix schema design, prepopulation planning, and bulk
+implementation in the same turn when the user gave multiple deliverables.
+
+1. **Understand goals** — Ask what questions the graph must answer; collect 3–5 stakeholder use cases.
+2. **Workspace discovery** — Glob/Grep under `repository-files/`; report file counts, extensions, and code patterns.
+3. **Draft schema + validation Q&A** — Propose entity types, properties, and relationships; cite workspace examples.
+4. **Prepopulation planning** — Decide prepopulated vs manual per type; required properties; generator strategy.
+5. **Save ontology** — `kartograph_save_schema_ontology` only after the user confirms the full schema.
+6. **Implement prepopulation** — Bash generators → `json_*_to_jsonl.py` → validate-from-file → apply-from-file; entities before edges; verify readiness.
+
+## Schema modeling rules
+
+- **Property vs entity:** distinguish/categorize (e.g. tier0/tier1) → property on an existing type;
+  track which/what or needs relationships → entity type + edges.
+- **Bidirectional relationships** default on — author primary direction only; platform creates inverse type
+  and twin edge instances. Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
+- For asymmetric edges, confirm direction explicitly (X → rel → Y).
+
+## Workspace discovery patterns
+
+| Target | Glob / Grep hints |
+|--------|-------------------|
+| Tests | `**/*_test.go`, `**/test_*.go`, `**/*_test.py`, `**/tests/**` |
+| API endpoints / handlers | `Grep` for route registrations, `@app.`, `HandleFunc`, OpenAPI paths |
+| Source files | `Glob **/*.{go,py,ts,java,yaml,md}` per data source folder |
+
+Cite the session workspace appendix for per-repo file counts and extension summaries before prepopulation Q&A.
+
+## Tool workflow
 
 1. Call `kartograph_get_schema_authoring_guide` (this document).
 2. Call `kartograph_get_workspace_readiness` to see prepopulated gaps and live instance counts.
@@ -94,7 +125,8 @@ Rules:
 - CREATE requires `data_source_id` and `source_path` in `set_properties`.
 - Node CREATE requires `slug` in `set_properties` (kebab-case, unique per type).
 - `knowledge_graph_id` is stamped by the platform — do not set it.
-- For large sets: Bash + custom script under `instance_generators/` → JSONL file → apply-from-file tool.
+- For large sets: Bash + custom script under `instance_generators/` → `json_*_to_jsonl.py` → apply-from-file.
+  Never hand-author bulk CREATE ids in chat — use converter scripts for deterministic ids.
 - CREATE is strict: existing types/instances must be changed with UPDATE, not CREATE again.
 - Dry-run before apply: `kartograph_validate_graph_mutations` or `kartograph_validate_graph_mutations_from_file`.
 - Create all entity nodes before relationship edges.

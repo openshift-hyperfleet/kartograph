@@ -53,11 +53,30 @@ def replace_last_thinking(
     return {"type": "thinking", "recent": list(recent)}
 
 
-def update_composing_line(recent: list[str], preview_tail: str) -> dict[str, Any] | None:
+def _compose_reply_line(preview_tail: str) -> str:
     preview_tail = normalize_activity_line(preview_tail.replace("\n", " "))
-    line = normalize_activity_line(
-        f"Composing reply · {preview_tail}" if preview_tail else "Composing reply…",
+    if not preview_tail:
+        return "Composing reply…"
+    lowered = preview_tail.lower()
+    noisy_prefixes = (
+        "need.",
+        "need ",
+        "let me",
+        "now let me",
+        "i'll ",
+        "i will ",
+        "creating task",
+        "first, let",
     )
+    if any(lowered.startswith(prefix) for prefix in noisy_prefixes):
+        return "Composing reply…"
+    if len(preview_tail) < 12:
+        return "Composing reply…"
+    return f"Composing reply · {preview_tail}"
+
+
+def update_composing_line(recent: list[str], preview_tail: str) -> dict[str, Any] | None:
+    line = _compose_reply_line(preview_tail)
     prefix = "Composing reply"
     if recent and str(recent[-1]).startswith(prefix):
         recent[-1] = line

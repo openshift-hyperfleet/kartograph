@@ -95,6 +95,15 @@ The system SHALL expose schema, mutation, and workspace tooling appropriate for 
 - THEN the system prompt omits the full skill prose block
 - AND still includes live workspace readiness and a short tools summary
 
+### Requirement: Multi-Deliverable Turn Pacing
+The system SHALL instruct the Graph Management Assistant to pace multi-item bootstrap requests across turns.
+
+#### Scenario: One phase per turn by default
+- GIVEN the user sends one message with multiple bootstrap deliverables
+- WHEN the Graph Management Assistant processes the turn
+- THEN schema bootstrap guardrails require completing at most one bootstrap phase
+- AND the assistant asks whether to continue automatically or one phase at a time
+
 ### Requirement: Sticky Turn Timeout
 The system SHALL allow configuring a per-turn execution timeout for graph-management chat in sticky session containers.
 

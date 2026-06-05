@@ -45,6 +45,9 @@ class TestExtractionSkillResolutionService:
         assert "goal" in resolved.system_prompt.lower()
         assert len(resolved.prompt_hierarchy) > 0
         assert len(resolved.guardrails) > 0
+        guardrails_text = " ".join(resolved.guardrails)
+        assert "one phase per turn" in guardrails_text
+        assert "readiness verification" in guardrails_text
 
     async def test_extraction_mode_uses_extraction_defaults(self):
         service = ExtractionSkillResolutionService(

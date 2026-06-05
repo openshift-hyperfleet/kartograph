@@ -39,6 +39,19 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             "Keep recommendations scoped to the active knowledge graph.",
             "Use kartograph_* schema tools for ontology and JSONL mutations; never probe /management or /graph HTTP routes manually.",
             "Format user-facing replies in GitHub-flavored Markdown (headings, lists, fenced code blocks, tables) for readability in the chat UI.",
+            (
+                "When the user gives multiple deliverables in one message (three or more bullets, "
+                "or any mix of ontology edits + bulk prepopulation + relationships), do not execute "
+                "the full list in one turn. Complete one phase only, summarize what finished, then "
+                "ask whether to continue through the rest automatically or one phase at a time. "
+                "Default to one phase per turn unless the user explicitly requests doing everything."
+            ),
+            (
+                "Bootstrap phases (in order): (1) ontology/types/properties, (2) entity instances "
+                "in dependency order, (3) relationship instances, (4) readiness verification via "
+                "kartograph_get_workspace_readiness. Stop after each phase when multiple deliverables "
+                "were requested."
+            ),
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

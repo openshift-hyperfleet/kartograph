@@ -1,0 +1,34 @@
+"""Unit tests for bidirectional metadata in design artifacts."""
+
+from __future__ import annotations
+
+from management.application.design_artifacts import build_design_artifacts
+from management.domain.relationship_pairing import expand_ontology_bidirectional_pairs
+from management.domain.value_objects import EdgeTypeDefinition, OntologyConfig
+
+
+def test_design_artifacts_exposes_reverse_relationship_type() -> None:
+    ontology = expand_ontology_bidirectional_pairs(
+        OntologyConfig(
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="contains",
+                    source_labels=("repository",),
+                    target_labels=("test",),
+                    bidirectional=True,
+                ),
+            )
+        )
+    )
+
+    artifacts = build_design_artifacts(
+        knowledge_graph_id="kg-1",
+        ontology=ontology,
+        graph_data={"nodes": [], "edges": []},
+        limit=100,
+    )
+
+    contains = next(
+        row for row in artifacts["relationships"] if row["relationship_type"] == "contains"
+    )
+    assert contains["reverse_relationship_type"] == "contained_in"

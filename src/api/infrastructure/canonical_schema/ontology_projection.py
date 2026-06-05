@@ -58,6 +58,13 @@ def stored_definitions_to_ontology_config(
                     instance_generator=_optional_metadata_str(
                         stored.metadata.get("instance_generator")
                     ),
+                    bidirectional=bool(stored.metadata.get("bidirectional", False)),
+                    inverse_label=_optional_metadata_str(stored.metadata.get("inverse_label")),
+                    inverse_of=_optional_metadata_str(stored.metadata.get("inverse_of")),
+                    auto_generated=bool(stored.metadata.get("auto_generated", False)),
+                    bidirectional_pair_key=_optional_metadata_str(
+                        stored.metadata.get("bidirectional_pair_key")
+                    ),
                 )
             )
 

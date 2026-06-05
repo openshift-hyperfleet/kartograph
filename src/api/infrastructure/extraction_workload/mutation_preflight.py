@@ -6,6 +6,10 @@ from graph.domain.value_objects import EntityType, MutationOperation, MutationOp
 from management.ports.exceptions import CanonicalSchemaMutationError
 
 from extraction.ports.workload_graph import IWorkloadGraphReader
+from infrastructure.extraction_workload.twin_edge_expansion import (
+    expand_twin_edge_mutation_operations,
+)
+from management.domain.value_objects import OntologyConfig
 
 
 def parse_mutation_jsonl(jsonl_content: str) -> list[MutationOperation]:
@@ -16,6 +20,27 @@ def parse_mutation_jsonl(jsonl_content: str) -> list[MutationOperation]:
     return GraphWorkloadGraphMutationWriter.parse_jsonl(jsonl_content)
 
 
+async def prepare_mutation_operations(
+    *,
+    jsonl_content: str,
+    tenant_id: str,
+    ontology: OntologyConfig | None,
+) -> tuple[list[MutationOperation] | None, list[str]]:
+    """Parse JSONL and expand bidirectional twin edge CREATE operations."""
+    try:
+        operations = parse_mutation_jsonl(jsonl_content)
+    except CanonicalSchemaMutationError as exc:
+        return None, [str(exc)]
+
+    if ontology is not None:
+        operations = expand_twin_edge_mutation_operations(
+            operations,
+            ontology=ontology,
+            tenant_id=tenant_id,
+        )
+    return operations, []
+
+
 async def validate_mutation_jsonl(
     *,
     jsonl_content: str,
@@ -23,12 +48,17 @@ async def validate_mutation_jsonl(
     knowledge_graph_id: str,
     graph_reader: IWorkloadGraphReader | None,
     existing_type_keys: frozenset[tuple[str, str]],
+    ontology: OntologyConfig | None = None,
 ) -> list[str]:
     """Return validation errors; empty list means the batch may be applied."""
-    try:
-        operations = parse_mutation_jsonl(jsonl_content)
-    except CanonicalSchemaMutationError as exc:
-        return [str(exc)]
+    operations, errors = await prepare_mutation_operations(
+        jsonl_content=jsonl_content,
+        tenant_id=tenant_id,
+        ontology=ontology,
+    )
+    if errors:
+        return errors
+    assert operations is not None
 
     errors: list[str] = []
     seen_create_ids: dict[str, int] = {}

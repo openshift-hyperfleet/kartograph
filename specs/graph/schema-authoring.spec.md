@@ -93,3 +93,16 @@ The system SHALL support bulk instance authoring for the Graph Management Assist
 - THEN example generator scripts and JSONL converter helpers are present
 - AND the assistant may add custom generator scripts alongside them
 
+### Requirement: Bidirectional Relationship Pairing
+The system SHALL default new relationship types to bidirectional pairing. See [Bidirectional Relationships](bidirectional-relationships.spec.md).
+
+#### Scenario: Ontology save creates inverse type
+- GIVEN a primary relationship type with `bidirectional=true`
+- WHEN the ontology is saved
+- THEN the inverse relationship type is stored with swapped endpoints
+
+#### Scenario: Primary edge CREATE expands to twin
+- GIVEN a bidirectional relationship type exists in the ontology
+- WHEN a primary-direction edge CREATE mutation is applied via workload tools
+- THEN an inverse edge CREATE is applied in the same batch
+

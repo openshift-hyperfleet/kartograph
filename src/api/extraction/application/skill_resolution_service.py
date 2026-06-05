@@ -73,7 +73,9 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         "prepopulation": (
             "For prepopulated types: set instance_generator on the type when helpful, run script "
             "under instance_generators/ with Bash, convert with json_*_to_jsonl helpers, validate "
-            "then apply-from-file. CREATE cannot duplicate existing instances — use UPDATE to edit."
+            "then apply-from-file. CREATE cannot duplicate existing instances — use UPDATE to edit. "
+            "Bidirectional relationships default on: author primary-direction edges only; platform "
+            "creates inverse type + twin instances. Set bidirectional=false for asymmetric edges."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

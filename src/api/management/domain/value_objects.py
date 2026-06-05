@@ -475,6 +475,11 @@ class EdgeTypeDefinition:
     prepopulated: bool = False
     prepopulated_instance_count: int = 0
     instance_generator: str | None = None
+    bidirectional: bool = False
+    inverse_label: str | None = None
+    inverse_of: str | None = None
+    auto_generated: bool = False
+    bidirectional_pair_key: str | None = None
 
     def __post_init__(self) -> None:
         """Validate that label is non-empty."""
@@ -484,6 +489,10 @@ class EdgeTypeDefinition:
             raise ValueError("prepopulated_instance_count must be >= 0")
         if self.instance_generator is not None and not self.instance_generator.strip():
             raise ValueError("instance_generator must not be empty or whitespace-only")
+        if self.inverse_label is not None and not self.inverse_label.strip():
+            raise ValueError("inverse_label must not be empty or whitespace-only")
+        if self.inverse_of is not None and not self.inverse_of.strip():
+            raise ValueError("inverse_of must not be empty or whitespace-only")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for JSON persistence."""
@@ -495,9 +504,17 @@ class EdgeTypeDefinition:
             "properties": list(self.properties),
             "prepopulated": self.prepopulated,
             "prepopulated_instance_count": self.prepopulated_instance_count,
+            "bidirectional": self.bidirectional,
+            "auto_generated": self.auto_generated,
         }
         if self.instance_generator:
             payload["instance_generator"] = self.instance_generator
+        if self.inverse_label:
+            payload["inverse_label"] = self.inverse_label
+        if self.inverse_of:
+            payload["inverse_of"] = self.inverse_of
+        if self.bidirectional_pair_key:
+            payload["bidirectional_pair_key"] = self.bidirectional_pair_key
         return payload
 
     @classmethod
@@ -505,6 +522,12 @@ class EdgeTypeDefinition:
         """Deserialize from a plain dict."""
         raw_generator = data.get("instance_generator")
         instance_generator = str(raw_generator).strip() if raw_generator else None
+        raw_inverse_label = data.get("inverse_label")
+        inverse_label = str(raw_inverse_label).strip() if raw_inverse_label else None
+        raw_inverse_of = data.get("inverse_of")
+        inverse_of = str(raw_inverse_of).strip() if raw_inverse_of else None
+        raw_pair_key = data.get("bidirectional_pair_key")
+        pair_key = str(raw_pair_key).strip() if raw_pair_key else None
         return cls(
             label=data["label"],
             description=data.get("description", ""),
@@ -514,6 +537,11 @@ class EdgeTypeDefinition:
             prepopulated=bool(data.get("prepopulated", False)),
             prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
             instance_generator=instance_generator or None,
+            bidirectional=bool(data.get("bidirectional", False)),
+            inverse_label=inverse_label or None,
+            inverse_of=inverse_of or None,
+            auto_generated=bool(data.get("auto_generated", False)),
+            bidirectional_pair_key=pair_key or None,
         )
 
 

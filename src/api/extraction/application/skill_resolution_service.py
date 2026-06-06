@@ -143,8 +143,15 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
         "job_setup": (
-            "Prioritize extraction job setup, file-targeting strategy, and "
-            "safe incremental mutation planning."
+            "Prioritize extraction job set authoring: by_instances batches with required "
+            "per-instance extraction descriptions (no separate extraction_plan.md). "
+            "Each description tells the extraction worker what to enrich for assigned entity slugs."
+        ),
+        "job_set_contract": (
+            "Job sets are saved via extraction-jobs API on the knowledge graph. Each set needs: "
+            "name, strategy (by_instances primary), entity_type, instances_per_job, and description. "
+            "Saving regenerates pending jobs from live graph instances. Job sets run sequentially; "
+            "jobs within a set run concurrently up to worker count."
         ),
         "minor_edits": (
             "Allow focused direct graph edits while preserving mutation-log "
@@ -168,8 +175,10 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
     },
     GraphManagementUiMode.EXTRACTION_JOBS: {
         "ui_mode_framing": (
-            "Focus on extraction job setup, JobPackage-aware file targeting, and "
-            "incremental sync planning."
+            "Focus on extraction job set setup: define by_instances batches with per-instance "
+            "extraction descriptions, save to regenerate pending jobs, then guide the operator "
+            "to Run extraction. Use ontology schema panels for context. JobPackage readiness "
+            "still applies when file-backed context is required."
         ),
     },
     GraphManagementUiMode.ONE_OFF_MUTATIONS: {

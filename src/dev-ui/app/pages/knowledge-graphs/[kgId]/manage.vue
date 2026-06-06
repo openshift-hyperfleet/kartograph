@@ -46,6 +46,7 @@ import {
 import SharedConversationPanel from '@/components/extraction/SharedConversationPanel.vue'
 import GraphDesignEntitiesPanel from '@/components/graph-management/GraphDesignEntitiesPanel.vue'
 import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDesignRelationshipsPanel.vue'
+import GraphExtractionJobsWorkspace from '@/components/graph-management/GraphExtractionJobsWorkspace.vue'
 import {
   GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
   GRAPH_MANAGEMENT_MODE_LABELS,
@@ -398,7 +399,7 @@ const graphManagementModeGate = computed((): GraphManagementModeGateInput => ({
 
 const graphManagementChatDescription = computed(() => {
   if (graphManagementMode.value === 'extraction-jobs') {
-    return 'Coordinate extraction job setup, sync runs, and maintenance for this knowledge graph. Use the assistant below to drive operational changes.'
+    return 'Define extraction job sets with per-instance descriptions, review ontology schema, and run parallel extraction workers for this knowledge graph.'
   }
   if (graphManagementMode.value === 'one-off-mutations') {
     return 'Author and apply one-off graph mutations scoped to this knowledge graph. Use the assistant below for mutation guidance and workspace context.'
@@ -1952,7 +1953,16 @@ watch(
           @send-message="sendChatMessage"
         />
 
-        <div class="graph-management-artifacts grid gap-6 lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)] lg:items-start">
+        <GraphExtractionJobsWorkspace
+          v-if="graphManagementMode === 'extraction-jobs'"
+          :kg-id="kgId"
+          :reload-nonce="designArtifactsReloadNonce"
+        />
+
+        <div
+          v-else
+          class="graph-management-artifacts grid gap-6 lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)] lg:items-start"
+        >
           <Card
             id="graph-management-schema-artifacts"
             class="graph-management-schema-panel lg:sticky lg:top-4 lg:self-start"

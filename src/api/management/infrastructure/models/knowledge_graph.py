@@ -47,6 +47,9 @@ class KnowledgeGraphModel(Base, TimestampMixin):
         String(26), nullable=True
     )
     ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    extraction_job_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
     maintenance_schedule: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, default=None
     )

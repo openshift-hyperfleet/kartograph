@@ -52,6 +52,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     sticky_health_timeout_seconds: float = Field(default=90.0, ge=5.0, le=600.0)
     sticky_turn_timeout_seconds: float = Field(default=1000.0, ge=30.0, le=3600.0)
     sticky_max_turns: int = Field(default=500, ge=1, le=1000)
+    worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=60.0)
     vertex_project_id: str = Field(default="")
     vertex_region: str = Field(default="us-east5")
     gcloud_config_mount: str | None = Field(default=None)

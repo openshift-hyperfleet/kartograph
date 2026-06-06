@@ -469,7 +469,8 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
     expect(manageWorkspaceVue).toContain('graph-management-detail')
     expect(manageWorkspaceVue).toContain('selectedRailItemId')
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-readiness'")
-    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'extraction-jobs-setup'")
+    expect(manageWorkspaceVue).toContain('GraphExtractionJobsWorkspace')
+    expect(manageWorkspaceVue).toContain("graphManagementMode === 'extraction-jobs'")
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'mutation-authoring'")
   })
 
@@ -645,11 +646,8 @@ describe('KG-MANAGE-020 - forbidden and disabled action restrictions', () => {
 })
 
 describe('KG-MANAGE-021 - unified in-place graph operations', () => {
-  it('runs extraction jobs and logs directly in graph-management without data-sources redirect', () => {
-    expect(manageWorkspaceVue).toContain('triggerInlineSync')
-    expect(manageWorkspaceVue).toContain('loadInlineSyncRuns')
-    expect(manageWorkspaceVue).toContain('loadInlineRunLogs')
-    expect(manageWorkspaceVue).toContain('Run logs')
+  it('runs extraction jobs workspace in graph-management without data-sources redirect', () => {
+    expect(manageWorkspaceVue).toContain('GraphExtractionJobsWorkspace')
     expect(manageWorkspaceVue).not.toContain('Open Data Source Operations')
     expect(manageWorkspaceVue).not.toContain('Open Maintain Step')
   })

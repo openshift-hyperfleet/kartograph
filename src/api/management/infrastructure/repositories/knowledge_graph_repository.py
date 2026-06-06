@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import KnowledgeGraph
+from management.domain.extraction_job_config import ExtractionJobConfigDocument
 from management.domain.value_objects import (
     KnowledgeGraphMaintenanceRunRecord,
     KnowledgeGraphMaintenanceSchedule,
@@ -245,6 +246,31 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             return None
 
         return OntologyConfig.from_dict(model.ontology)
+
+    async def save_extraction_job_config(
+        self,
+        kg_id: str,
+        config: ExtractionJobConfigDocument,
+    ) -> None:
+        from sqlalchemy import update
+
+        stmt = (
+            update(KnowledgeGraphModel)
+            .where(KnowledgeGraphModel.id == kg_id)
+            .values(extraction_job_config=config.to_dict())
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph '{kg_id}' not found")
+
+    async def get_extraction_job_config(self, kg_id: str) -> ExtractionJobConfigDocument | None:
+        stmt = select(KnowledgeGraphModel).where(KnowledgeGraphModel.id == kg_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return ExtractionJobConfigDocument.from_dict(model.extraction_job_config)
 
     def _to_domain(self, model: KnowledgeGraphModel) -> KnowledgeGraph:
         """Reconstitute aggregate from database state without generating events."""

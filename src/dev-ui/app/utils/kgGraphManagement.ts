@@ -30,7 +30,7 @@ export const GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS: Record<GraphManagementMode, st
   'initial-schema-design':
     'Describe schema goals, entity types, or relationship constraints for this knowledge graph…',
   'extraction-jobs':
-    'Ask about extraction job setup, sync runs, or maintenance execution for this graph…',
+    'Ask about extraction job sets, per-instance descriptions, or running extraction workers…',
   'one-off-mutations':
     'Author or preview one-off graph mutations scoped to this knowledge graph…',
 }

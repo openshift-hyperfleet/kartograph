@@ -1,0 +1,420 @@
+"""PostgreSQL repository for materialized extraction jobs and runs."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
+
+from extraction.domain.extraction_job import (
+    ExtractionJobRecord,
+    ExtractionJobStatus,
+    ExtractionRunRecord,
+    ExtractionRunStatus,
+    ExtractionTargetInstance,
+)
+from extraction.infrastructure.models.extraction_job import ExtractionJobModel, ExtractionRunModel
+
+
+def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
+    return ExtractionJobRecord(
+        id=model.id,
+        knowledge_graph_id=model.knowledge_graph_id,
+        job_id=model.job_id,
+        job_set_name=model.job_set_name,
+        strategy=model.strategy,
+        status=ExtractionJobStatus(model.status),
+        order_index=model.order_index,
+        description=model.description,
+        target_instances=tuple(
+            ExtractionTargetInstance.from_dict(row) for row in (model.target_instances or [])
+        ),
+        worker_id=model.worker_id,
+        started_at=model.started_at,
+        completed_at=model.completed_at,
+        error_message=model.error_message,
+        attempt=model.attempt,
+        input_tokens=model.input_tokens,
+        output_tokens=model.output_tokens,
+        cache_read_tokens=model.cache_read_tokens,
+        cache_creation_tokens=model.cache_creation_tokens,
+        cost_usd=model.cost_usd,
+        entities_created=model.entities_created,
+        entities_modified=model.entities_modified,
+        relationships_created=model.relationships_created,
+    )
+
+
+def _run_model_to_record(model: ExtractionRunModel) -> ExtractionRunRecord:
+    return ExtractionRunRecord(
+        id=model.id,
+        knowledge_graph_id=model.knowledge_graph_id,
+        status=ExtractionRunStatus(model.status),
+        worker_count=model.worker_count,
+        started_at=model.started_at,
+        completed_at=model.completed_at,
+        pause_requested=model.pause_requested,
+        orchestrator_pid=model.orchestrator_pid,
+    )
+
+
+class ExtractionJobRepository:
+    """Persistence for extraction jobs and orchestrator runs."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def replace_pending_jobs(
+        self,
+        *,
+        knowledge_graph_id: str,
+        jobs: list[ExtractionJobRecord],
+    ) -> int:
+        await self._session.execute(
+            delete(ExtractionJobModel).where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
+            )
+        )
+        for job in jobs:
+            self._session.add(
+                ExtractionJobModel(
+                    id=job.id,
+                    knowledge_graph_id=job.knowledge_graph_id,
+                    job_id=job.job_id,
+                    job_set_name=job.job_set_name,
+                    strategy=job.strategy,
+                    status=job.status.value,
+                    order_index=job.order_index,
+                    description=job.description,
+                    target_instances=[instance.to_dict() for instance in job.target_instances],
+                )
+            )
+        await self._session.flush()
+        return len(jobs)
+
+    async def count_by_status(self, *, knowledge_graph_id: str) -> dict[str, int]:
+        stmt = (
+            select(ExtractionJobModel.status, func.count())
+            .where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
+            .group_by(ExtractionJobModel.status)
+        )
+        result = await self._session.execute(stmt)
+        counts = {status.value: 0 for status in ExtractionJobStatus}
+        for status, count in result.all():
+            counts[str(status)] = int(count)
+        return counts
+
+    async def count_by_job_set(self, *, knowledge_graph_id: str) -> dict[str, dict[str, int]]:
+        stmt = (
+            select(
+                ExtractionJobModel.job_set_name,
+                ExtractionJobModel.status,
+                func.count(),
+            )
+            .where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
+            .group_by(ExtractionJobModel.job_set_name, ExtractionJobModel.status)
+        )
+        result = await self._session.execute(stmt)
+        grouped: dict[str, dict[str, int]] = {}
+        for job_set_name, status, count in result.all():
+            bucket = grouped.setdefault(
+                job_set_name,
+                {
+                    "pending": 0,
+                    "in_progress": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "total": 0,
+                },
+            )
+            bucket[str(status)] = int(count)
+            bucket["total"] += int(count)
+        return grouped
+
+    async def has_in_progress_jobs(self, *, knowledge_graph_id: str) -> bool:
+        stmt = select(func.count()).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one()) > 0
+
+    async def list_recent_jobs(
+        self,
+        *,
+        knowledge_graph_id: str,
+        limit: int = 20,
+    ) -> list[ExtractionJobRecord]:
+        stmt = (
+            select(ExtractionJobModel)
+            .where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
+            .order_by(
+                ExtractionJobModel.updated_at.desc(),
+                ExtractionJobModel.order_index.asc(),
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [_job_model_to_record(model) for model in result.scalars().all()]
+
+    async def list_active_workers(self, *, knowledge_graph_id: str) -> list[dict[str, Any]]:
+        stmt = select(ExtractionJobModel).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+        )
+        result = await self._session.execute(stmt)
+        workers: list[dict[str, Any]] = []
+        for model in result.scalars().all():
+            workers.append(
+                {
+                    "workerId": model.worker_id,
+                    "jobId": model.job_id,
+                    "jobSet": model.job_set_name,
+                    "strategy": model.strategy,
+                    "fileCount": 0,
+                    "instanceCount": len(model.target_instances or []),
+                    "startedAt": model.started_at.isoformat() if model.started_at else None,
+                }
+            )
+        return workers
+
+    async def claim_next_pending_job(
+        self,
+        *,
+        knowledge_graph_id: str,
+        worker_id: str,
+    ) -> ExtractionJobRecord | None:
+        stmt = (
+            select(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
+            )
+            .order_by(ExtractionJobModel.order_index.asc(), ExtractionJobModel.job_id.asc())
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        model.status = ExtractionJobStatus.IN_PROGRESS.value
+        model.worker_id = worker_id
+        model.started_at = datetime.now(UTC)
+        model.attempt = int(model.attempt) + 1
+        await self._session.flush()
+        return _job_model_to_record(model)
+
+    async def mark_job_completed(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_id: str,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
+        payload = metrics or {}
+        await self._session.execute(
+            update(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.job_id == job_id,
+            )
+            .values(
+                status=ExtractionJobStatus.COMPLETED.value,
+                completed_at=datetime.now(UTC),
+                input_tokens=int(payload.get("input_tokens", 0)),
+                output_tokens=int(payload.get("output_tokens", 0)),
+                cache_read_tokens=int(payload.get("cache_read_tokens", 0)),
+                cache_creation_tokens=int(payload.get("cache_creation_tokens", 0)),
+                cost_usd=float(payload.get("cost_usd", 0.0)),
+                entities_created=int(payload.get("entities_created", 0)),
+                entities_modified=int(payload.get("entities_modified", 0)),
+                relationships_created=int(payload.get("relationships_created", 0)),
+            )
+        )
+
+    async def mark_job_failed(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_id: str,
+        error_message: str,
+    ) -> None:
+        await self._session.execute(
+            update(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.job_id == job_id,
+            )
+            .values(
+                status=ExtractionJobStatus.FAILED.value,
+                completed_at=datetime.now(UTC),
+                error_message=error_message,
+            )
+        )
+
+    async def mark_in_progress_failed(
+        self,
+        *,
+        knowledge_graph_id: str,
+        error_message: str,
+    ) -> int:
+        result = await self._session.execute(
+            update(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+            )
+            .values(
+                status=ExtractionJobStatus.FAILED.value,
+                completed_at=datetime.now(UTC),
+                error_message=error_message,
+            )
+        )
+        return int(result.rowcount or 0)
+
+    async def reset_jobs_by_status(
+        self,
+        *,
+        knowledge_graph_id: str,
+        from_status: ExtractionJobStatus,
+        to_status: ExtractionJobStatus = ExtractionJobStatus.PENDING,
+    ) -> int:
+        result = await self._session.execute(
+            update(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == from_status.value,
+            )
+            .values(
+                status=to_status.value,
+                worker_id=None,
+                started_at=None,
+                completed_at=None,
+                error_message=None,
+            )
+        )
+        return int(result.rowcount or 0)
+
+    async def reset_all_non_pending(
+        self,
+        *,
+        knowledge_graph_id: str,
+    ) -> int:
+        total = 0
+        for status in (
+            ExtractionJobStatus.IN_PROGRESS,
+            ExtractionJobStatus.COMPLETED,
+            ExtractionJobStatus.FAILED,
+        ):
+            total += await self.reset_jobs_by_status(
+                knowledge_graph_id=knowledge_graph_id,
+                from_status=status,
+            )
+        return total
+
+    async def aggregate_token_metrics(self, *, knowledge_graph_id: str) -> dict[str, float | int]:
+        stmt = select(
+            func.coalesce(func.sum(ExtractionJobModel.input_tokens), 0),
+            func.coalesce(func.sum(ExtractionJobModel.output_tokens), 0),
+            func.coalesce(func.sum(ExtractionJobModel.cache_read_tokens), 0),
+            func.coalesce(func.sum(ExtractionJobModel.cache_creation_tokens), 0),
+            func.coalesce(func.sum(ExtractionJobModel.cost_usd), 0.0),
+        ).where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
+        result = await self._session.execute(stmt)
+        row = result.one()
+        return {
+            "totalInputTokens": int(row[0]),
+            "totalOutputTokens": int(row[1]),
+            "totalCacheReadTokens": int(row[2]),
+            "totalCacheCreationTokens": int(row[3]),
+            "totalCostUsd": float(row[4]),
+        }
+
+    async def avg_completed_job_seconds(self, *, knowledge_graph_id: str) -> float | None:
+        stmt = select(
+            func.avg(
+                func.extract(
+                    "epoch",
+                    ExtractionJobModel.completed_at - ExtractionJobModel.started_at,
+                )
+            )
+        ).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.status == ExtractionJobStatus.COMPLETED.value,
+            ExtractionJobModel.started_at.is_not(None),
+            ExtractionJobModel.completed_at.is_not(None),
+        )
+        result = await self._session.execute(stmt)
+        value = result.scalar_one_or_none()
+        if value is None:
+            return None
+        seconds = float(value)
+        return seconds if seconds > 0 else None
+
+    async def get_run(self, *, knowledge_graph_id: str) -> ExtractionRunRecord | None:
+        stmt = select(ExtractionRunModel).where(
+            ExtractionRunModel.knowledge_graph_id == knowledge_graph_id
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _run_model_to_record(model) if model else None
+
+    async def upsert_run(
+        self,
+        *,
+        knowledge_graph_id: str,
+        status: ExtractionRunStatus,
+        worker_count: int,
+        pause_requested: bool = False,
+        orchestrator_pid: int | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> ExtractionRunRecord:
+        stmt = select(ExtractionRunModel).where(
+            ExtractionRunModel.knowledge_graph_id == knowledge_graph_id
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            model = ExtractionRunModel(
+                id=str(ULID()),
+                knowledge_graph_id=knowledge_graph_id,
+                status=status.value,
+                worker_count=worker_count,
+                pause_requested=pause_requested,
+                orchestrator_pid=orchestrator_pid,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+            self._session.add(model)
+        else:
+            model.status = status.value
+            model.worker_count = worker_count
+            model.pause_requested = pause_requested
+            model.orchestrator_pid = orchestrator_pid
+            if started_at is not None:
+                model.started_at = started_at
+            if completed_at is not None:
+                model.completed_at = completed_at
+        await self._session.flush()
+        return _run_model_to_record(model)
+
+    async def set_pause_requested(self, *, knowledge_graph_id: str, pause_requested: bool) -> None:
+        await self._session.execute(
+            update(ExtractionRunModel)
+            .where(ExtractionRunModel.knowledge_graph_id == knowledge_graph_id)
+            .values(pause_requested=pause_requested)
+        )
+
+    async def is_pause_requested(self, *, knowledge_graph_id: str) -> bool:
+        stmt = select(ExtractionRunModel.pause_requested).where(
+            ExtractionRunModel.knowledge_graph_id == knowledge_graph_id
+        )
+        result = await self._session.execute(stmt)
+        value = result.scalar_one_or_none()
+        return bool(value)

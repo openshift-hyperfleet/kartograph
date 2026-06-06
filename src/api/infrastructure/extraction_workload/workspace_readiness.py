@@ -11,6 +11,7 @@ from management.application.workspace_readiness import (
 from management.domain.ontology_prepopulation import relationship_readiness_key
 from management.domain.relationship_pairing import (
     bidirectional_pair_key,
+    is_primary_relationship_for_display,
     resolve_inverse_label_for_primary,
     twin_validation_errors,
 )
@@ -200,7 +201,7 @@ async def build_workload_readiness_snapshot(
             == 0,
         }
         for edge_type in (ontology.edge_types if ontology else ())
-        if edge_type.prepopulated
+        if edge_type.prepopulated and is_primary_relationship_for_display(edge_type)
     ]
 
     live_entity_gaps = live_gaps["entity_types_without_instances"]

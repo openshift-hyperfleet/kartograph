@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from management.domain.relationship_pairing import resolve_inverse_label_for_primary
+from management.domain.relationship_pairing import (
+    is_primary_relationship_for_display,
+    is_secondary_bidirectional_edge,
+    resolve_inverse_label_for_primary,
+)
 from management.domain.value_objects import EdgeTypeDefinition, OntologyConfig
 
 _SYSTEM_NODE_PROPERTIES = frozenset(
@@ -186,6 +190,8 @@ def build_design_artifacts(
     relationships: list[dict[str, Any]] = []
     if ontology is not None:
         for edge_type in ontology.edge_types:
+            if not is_primary_relationship_for_display(edge_type):
+                continue
             source_label = edge_type.source_labels[0] if edge_type.source_labels else ""
             target_label = edge_type.target_labels[0] if edge_type.target_labels else ""
             composite_key = f"{source_label}|{edge_type.label}|{target_label}"
@@ -230,6 +236,13 @@ def build_design_artifacts(
             continue
         parts = composite_key.split("|")
         if len(parts) != 3:
+            continue
+        relationship_label = parts[1]
+        if any(
+            is_secondary_bidirectional_edge(edge)
+            for edge in (ontology.edge_types if ontology else ())
+            if edge.label == relationship_label
+        ):
             continue
         total_instances = len(full_relationship_instances.get(composite_key, []))
         relationships.append(

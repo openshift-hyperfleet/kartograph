@@ -119,9 +119,10 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         "schema_modeling": (
             "Property vs entity: distinguish/categorize → property on an existing type; "
             "track which/what or needs relationships → entity type + edges. "
-            "Relationships default bidirectional — author primary direction only; platform creates "
-            "inverse type + twin instances. Set bidirectional=false for asymmetric edges "
-            "(depends_on, created_by). For asymmetric edges, confirm X → rel → Y direction explicitly."
+            "Relationships default bidirectional — author one primary direction in edge_types with "
+            "optional inverse_label; never add a separate inverse edge type (platform auto-generates "
+            "it and twin instances). Design artifacts show primary/inverse on one row. "
+            "Set bidirectional=false only for asymmetric edges (depends_on, created_by)."
         ),
         "schema_workflow": (
             "Call kartograph_get_schema_authoring_guide when you need shapes, phases, or mutation rules. "
@@ -131,7 +132,7 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Follow instance_generators/PREPOPULATION_WORKFLOW.md. Per gap: {Label}.py (case-sensitive filename) "
             "→ out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py or "
             "relationships_to_jsonl.py → validate/apply-from-file. Use scanner_common.generate_slug() and "
-            "dedupe_instances(). Entities before relationships. Primary edges only."
+            "dedupe_instances(). Entities before relationships. Primary relationship direction only."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "

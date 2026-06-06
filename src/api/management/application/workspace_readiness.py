@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from management.domain.ontology_prepopulation import relationship_readiness_key
+from management.domain.relationship_pairing import is_primary_relationship_for_display
 from management.domain.value_objects import OntologyConfig, WorkspaceReadinessStatus
 
 
@@ -22,7 +23,9 @@ def evaluate_workspace_readiness(ontology: OntologyConfig | None) -> WorkspaceRe
         prepopulated_relationships_without_instances = tuple(
             relationship_readiness_key(edge_type)
             for edge_type in ontology.edge_types
-            if edge_type.prepopulated and edge_type.prepopulated_instance_count <= 0
+            if edge_type.prepopulated
+            and edge_type.prepopulated_instance_count <= 0
+            and is_primary_relationship_for_display(edge_type)
         )
 
     has_min_entities = node_type_count >= 1
@@ -84,6 +87,7 @@ def prepopulated_gaps_from_live_counts(
         for edge_type in ontology.edge_types
         if edge_type.prepopulated
         and relationship_instance_counts.get(relationship_readiness_key(edge_type), 0) <= 0
+        and is_primary_relationship_for_display(edge_type)
     )
     return {
         "entity_types_without_instances": entity_gaps,

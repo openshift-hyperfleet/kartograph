@@ -65,8 +65,11 @@ Scanner stdout contract:
 ## Schema modeling rules
 
 - **Property vs entity:** categorize → property; track instances/relationships → entity + edges.
-- **Bidirectional relationships** default on — author primary direction only; platform creates inverse + twins.
-- Set `bidirectional: false` for asymmetric edges (`depends_on`, `created_by`).
+- **Bidirectional relationships** default on — author **one primary direction only** in `edge_types`.
+  Set optional `inverse_label` (default `{label}_inverse`). Never add a separate inverse type;
+  the platform auto-generates it and twin edge instances. Design artifacts show
+  `primary / inverse` on a single row.
+- Set `bidirectional: false` only for asymmetric edges (`depends_on`, `created_by`).
 
 ## Workspace discovery patterns
 
@@ -112,15 +115,18 @@ Scanner script convention: `instance_generators/{Label}.py` → `out/{Label}_ins
 
 ```json
 {
-  "label": "defines",
-  "source_labels": ["repository"],
-  "target_labels": ["api_endpoint"],
+  "label": "exercises",
+  "source_labels": ["ComponentTest"],
+  "target_labels": ["APIEndpoint"],
   "prepopulated": true,
-  "bidirectional": true
+  "bidirectional": true,
+  "inverse_label": "exercises_inverse"
 }
 ```
 
-Relationship scanner convention: `out/{source}_{label}_{target}_instances.json`.
+Do **not** also add `exercises_inverse` as its own `edge_types` entry — that inverse is auto-generated on save.
+
+Relationship scanner convention: `out/{source}_{label}_{target}_instances.json` (primary direction only).
 
 ## Instance mutations (JSONL)
 

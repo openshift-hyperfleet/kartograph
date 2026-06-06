@@ -76,8 +76,47 @@ def _is_primary_bidirectional_edge(edge_type: EdgeTypeDefinition) -> bool:
     return edge_type.bidirectional and not edge_type.auto_generated and not edge_type.inverse_of
 
 
+def is_secondary_bidirectional_edge(edge_type: EdgeTypeDefinition) -> bool:
+    """True for inverse edge types that should not appear as separate design-artifact rows."""
+    return bool(edge_type.auto_generated or edge_type.inverse_of)
+
+
+def is_primary_relationship_for_display(edge_type: EdgeTypeDefinition) -> bool:
+    """Relationship types rendered as a single primary row in design artifacts."""
+    return not is_secondary_bidirectional_edge(edge_type)
+
+
+def dedupe_manual_inverse_edge_types(config: OntologyConfig) -> OntologyConfig:
+    """Drop manually-authored inverse duplicates so pairing can recreate metadata."""
+    edge_types = list(config.edge_types)
+    by_label = {edge.label: edge for edge in edge_types}
+    labels_to_drop: set[str] = set()
+
+    for primary in edge_types:
+        if not _is_primary_bidirectional_edge(primary):
+            continue
+        if not primary.source_labels or not primary.target_labels:
+            continue
+        inverse_label = resolve_inverse_label_for_primary(primary)
+        existing = by_label.get(inverse_label)
+        if existing is None or is_secondary_bidirectional_edge(existing):
+            continue
+        labels_to_drop.add(inverse_label)
+
+    if not labels_to_drop:
+        return config
+
+    filtered = tuple(edge for edge in edge_types if edge.label not in labels_to_drop)
+    return OntologyConfig(
+        node_types=config.node_types,
+        edge_types=filtered,
+        approved_at=config.approved_at,
+    )
+
+
 def expand_ontology_bidirectional_pairs(config: OntologyConfig) -> OntologyConfig:
     """Ensure every primary bidirectional edge type has a linked inverse type definition."""
+    config = dedupe_manual_inverse_edge_types(config)
     edge_types = list(config.edge_types)
     by_label = {edge.label: edge for edge in edge_types}
 

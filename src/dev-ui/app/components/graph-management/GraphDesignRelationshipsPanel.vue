@@ -77,7 +77,7 @@ defineExpose({ refresh: fetchRelationships })
       <div class="min-w-0">
         <h2 class="text-sm font-semibold tracking-tight">Relationship ontology</h2>
         <p class="text-[11px] leading-snug text-muted-foreground">
-          Relationship types and instances for this knowledge graph.
+          Primary relationship types (forward / inverse on one row). Inverse types are stored but not listed separately.
         </p>
       </div>
       <div class="flex items-center gap-2">

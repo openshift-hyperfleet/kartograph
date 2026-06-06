@@ -100,6 +100,32 @@ class TestExpandOntologyBidirectionalPairs:
 
         assert len(expanded.edge_types) == 1
 
+    def test_dedupe_drops_manual_inverse_before_expanding(self) -> None:
+        config = OntologyConfig(
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="exercises",
+                    source_labels=("ComponentTest",),
+                    target_labels=("APIEndpoint",),
+                    bidirectional=True,
+                    inverse_label="exercises_inverse",
+                ),
+                EdgeTypeDefinition(
+                    label="exercises_inverse",
+                    source_labels=("APIEndpoint",),
+                    target_labels=("ComponentTest",),
+                    bidirectional=True,
+                ),
+            )
+        )
+
+        expanded = expand_ontology_bidirectional_pairs(config)
+
+        inverse_rows = [edge for edge in expanded.edge_types if edge.label == "exercises_inverse"]
+        assert len(inverse_rows) == 1
+        assert inverse_rows[0].auto_generated is True
+        assert inverse_rows[0].inverse_of == "exercises"
+
 
 class TestExpandTwinEdgeCreates:
     def test_primary_create_expands_to_inverse(self) -> None:

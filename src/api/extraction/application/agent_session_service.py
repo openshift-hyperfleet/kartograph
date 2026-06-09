@@ -205,4 +205,3 @@ class ExtractionAgentSessionService:
         session.updated_at = datetime.now(UTC)
         await self._repository.save(session)
         return session
-

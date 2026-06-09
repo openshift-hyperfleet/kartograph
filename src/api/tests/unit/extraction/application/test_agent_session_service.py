@@ -250,4 +250,3 @@ class TestExtractionAgentSessionService:
         assert intake["status"] == "path_selected"
         assert intake["capabilities_goals"] == "I can provide domain terms but need guidance."
         assert updated.id == session.id
-

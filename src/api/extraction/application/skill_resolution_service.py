@@ -145,13 +145,18 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         "job_setup": (
             "Prioritize extraction job set authoring: by_instances batches with required "
             "per-instance extraction descriptions (no separate extraction_plan.md). "
-            "Each description tells the extraction worker what to enrich for assigned entity slugs."
+            "Each description tells the extraction worker what to enrich for assigned entity slugs. "
+            "When the operator approves a proposed configuration, persist it yourself with "
+            "kartograph_save_extraction_jobs_config — never instruct them to manually enter "
+            "values in the extraction-jobs UI."
         ),
         "job_set_contract": (
-            "Job sets are saved via extraction-jobs API on the knowledge graph. Each set needs: "
-            "name, strategy (by_instances primary), entity_type, instances_per_job, and description. "
-            "Saving regenerates pending jobs from live graph instances. Job sets run sequentially; "
-            "jobs within a set run concurrently up to worker count."
+            "Use kartograph_get_extraction_jobs_config before editing and "
+            "kartograph_save_extraction_jobs_config to persist job sets for this knowledge graph. "
+            "Each set needs: name, strategy (by_instances primary), entity_type, instances_per_job, "
+            "and description. Saving regenerates pending jobs from live graph instances. "
+            "Use kartograph_get_extraction_jobs_plan_summary to cite projected job counts. "
+            "Job sets run sequentially; jobs within a set run concurrently up to worker count."
         ),
         "minor_edits": (
             "Allow focused direct graph edits while preserving mutation-log "
@@ -176,9 +181,10 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
     GraphManagementUiMode.EXTRACTION_JOBS: {
         "ui_mode_framing": (
             "Focus on extraction job set setup: define by_instances batches with per-instance "
-            "extraction descriptions, save to regenerate pending jobs, then guide the operator "
-            "to Run extraction. Use ontology schema panels for context. JobPackage readiness "
-            "still applies when file-backed context is required."
+            "extraction descriptions, persist via kartograph_save_extraction_jobs_config when "
+            "the operator approves, then guide them to Run extraction. Use "
+            "kartograph_list_instances_by_type to size batches. JobPackage readiness still "
+            "applies when file-backed context is required."
         ),
     },
     GraphManagementUiMode.ONE_OFF_MUTATIONS: {

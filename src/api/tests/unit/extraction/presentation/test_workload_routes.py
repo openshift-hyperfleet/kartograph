@@ -11,6 +11,7 @@ from extraction.presentation import workload_routes
 from extraction.presentation.workload_auth import WorkloadAuthContext, get_workload_auth_context
 from extraction.ports.workload_graph import WorkloadGraphNode, WorkloadGraphRelationship
 from infrastructure.extraction_workload.dependencies import (
+    get_workload_extraction_jobs_service,
     get_workload_graph_reader,
     get_workload_schema_service,
 )
@@ -117,9 +118,54 @@ class _FakeGraphReader:
         return existing, missing
 
 
+class _FakeExtractionJobsService:
+    def __init__(self) -> None:
+        self.saved_payload: dict[str, object] | None = None
+
+    async def get_document(self, *, tenant_id: str, knowledge_graph_id: str) -> dict[str, object]:
+        if self.saved_payload is None:
+            return {"version": "1.0", "job_sets": [], "entity_types": [{"name": "Adapter", "instance_count": 19}]}
+        return dict(self.saved_payload)
+
+    async def save_document(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        self.saved_payload = {
+            **payload,
+            "entity_types": [{"name": "Adapter", "instance_count": 19}],
+            "generated_jobs": 7,
+        }
+        return dict(self.saved_payload)
+
+    async def get_plan_summary(self, *, tenant_id: str, knowledge_graph_id: str) -> dict[str, object]:
+        job_sets = list((self.saved_payload or {}).get("job_sets") or [])
+        return {
+            "job_sets": [{**row, "projected_jobs": 7} for row in job_sets],
+            "entity_types": [{"name": "Adapter", "instance_count": 19}],
+        }
+
+    async def get_database_status(self, *, tenant_id: str, knowledge_graph_id: str) -> dict[str, object]:
+        return {
+            "exists": True,
+            "jobsByStatus": {"pending": 7, "in_progress": 0, "completed": 0, "failed": 0},
+            "jobsBySet": {},
+            "recentJobs": [],
+            "activeWorkers": [],
+            "avgCompletedJobSeconds": None,
+            "entitiesByType": {"Adapter": 19},
+            "entitiesTotal": 19,
+            "hasInProgressJobs": False,
+        }
+
+
 @pytest.fixture
 def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     fake = _FakeSchemaService()
+    extraction_jobs_fake = _FakeExtractionJobsService()
     fake.saved = OntologyConfig(
         node_types=(
             NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
@@ -147,6 +193,7 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     app = FastAPI()
     app.include_router(workload_routes.router, prefix="/extraction")
     app.dependency_overrides[get_workload_schema_service] = lambda: fake
+    app.dependency_overrides[get_workload_extraction_jobs_service] = lambda: extraction_jobs_fake
     app.dependency_overrides[get_workload_graph_reader] = lambda: _FakeGraphReader()
     app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
         credentials=credentials,
@@ -285,3 +332,77 @@ def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _Fake
     assert response.status_code == 200
     assert response.json()["applied"] is True
     assert fake.applied_jsonl is not None
+
+
+def test_workload_get_extraction_jobs_config(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.get(
+        "/extraction/workloads/extraction-jobs",
+        headers={"X-Workload-Token": token},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "1.0"
+    assert payload["entity_types"][0]["name"] == "Adapter"
+    assert payload["entity_types"][0]["instance_count"] == 19
+
+
+def test_workload_save_extraction_jobs_config(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    job_set = {
+        "name": "Adapter Deep Extraction",
+        "strategy": "by_instances",
+        "entity_type": "Adapter",
+        "instances_per_job": 3,
+        "description": "Enrich each Adapter with implementation and config details.",
+    }
+    response = client.put(
+        "/extraction/workloads/extraction-jobs",
+        headers={"X-Workload-Token": token},
+        json={"version": "1.0", "job_sets": [job_set]},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated_jobs"] == 7
+    assert payload["job_sets"][0]["name"] == "Adapter Deep Extraction"
+
+
+def test_workload_get_extraction_jobs_plan_summary(
+    workload_client: tuple[TestClient, _FakeSchemaService, str],
+) -> None:
+    client, _fake, token = workload_client
+    client.put(
+        "/extraction/workloads/extraction-jobs",
+        headers={"X-Workload-Token": token},
+        json={
+            "version": "1.0",
+            "job_sets": [
+                {
+                    "name": "Adapter Deep Extraction",
+                    "strategy": "by_instances",
+                    "entity_type": "Adapter",
+                    "instances_per_job": 3,
+                    "description": "Enrich adapters.",
+                }
+            ],
+        },
+    )
+    response = client.get(
+        "/extraction/workloads/extraction-jobs/plan-summary",
+        headers={"X-Workload-Token": token},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_sets"][0]["projected_jobs"] == 7
+
+
+def test_workload_get_extraction_jobs_status(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
+    client, _fake, token = workload_client
+    response = client.get(
+        "/extraction/workloads/extraction-jobs/status",
+        headers={"X-Workload-Token": token},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["jobsByStatus"]["pending"] == 7
+    assert payload["entitiesByType"]["Adapter"] == 19

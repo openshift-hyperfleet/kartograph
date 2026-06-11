@@ -23,6 +23,14 @@ def test_schema_tool_names_cover_authoring_surface() -> None:
     assert "kartograph_list_relationship_instances" in KARTOGRAPH_SCHEMA_TOOL_NAMES
 
 
+def test_gma_allowed_tools_include_extraction_jobs_tools() -> None:
+    from kartograph_agent_runtime.extraction_jobs_tools import KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES
+    from kartograph_agent_runtime.schema_tools import GMA_ALLOWED_TOOL_NAMES
+
+    for tool_name in KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES:
+        assert tool_name in GMA_ALLOWED_TOOL_NAMES
+
+
 def test_gma_allowed_tools_include_workspace_file_tools() -> None:
     from kartograph_agent_runtime.schema_tools import GMA_ALLOWED_TOOL_NAMES, WORKSPACE_FILE_TOOL_NAMES
 

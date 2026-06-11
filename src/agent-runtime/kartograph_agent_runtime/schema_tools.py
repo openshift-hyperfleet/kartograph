@@ -6,6 +6,10 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from kartograph_agent_runtime.extraction_jobs_tools import (
+    KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES,
+    append_extraction_jobs_tools,
+)
 from kartograph_agent_runtime.tools import RuntimeTooling
 
 WORKSPACE_FILE_TOOL_NAMES = ("Read", "Write", "Edit", "Grep", "Glob", "Bash")
@@ -25,7 +29,9 @@ KARTOGRAPH_SCHEMA_TOOL_NAMES = (
     "kartograph_check_graph_slugs",
 )
 
-GMA_ALLOWED_TOOL_NAMES = KARTOGRAPH_SCHEMA_TOOL_NAMES + WORKSPACE_FILE_TOOL_NAMES
+GMA_ALLOWED_TOOL_NAMES = (
+    KARTOGRAPH_SCHEMA_TOOL_NAMES + KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES + WORKSPACE_FILE_TOOL_NAMES
+)
 
 
 def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
@@ -327,21 +333,24 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
                 "is_error": True,
             }
 
+    mcp_tools: list[Any] = [
+        get_schema_authoring_guide,
+        get_workspace_readiness,
+        get_schema_ontology,
+        save_schema_ontology,
+        validate_graph_mutations,
+        apply_graph_mutations,
+        validate_graph_mutations_from_file,
+        apply_graph_mutations_from_file,
+        list_instances_by_type,
+        list_relationship_instances,
+        search_graph_by_slug,
+        check_graph_slugs,
+    ]
+    append_extraction_jobs_tools(tooling=tooling, tools=mcp_tools)
+
     return create_sdk_mcp_server(
         name="kartograph",
         version="1.0.0",
-        tools=[
-            get_schema_authoring_guide,
-            get_workspace_readiness,
-            get_schema_ontology,
-            save_schema_ontology,
-            validate_graph_mutations,
-            apply_graph_mutations,
-            validate_graph_mutations_from_file,
-            apply_graph_mutations_from_file,
-            list_instances_by_type,
-            list_relationship_instances,
-            search_graph_by_slug,
-            check_graph_slugs,
-        ],
+        tools=mcp_tools,
     )

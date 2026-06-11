@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 PromptDetail = Literal["full", "compact"]
 
+from kartograph_agent_runtime.extraction_jobs_tools import KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES
 from kartograph_agent_runtime.schema_tools import (
     KARTOGRAPH_SCHEMA_TOOL_NAMES,
     WORKSPACE_FILE_TOOL_NAMES,
@@ -55,6 +56,20 @@ See `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered prepopulati
 8. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`
 
 Writes persist to the platform database for the active knowledge graph.
+""".strip()
+
+_EXTRACTION_JOBS_TOOLS_REFERENCE = """
+## Extraction job tools (extraction-jobs UI mode)
+
+| Tool | Purpose |
+|------|---------|
+| `kartograph_get_extraction_jobs_config` | Read saved job sets and live entity instance counts |
+| `kartograph_save_extraction_jobs_config` | Save job sets and regenerate pending jobs (operator-approved configs) |
+| `kartograph_get_extraction_jobs_plan_summary` | Projected job counts per job set before/after save |
+| `kartograph_get_extraction_jobs_status` | Queue metrics: pending/in-progress/completed/failed jobs |
+
+When the operator approves a job set proposal, call `kartograph_save_extraction_jobs_config` —
+do not ask them to manually fill the extraction-jobs form.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (
@@ -186,10 +201,25 @@ def build_agent_system_prompt(
         if prompt_detail == "compact":
             tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}"
         else:
-            kartograph_tools = ", ".join(f"`{name}`" for name in KARTOGRAPH_SCHEMA_TOOL_NAMES)
+            kartograph_tools = ", ".join(
+                f"`{name}`"
+                for name in (
+                    *KARTOGRAPH_SCHEMA_TOOL_NAMES,
+                    *(
+                        KARTOGRAPH_EXTRACTION_JOBS_TOOL_NAMES
+                        if ui_mode == "extraction-jobs"
+                        else ()
+                    ),
+                )
+            )
             file_tools = ", ".join(f"`{name}`" for name in WORKSPACE_FILE_TOOL_NAMES)
+            extraction_jobs_block = (
+                f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
+                if ui_mode == "extraction-jobs"
+                else ""
+            )
             tools_block = (
-                f"{_TOOLS_QUICK_REFERENCE}\n\n"
+                f"{_TOOLS_QUICK_REFERENCE}{extraction_jobs_block}\n\n"
                 f"Registered Kartograph tools: {kartograph_tools}.\n"
                 f"Registered workspace tools: {file_tools}."
             )

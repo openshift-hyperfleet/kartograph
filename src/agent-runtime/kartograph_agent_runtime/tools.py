@@ -157,6 +157,34 @@ class RuntimeTooling:
             response.raise_for_status()
             return response.json()
 
+    async def get_extraction_jobs_config(self) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/extraction-jobs"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def save_extraction_jobs_config(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/extraction-jobs"
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.put(url, headers=self._headers(), json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_extraction_jobs_plan_summary(self) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/extraction-jobs/plan-summary"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def get_extraction_jobs_status(self) -> dict[str, Any]:
+        url = f"{self._base_url()}/extraction/workloads/extraction-jobs/status"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
     async def propose_mutation(
         self, *, operation: str, summary: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:

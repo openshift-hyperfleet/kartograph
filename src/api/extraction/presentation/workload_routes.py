@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from extraction.ports.workload_extraction_jobs import IWorkloadExtractionJobsService
 from extraction.ports.workload_graph import IWorkloadGraphReader
 from extraction.ports.workload_schema import IWorkloadSchemaService
 from extraction.presentation.workload_auth import (
@@ -14,6 +15,7 @@ from extraction.presentation.workload_auth import (
     get_workload_auth_context,
 )
 from infrastructure.extraction_workload.dependencies import (
+    get_workload_extraction_jobs_service,
     get_workload_graph_reader,
     get_workload_schema_service,
 )
@@ -434,3 +436,109 @@ async def workload_get_workspace_readiness(
         graph_reader=reader,
     )
     return WorkloadReadinessResponse(**snapshot)
+
+
+class WorkloadExtractionJobsDocumentRequest(BaseModel):
+    """Extraction job set configuration matching the management extraction-jobs API."""
+
+    version: str = "1.0"
+    job_sets: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class WorkloadExtractionJobsDocumentResponse(BaseModel):
+    """Saved extraction job sets plus entity type counts."""
+
+    version: str
+    job_sets: list[dict[str, Any]]
+    entity_types: list[dict[str, Any]] = Field(default_factory=list)
+    generated_jobs: int | None = None
+
+
+@router.get(
+    "/extraction-jobs",
+    response_model=WorkloadExtractionJobsDocumentResponse,
+)
+async def workload_get_extraction_jobs(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    service: Annotated[
+        IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
+    ] = ...,
+) -> WorkloadExtractionJobsDocumentResponse:
+    _require_chat_scope(auth)
+    try:
+        payload = await service.get_document(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    return WorkloadExtractionJobsDocumentResponse.model_validate(payload)
+
+
+@router.put(
+    "/extraction-jobs",
+    response_model=WorkloadExtractionJobsDocumentResponse,
+)
+async def workload_save_extraction_jobs(
+    request: WorkloadExtractionJobsDocumentRequest,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    service: Annotated[
+        IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
+    ] = ...,
+) -> WorkloadExtractionJobsDocumentResponse:
+    _require_chat_scope(auth)
+    try:
+        payload = await service.save_document(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            payload=request.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return WorkloadExtractionJobsDocumentResponse.model_validate(payload)
+
+
+@router.get("/extraction-jobs/plan-summary")
+async def workload_get_extraction_jobs_plan_summary(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    service: Annotated[
+        IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
+    ] = ...,
+) -> dict[str, Any]:
+    _require_chat_scope(auth)
+    try:
+        return await service.get_plan_summary(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get("/extraction-jobs/status")
+async def workload_get_extraction_jobs_status(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    service: Annotated[
+        IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
+    ] = ...,
+) -> dict[str, Any]:
+    _require_chat_scope(auth)
+    try:
+        return await service.get_database_status(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

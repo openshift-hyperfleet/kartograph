@@ -73,6 +73,5 @@ class StickySessionBootstrapBuilder:
             tenant_id=tenant_id,
             credentials=credentials,
             host_session_work_dir=str(host_session_work_dir),
-            host_skills_dir=self._runtime_settings.skills_dir,
             api_base_url=self._runtime_settings.api_base_url,
         )

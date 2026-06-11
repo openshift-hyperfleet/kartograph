@@ -82,7 +82,6 @@ def create_sticky_session_runtime_manager(
         session_ttl=timedelta(minutes=resolved.session_ttl_minutes),
         container_network=resolved.container_network,
         sticky_service_port=resolved.sticky_service_port,
-        container_skills_mount=resolved.container_skills_mount,
         container_work_mount=resolved.container_work_mount,
         vertex_project_id=resolved.vertex_project_id,
         vertex_region=resolved.vertex_region,

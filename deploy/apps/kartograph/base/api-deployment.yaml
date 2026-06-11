@@ -155,15 +155,11 @@ spec:
                 secretKeyRef:
                   name: kartograph-sso-client-swagger-docs
                   key: client_id
-            - name: KARTOGRAPH_EXTRACTION_SKILLS_DIR
-              value: /app/skills
 
           volumeMounts:
             - name: spicedb-ca
               mountPath: /etc/spicedb-ca
               readOnly: true
-            - name: extraction-skills
-              mountPath: /app/skills
           livenessProbe:
             httpGet:
               path: /health
@@ -194,5 +190,3 @@ spec:
             items:
               - key: service-ca.crt
                 path: service-ca.crt
-        - name: extraction-skills
-          emptyDir: {}

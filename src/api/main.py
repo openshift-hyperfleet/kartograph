@@ -57,9 +57,6 @@ from graph.ports.mutation_log import MutationLogApplyResult
 
 # Default work directory for JobPackage ZIP archives
 _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
-_EXTRACTION_SKILLS_DIR = Path(
-    os.getenv("KARTOGRAPH_EXTRACTION_SKILLS_DIR", "/app/skills")
-)
 
 # Scheduler polling interval (seconds)
 _SCHEDULER_POLL_INTERVAL_SECONDS = 60
@@ -387,7 +384,6 @@ class _SessionedExtractionEventHandler:
             kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
             runtime_context_builder = FilesystemExtractionRuntimeContextBuilder(
                 work_dir=_JOB_PACKAGE_WORK_DIR,
-                skills_dir=_EXTRACTION_SKILLS_DIR,
             )
             extraction_handler = ExtractionEventHandler(
                 extraction_service=self._extraction_service,

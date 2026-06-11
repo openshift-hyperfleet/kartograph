@@ -75,7 +75,6 @@ class _StaticRuntimeContextBuilder:
         return ExtractionRuntimeContext(
             ingestion_context_dir="/tmp/ingestion-context",
             repository_files_dir="/tmp/repository-files",
-            skills_dir="/app/skills",
             job_package_archive="/tmp/job-package.zip",
         )
 

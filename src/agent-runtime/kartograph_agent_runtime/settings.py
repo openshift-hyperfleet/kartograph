@@ -20,7 +20,6 @@ class AgentRuntimeSettings(BaseSettings):
     tenant_id: str = Field(default="", alias="KARTOGRAPH_TENANT_ID")
     knowledge_graph_id: str = Field(default="", alias="KARTOGRAPH_KNOWLEDGE_GRAPH_ID")
     session_id: str = Field(default="", alias="KARTOGRAPH_SESSION_ID")
-    skills_dir: str = Field(default="/app/skills", alias="KARTOGRAPH_SKILLS_DIR")
     workspace_dir: str = Field(default="/workspace", alias="KARTOGRAPH_WORKSPACE_DIR")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     vertex_project_id: str = Field(default="", alias="ANTHROPIC_VERTEX_PROJECT_ID")

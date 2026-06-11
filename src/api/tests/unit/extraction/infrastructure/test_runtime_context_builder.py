@@ -58,12 +58,8 @@ async def test_build_materializes_ingestion_context_and_repository_files(tmp_pat
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
     package_id = _build_job_package(work_dir)
-    skills_dir = tmp_path / "skills"
 
-    builder = FilesystemExtractionRuntimeContextBuilder(
-        work_dir=work_dir,
-        skills_dir=skills_dir,
-    )
+    builder = FilesystemExtractionRuntimeContextBuilder(work_dir=work_dir)
     runtime = builder.build(sync_run_id="run-123", job_package_id=package_id)
 
     assert Path(runtime.ingestion_context_dir).exists()
@@ -71,4 +67,3 @@ async def test_build_materializes_ingestion_context_and_repository_files(tmp_pat
     assert Path(runtime.repository_files_dir, "src/main.py").read_text() == (
         "print('hello runtime context')\n"
     )
-    assert Path(runtime.skills_dir).exists()

@@ -100,7 +100,6 @@ class _FakeRuntimeContextBuilder:
         return ExtractionRuntimeContext(
             ingestion_context_dir="/tmp/ingestion-context",
             repository_files_dir="/tmp/repository-files",
-            skills_dir="/app/skills",
             job_package_archive="/tmp/job-package.zip",
         )
 
@@ -179,7 +178,6 @@ class TestExtractionEventHandlerSuccess:
         assert call["job_package_id"] == "pkg-001"
         assert call["data_source_id"] == "ds-001"
         assert call["knowledge_graph_id"] == "kg-001"
-        assert call["runtime_context"].skills_dir == "/app/skills"
 
     async def test_emits_mutation_log_produced_on_success(
         self,

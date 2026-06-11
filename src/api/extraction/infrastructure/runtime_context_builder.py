@@ -12,11 +12,10 @@ from shared_kernel.job_package.value_objects import JobPackageId
 
 
 class FilesystemExtractionRuntimeContextBuilder:
-    """Prepare runtime directories from JobPackage + skills mount path."""
+    """Prepare runtime directories from JobPackage archives."""
 
-    def __init__(self, *, work_dir: Path, skills_dir: Path) -> None:
+    def __init__(self, *, work_dir: Path) -> None:
         self._work_dir = work_dir
-        self._skills_dir = skills_dir
 
     def build(self, *, sync_run_id: str, job_package_id: str) -> ExtractionRuntimeContext:
         package_id = JobPackageId(value=job_package_id)
@@ -28,7 +27,6 @@ class FilesystemExtractionRuntimeContextBuilder:
         repository_files_dir = run_root / "repository-files"
         ingestion_context_dir.mkdir(parents=True, exist_ok=True)
         repository_files_dir.mkdir(parents=True, exist_ok=True)
-        self._skills_dir.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(archive_path) as archive:
             for entry_name in archive.namelist():
@@ -47,6 +45,5 @@ class FilesystemExtractionRuntimeContextBuilder:
         return ExtractionRuntimeContext(
             ingestion_context_dir=str(ingestion_context_dir),
             repository_files_dir=str(repository_files_dir),
-            skills_dir=str(self._skills_dir),
             job_package_archive=str(archive_path),
         )

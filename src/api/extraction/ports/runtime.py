@@ -29,7 +29,6 @@ class StickySessionRuntimeBootstrap:
     tenant_id: str
     credentials: ScopedWorkloadCredentials
     host_session_work_dir: str
-    host_skills_dir: str
     api_base_url: str
 
 

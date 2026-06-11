@@ -36,7 +36,6 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
         tenant_id="tenant-1",
         credentials=credentials,
         host_session_work_dir="/tmp/session-work",
-        host_skills_dir="/tmp/skills",
         api_base_url="http://api:8000",
     )
 
@@ -52,7 +51,6 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     assert spec.command == ()
     assert spec.network == "kartograph_kartograph"
     assert spec.env["KARTOGRAPH_WORKLOAD_TOKEN"] == credentials.token
-    assert "/tmp/skills:/app/skills:ro" in spec.binds
     assert "/tmp/session-work:/workspace" in spec.binds
     assert "/tmp/session-work/repository-files:/workspace/repository-files:ro" in spec.binds
     assert "/host/.config/gcloud:/gcloud/config:ro" in spec.binds

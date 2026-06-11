@@ -56,7 +56,6 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         session_ttl: timedelta = timedelta(minutes=30),
         container_network: str | None = None,
         sticky_service_port: int = 8787,
-        container_skills_mount: str = "/app/skills",
         container_work_mount: str = "/workspace",
         vertex_project_id: str = "",
         vertex_region: str = "us-east5",
@@ -74,7 +73,6 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._session_ttl = session_ttl
         self._container_network = container_network
         self._sticky_service_port = sticky_service_port
-        self._container_skills_mount = container_skills_mount
         self._container_work_mount = container_work_mount
         self._vertex_project_id = vertex_project_id
         self._vertex_region = vertex_region
@@ -286,7 +284,6 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             "KARTOGRAPH_KNOWLEDGE_GRAPH_ID": knowledge_graph_id,
             "KARTOGRAPH_USER_ID": user_id,
             "KARTOGRAPH_SESSION_MODE": mode,
-            "KARTOGRAPH_SKILLS_DIR": self._container_skills_mount,
             "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
             "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(int(self._agent_turn_timeout_seconds)),
             "KARTOGRAPH_AGENT_MAX_TURNS": str(int(self._agent_max_turns)),
@@ -309,7 +306,6 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                     "KARTOGRAPH_API_BASE_URL": bootstrap.api_base_url,
                 }
             )
-            binds.append(f"{bootstrap.host_skills_dir}:{self._container_skills_mount}:ro")
             binds.extend(
                 build_sticky_session_workspace_binds(
                     host_session_work_dir=bootstrap.host_session_work_dir,

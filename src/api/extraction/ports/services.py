@@ -15,7 +15,6 @@ class ExtractionRuntimeContext:
 
     ingestion_context_dir: str
     repository_files_dir: str
-    skills_dir: str
     job_package_archive: str
 
 
@@ -46,8 +45,8 @@ class IExtractionService(Protocol):
             data_source_id: Identifier for the data source being extracted
             knowledge_graph_id: Identifier for the target knowledge graph
             job_package_id: Identifier for the JobPackage to process
-            runtime_context: Resolved runtime context paths for ingestion resources,
-                reconstructed repository files, and skills availability.
+            runtime_context: Resolved runtime context paths for ingestion resources and
+                reconstructed repository files.
             workload_credentials: Short-lived runtime credentials injected into the worker
 
         Returns:

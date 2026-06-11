@@ -255,7 +255,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         container_id = container_id_hint or self._container_runtime.container_id_for_name(
             container_name
         )
-        if container_id is None:
+        if container_id is None or not self._container_runtime.is_running(container_id):
             return None
         runtime_base_url = f"http://{container_name}:{self._sticky_service_port}"
         return StickySessionRuntimeLease(
@@ -333,6 +333,8 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         if self._container_run_uid is not None and self._container_run_gid is not None:
             container_user = f"{self._container_run_uid}:{self._container_run_gid}"
 
+        self._remove_stale_container_name(container_name)
+
         launched = self._container_runtime.run(
             ContainerRunSpec(
                 image=self._sticky_image,
@@ -363,6 +365,10 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             expires_at=now + self._session_ttl,
             runtime_base_url=runtime_base_url,
         )
+
+    def _remove_stale_container_name(self, container_name: str) -> None:
+        """Remove stopped containers that still hold a sticky session name."""
+        self._container_runtime.remove_by_name(container_name, force=True)
 
     def _terminate_container(self, container_id: str) -> None:
         if self._container_runtime.is_running(container_id):

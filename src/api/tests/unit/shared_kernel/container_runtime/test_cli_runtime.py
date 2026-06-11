@@ -106,3 +106,30 @@ class TestCliContainerRuntime:
             )
 
             assert runtime.is_running("abc123") is False
+
+    def test_remove_by_name_force_removes_existing_container(self) -> None:
+        runtime = CliContainerRuntime(binary="docker")
+
+        with patch("shared_kernel.container_runtime.cli_runtime.subprocess.run") as run:
+            run.side_effect = [
+                MagicMock(returncode=0, stdout="abc123\n", stderr=""),
+                MagicMock(returncode=0, stdout="", stderr=""),
+            ]
+
+            removed = runtime.remove_by_name("kartograph-sticky-session-1", force=True)
+
+        assert removed is True
+        assert run.call_args_list[1].args[0] == [
+            "docker",
+            "rm",
+            "-f",
+            "kartograph-sticky-session-1",
+        ]
+
+    def test_remove_by_name_returns_false_when_container_missing(self) -> None:
+        runtime = CliContainerRuntime(binary="docker")
+
+        with patch("shared_kernel.container_runtime.cli_runtime.subprocess.run") as run:
+            run.return_value = MagicMock(returncode=1, stdout="", stderr="no such object")
+
+            assert runtime.remove_by_name("missing") is False

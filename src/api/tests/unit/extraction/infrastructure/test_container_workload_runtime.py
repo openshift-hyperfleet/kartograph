@@ -70,6 +70,37 @@ class TestContainerStickySessionRuntimeManager:
         assert lease is not None
         assert lease.container_id == "container-existing"
         runtime.run.assert_not_called()
+        runtime.remove_by_name.assert_not_called()
+
+    def test_removes_stopped_container_name_before_start(self) -> None:
+        runtime = MagicMock()
+        runtime.is_running.return_value = False
+        runtime.container_id_for_name.return_value = None
+        runtime.remove_by_name.return_value = True
+        runtime.run.return_value = ContainerRunResult(
+            container_id="container-1",
+            name="kartograph-sticky-session-1",
+        )
+        manager = ContainerStickySessionRuntimeManager(
+            container_runtime=runtime,
+            sticky_image="busybox:1.36",
+            sticky_command=("sleep", "3600"),
+            session_ttl=timedelta(minutes=30),
+        )
+
+        lease = manager.get_or_start_runtime(
+            session_id="session-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode="extraction_operations",
+        )
+
+        assert lease.container_id == "container-1"
+        runtime.remove_by_name.assert_called_once_with(
+            "kartograph-sticky-session-1",
+            force=True,
+        )
+        runtime.run.assert_called_once()
 
     def test_reset_stops_existing_container_and_starts_new_one(self) -> None:
         runtime = MagicMock()

@@ -56,3 +56,7 @@ class IContainerRuntime(Protocol):
     def container_id_for_name(self, name: str) -> str | None:
         """Return the running container ID for a fixed container name, if any."""
         ...
+
+    def remove_by_name(self, name: str, *, force: bool = True) -> bool:
+        """Remove a container by name. Returns True when a container was removed."""
+        ...

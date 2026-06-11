@@ -80,6 +80,25 @@ class CliContainerRuntime:
 
     def container_id_for_name(self, name: str) -> str | None:
         """Return the running container ID for a fixed container name, if any."""
+        container_id = self._inspect_container_id(name)
+        if container_id is None:
+            return None
+        if not self.is_running(container_id):
+            return None
+        return container_id
+
+    def remove_by_name(self, name: str, *, force: bool = True) -> bool:
+        """Remove a container by name. Returns True when a container was removed."""
+        if self._inspect_container_id(name) is None:
+            return False
+        command = [self._binary, "rm"]
+        if force:
+            command.append("-f")
+        command.append(name)
+        self._execute(command)
+        return True
+
+    def _inspect_container_id(self, name: str) -> str | None:
         result = subprocess.run(
             [self._binary, "inspect", "-f", "{{.Id}}", name],
             capture_output=True,
@@ -89,11 +108,7 @@ class CliContainerRuntime:
         if result.returncode != 0:
             return None
         container_id = result.stdout.strip()
-        if not container_id:
-            return None
-        if not self.is_running(container_id):
-            return None
-        return container_id
+        return container_id or None
 
     def _execute(self, command: list[str]) -> str:
         result = subprocess.run(

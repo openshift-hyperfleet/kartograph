@@ -25,6 +25,7 @@ class ExtractionJobModel(Base, TimestampMixin):
     order_index: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     description: Mapped[str] = mapped_column(sa.Text(), nullable=False, default="")
     target_instances: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    target_files: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     worker_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)

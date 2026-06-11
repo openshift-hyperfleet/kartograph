@@ -5,6 +5,7 @@ description = "Enterprise-Ready Bi-Temporal Knowledge Graphs as a Service"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "agentic-ci>=0.2.22",
     "alembic>=1.17.2",
     "authlib>=1.6.9", # CVE fix: transitive dep pinned for security
     "apache-age-python>=0.0.7",

@@ -2,32 +2,34 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from extraction.domain.extraction_job import ExtractionJobRecord
+from extraction.infrastructure.extraction_job_runner_factory import create_extraction_job_runner
+from extraction.infrastructure.stub_extraction_job_runner import StubExtractionJobRunner
+from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.ports.extraction_job_runner import IExtractionJobRunner
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class ExtractionJobExecutor:
-    """Runs one extraction job using per-instance description guidance."""
+    """Runs one extraction job using the configured runner backend."""
 
-    async def execute(self, job: ExtractionJobRecord) -> dict[str, Any]:
-        """Process target instances for one job.
+    def __init__(
+        self,
+        *,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
+        runner: IExtractionJobRunner | None = None,
+    ) -> None:
+        self._session_factory = session_factory
+        self._runner = runner
 
-        The sticky extraction agent container path will replace this stub with
-        a full Claude Agent SDK turn scoped to ``job.description`` and the
-        assigned instance slugs. For now we simulate successful completion so
-        orchestration, status APIs, and UI can be exercised end-to-end.
-        """
-        await asyncio.sleep(0.05)
-        instance_count = len(job.target_instances)
-        return {
-            "input_tokens": 100 * instance_count,
-            "output_tokens": 50 * instance_count,
-            "cache_read_tokens": 0,
-            "cache_creation_tokens": 0,
-            "cost_usd": 0.001 * instance_count,
-            "entities_created": 0,
-            "entities_modified": instance_count,
-            "relationships_created": 0,
-        }
+    async def execute(self, job: ExtractionJobRecord, *, tenant_id: str) -> dict[str, Any]:
+        if self._runner is not None:
+            return await self._runner.run(job, tenant_id=tenant_id)
+        settings = get_extraction_workload_runtime_settings()
+        if settings.job_runner == "stub" or self._session_factory is None:
+            return await StubExtractionJobRunner().run(job, tenant_id=tenant_id)
+        async with self._session_factory() as session:
+            runner = create_extraction_job_runner(session=session, settings=settings)
+            return await runner.run(job, tenant_id=tenant_id)

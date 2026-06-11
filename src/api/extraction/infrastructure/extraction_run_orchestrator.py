@@ -7,21 +7,12 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from extraction.infrastructure.extraction_job_executor import ExtractionJobExecutor
-from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
+from extraction.domain.extraction_job import ExtractionRunStatus
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from extraction.infrastructure.workload_runtime_factory import (
-    create_ephemeral_extraction_worker_launcher,
-    get_workload_credential_issuer,
-)
-from extraction.infrastructure.workload_runtime_settings import (
-    get_extraction_workload_runtime_settings,
-)
-from extraction.ports.runtime import EphemeralWorkerLaunchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +36,7 @@ class ExtractionRunOrchestrator:
         job_executor: ExtractionJobExecutor | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._job_executor = job_executor or ExtractionJobExecutor()
+        self._job_executor = job_executor or ExtractionJobExecutor(session_factory=session_factory)
         self._active: dict[str, _OrchestratorState] = {}
         self._lock = asyncio.Lock()
 
@@ -81,21 +72,10 @@ class ExtractionRunOrchestrator:
                 )
                 await session.commit()
 
-            runtime_settings = get_extraction_workload_runtime_settings()
-            if runtime_settings.backend == "container":
-                for index in range(state.worker_count):
-                    state.tasks.append(
-                        asyncio.create_task(
-                            self._container_worker_loop(state, worker_index=index + 1)
-                        )
-                    )
-            else:
-                for index in range(state.worker_count):
-                    state.tasks.append(
-                        asyncio.create_task(
-                            self._in_process_worker_loop(state, worker_index=index + 1)
-                        )
-                    )
+            for index in range(state.worker_count):
+                state.tasks.append(
+                    asyncio.create_task(self._worker_loop(state, worker_index=index + 1))
+                )
 
     async def request_pause(self, *, knowledge_graph_id: str) -> None:
         async with self._session_factory() as session:
@@ -132,7 +112,7 @@ class ExtractionRunOrchestrator:
             )
             await session.commit()
 
-    async def _in_process_worker_loop(self, state: _OrchestratorState, *, worker_index: int) -> None:
+    async def _worker_loop(self, state: _OrchestratorState, *, worker_index: int) -> None:
         worker_id = f"worker-{worker_index:02d}"
         try:
             while not state.stop_event.is_set():
@@ -161,8 +141,16 @@ class ExtractionRunOrchestrator:
                     await session.commit()
 
                 try:
-                    metrics = await self._job_executor.execute(job)
+                    metrics = await self._job_executor.execute(
+                        job,
+                        tenant_id=state.tenant_id,
+                    )
                 except Exception as exc:
+                    logger.exception(
+                        "Extraction job %s failed on worker %s",
+                        job.job_id,
+                        worker_id,
+                    )
                     async with self._session_factory() as session:
                         repo = ExtractionJobRepository(session)
                         await repo.mark_job_failed(
@@ -181,54 +169,6 @@ class ExtractionRunOrchestrator:
                         metrics=metrics,
                     )
                     await session.commit()
-        except asyncio.CancelledError:
-            return
-
-    async def _container_worker_loop(self, state: _OrchestratorState, *, worker_index: int) -> None:
-        worker_id = f"worker-{worker_index:02d}"
-        launcher = create_ephemeral_extraction_worker_launcher()
-        credential_issuer = get_workload_credential_issuer()
-        runtime_settings = get_extraction_workload_runtime_settings()
-
-        try:
-            while not state.stop_event.is_set():
-                async with self._session_factory() as session:
-                    repo = ExtractionJobRepository(session)
-                    if await repo.is_pause_requested(knowledge_graph_id=state.knowledge_graph_id):
-                        await session.commit()
-                        state.stop_event.set()
-                        break
-                    job = await repo.claim_next_pending_job(
-                        knowledge_graph_id=state.knowledge_graph_id,
-                        worker_id=worker_id,
-                    )
-                    if job is None:
-                        await session.commit()
-                        await self._maybe_finish_run(state)
-                        break
-                    await session.commit()
-
-                credentials = credential_issuer.issue(
-                    tenant_id=state.tenant_id,
-                    knowledge_graph_id=state.knowledge_graph_id,
-                )
-                launch_result = launcher.launch(
-                    request=EphemeralWorkerLaunchRequest(
-                        tenant_id=state.tenant_id,
-                        knowledge_graph_id=state.knowledge_graph_id,
-                        session_id=f"extraction-job:{job.job_id}",
-                        sync_run_id=job.job_id,
-                        job_package_id=job.id,
-                    ),
-                    credentials=credentials,
-                )
-                logger.info(
-                    "Launched extraction worker %s for job %s (container backend)",
-                    launch_result.worker_id,
-                    job.job_id,
-                )
-                # Container worker is responsible for marking completion via workload API.
-                await asyncio.sleep(runtime_settings.worker_poll_seconds)
         except asyncio.CancelledError:
             return
 

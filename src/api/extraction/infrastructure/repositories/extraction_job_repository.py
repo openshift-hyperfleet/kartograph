@@ -14,6 +14,7 @@ from extraction.domain.extraction_job import (
     ExtractionJobStatus,
     ExtractionRunRecord,
     ExtractionRunStatus,
+    ExtractionTargetFile,
     ExtractionTargetInstance,
 )
 from extraction.infrastructure.models.extraction_job import ExtractionJobModel, ExtractionRunModel
@@ -31,6 +32,9 @@ def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
         description=model.description,
         target_instances=tuple(
             ExtractionTargetInstance.from_dict(row) for row in (model.target_instances or [])
+        ),
+        target_files=tuple(
+            ExtractionTargetFile.from_dict(row) for row in (model.target_files or [])
         ),
         worker_id=model.worker_id,
         started_at=model.started_at,
@@ -91,6 +95,7 @@ class ExtractionJobRepository:
                     order_index=job.order_index,
                     description=job.description,
                     target_instances=[instance.to_dict() for instance in job.target_instances],
+                    target_files=[target_file.to_dict() for target_file in job.target_files],
                 )
             )
         await self._session.flush()
@@ -175,7 +180,7 @@ class ExtractionJobRepository:
                     "jobId": model.job_id,
                     "jobSet": model.job_set_name,
                     "strategy": model.strategy,
-                    "fileCount": 0,
+                    "fileCount": len(model.target_files or []),
                     "instanceCount": len(model.target_instances or []),
                     "startedAt": model.started_at.isoformat() if model.started_at else None,
                 }

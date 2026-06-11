@@ -26,6 +26,10 @@ services:
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_GID: ${HOST_GID}
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_TURN_TIMEOUT_SECONDS: "3600"
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_MAX_TURNS: "500"
+      KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: agentic_ci
+      KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_IMAGE: ghcr.io/opendatahub-io/ai-helpers:latest
+      KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_HARNESS: claude-code
+      KARTOGRAPH_EXTRACTION_RUNTIME_EXTRACTION_JOB_WORK_DIR: /tmp/kartograph/extraction_jobs
       # Vertex AI for Claude Agent SDK in sticky assistant containers
       CLAUDE_CODE_USE_VERTEX: "1"
       ANTHROPIC_VERTEX_PROJECT_ID: itpc-gcp-hcm-pe-eng-claude
@@ -37,6 +41,9 @@ services:
       - /app/.venv
       # Shared with sibling sticky containers launched via the host Docker socket
       - /tmp/kartograph/job_packages:/tmp/kartograph/job_packages
+      - /tmp/kartograph/extraction_jobs:/tmp/kartograph/extraction_jobs
+      # gcloud ADC for Vertex-backed agentic-ci extraction job containers
+      - ${HOME}/.config/gcloud:${HOME}/.config/gcloud:ro,z
       # Allow API process to launch sibling extraction runtime containers locally
       - /var/run/docker.sock:/var/run/docker.sock
       # Docker/Podman CLI from host (required for container runtime backend)
@@ -45,7 +52,7 @@ services:
       - /bin/bash
       - -c
       - |
-        uv run fastapi dev main.py --host 0.0.0.0 --port 8000
+        uv sync --frozen && uv run alembic upgrade head && uv run fastapi dev main.py --host 0.0.0.0 --port 8000
 
   dev-ui:
     build:

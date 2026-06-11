@@ -2,25 +2,31 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.management.extraction_job_materializer import (
+    build_repository_file_catalog,
     entity_instance_counts_from_graph,
+    match_file_patterns,
     materialize_jobs_from_config,
     projected_job_count,
 )
 from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
 from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
+from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
 from graph.infrastructure.bulk_data_reader import fetch_bulk_graph_data
 from infrastructure.database.connection_pool import ConnectionPool
 from management.application.services.knowledge_graph_service import KnowledgeGraphService
 from management.domain.extraction_job_config import (
     ExtractionJobConfigDocument,
     ExtractionJobSetDefinition,
+    ExtractionJobSetStrategy,
 )
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
@@ -130,10 +136,20 @@ class ExtractionJobsService:
         config = await self._knowledge_graph_repository.get_extraction_job_config(kg_id)
         document = config or ExtractionJobConfigDocument.empty()
         graph_data = await self._load_graph_data()
+        runtime_settings = get_extraction_workload_runtime_settings()
+        prepared_reader = SqlPreparedJobPackageReader(
+            session=self._session,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+        )
+        job_packages = await prepared_reader.list_latest_for_knowledge_graph(
+            knowledge_graph_id=kg_id,
+        )
         jobs = materialize_jobs_from_config(
             knowledge_graph_id=kg_id,
             config=document,
             graph_data=graph_data,
+            job_packages=job_packages,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
         )
         generated = await self._extraction_job_repository.replace_pending_jobs(
             knowledge_graph_id=kg_id,
@@ -247,13 +263,32 @@ class ExtractionJobsService:
         counts = {
             row["name"]: row["instance_count"] for row in payload.get("entity_types", [])
         }
+        runtime_settings = get_extraction_workload_runtime_settings()
+        prepared_reader = SqlPreparedJobPackageReader(
+            session=self._session,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+        )
+        job_packages = await prepared_reader.list_latest_for_knowledge_graph(
+            knowledge_graph_id=kg_id,
+        )
+        file_catalog = build_repository_file_catalog(
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+            job_packages=job_packages,
+        )
         job_sets = []
         for raw in payload.get("job_sets", []):
             job_set = ExtractionJobSetDefinition.from_dict(raw)
+            matched_file_count = None
+            if job_set.strategy == ExtractionJobSetStrategy.BY_FILES:
+                matched_file_count = len(match_file_patterns(file_catalog, job_set.file_patterns))
             job_sets.append(
                 {
                     **raw,
-                    "projected_jobs": projected_job_count(job_set, entity_instance_counts=counts),
+                    "projected_jobs": projected_job_count(
+                        job_set,
+                        entity_instance_counts=counts,
+                        matched_file_count=matched_file_count,
+                    ),
                 }
             )
         return {"job_sets": job_sets, "entity_types": payload.get("entity_types", [])}

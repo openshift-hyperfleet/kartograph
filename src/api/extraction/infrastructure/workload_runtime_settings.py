@@ -23,10 +23,16 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     )
 
     backend: Literal["memory", "container"] = Field(default="memory")
+    job_runner: Literal["stub", "agentic_ci"] | None = Field(default=None)
     container_engine: Literal["auto", "docker", "podman"] = Field(default="auto")
     container_network: str | None = Field(default=None)
     sticky_image: str = Field(default="kartograph-agent-runtime:dev")
     worker_image: str = Field(default="docker.io/library/busybox:1.36")
+    agentic_ci_image: str = Field(default="ghcr.io/opendatahub-io/ai-helpers:latest")
+    agentic_ci_harness: str = Field(default="claude-code")
+    agentic_ci_model: str = Field(default="")
+    agentic_ci_timeout_seconds: int = Field(default=1200, ge=60, le=7200)
+    extraction_job_work_dir: str = Field(default="/tmp/kartograph/extraction_jobs")
     sticky_command: tuple[str, ...] = Field(
         default=(),
         description=(
@@ -65,6 +71,12 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _apply_vertex_env_aliases(self) -> "ExtractionWorkloadRuntimeSettings":
+        if self.job_runner is None:
+            object.__setattr__(
+                self,
+                "job_runner",
+                "agentic_ci" if self.backend == "container" else "stub",
+            )
         if not self.vertex_project_id:
             object.__setattr__(
                 self,

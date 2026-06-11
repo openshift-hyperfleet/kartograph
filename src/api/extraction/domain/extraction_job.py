@@ -28,6 +28,30 @@ class ExtractionRunStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+class ExtractionTargetFile:
+    """One repository file assigned to an extraction job."""
+
+    path: str
+    repository_folder: str
+    package_id: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "repository_folder": self.repository_folder,
+            "package_id": self.package_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExtractionTargetFile:
+        return cls(
+            path=str(data.get("path") or ""),
+            repository_folder=str(data.get("repository_folder") or ""),
+            package_id=str(data.get("package_id") or ""),
+        )
+
+
+@dataclass(frozen=True)
 class ExtractionTargetInstance:
     """One entity instance assigned to an extraction job."""
 
@@ -64,6 +88,7 @@ class ExtractionJobRecord:
     order_index: int
     description: str
     target_instances: tuple[ExtractionTargetInstance, ...] = field(default_factory=tuple)
+    target_files: tuple[ExtractionTargetFile, ...] = field(default_factory=tuple)
     worker_id: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -90,6 +115,7 @@ class ExtractionJobRecord:
             "order_index": self.order_index,
             "description": self.description,
             "target_instances": [instance.to_dict() for instance in self.target_instances],
+            "target_files": [target_file.to_dict() for target_file in self.target_files],
             "worker_id": self.worker_id,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -104,7 +130,7 @@ class ExtractionJobRecord:
             "entities_modified": self.entities_modified,
             "relationships_created": self.relationships_created,
             "instance_count": len(self.target_instances),
-            "file_count": 0,
+            "file_count": len(self.target_files),
         }
 
 

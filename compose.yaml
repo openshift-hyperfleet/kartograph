@@ -148,7 +148,7 @@ services:
       - ./skills:/app/skills:ro
       # Mount host CA bundle (supports multiple OS types via env var)
       # Default fallback order: RHEL/Fedora -> Debian/Ubuntu -> macOS
-      - ${HOST_CA_BUNDLE:-/etc/pki/tls/certs/ca-bundle.crt}:/etc/ssl/certs/ca-bundle.crt:ro
+      - ${HOST_CA_BUNDLE:-/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem}:/etc/ssl/certs/ca-bundle.crt:ro
     tty: true
     extra_hosts:
       - "localhost:host-gateway"

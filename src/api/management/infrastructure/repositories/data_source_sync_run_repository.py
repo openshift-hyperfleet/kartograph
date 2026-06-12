@@ -93,8 +93,10 @@ class DataSourceSyncRunRepository(IDataSourceSyncRunRepository):
         return self._to_domain(model)
 
     async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
-        stmt = select(DataSourceSyncRunModel).where(
-            DataSourceSyncRunModel.data_source_id == data_source_id
+        stmt = (
+            select(DataSourceSyncRunModel)
+            .where(DataSourceSyncRunModel.data_source_id == data_source_id)
+            .order_by(desc(DataSourceSyncRunModel.created_at))
         )
         result = await self._session.execute(stmt)
         models = result.scalars().all()

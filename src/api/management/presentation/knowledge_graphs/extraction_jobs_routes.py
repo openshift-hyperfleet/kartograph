@@ -200,6 +200,44 @@ async def get_extraction_job_activity(
     return payload
 
 
+@router.get("/knowledge-graphs/{kg_id}/extraction-jobs/archived-history")
+async def get_archived_extraction_history(
+    kg_id: str,
+    service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    try:
+        payload = await service.get_archived_extraction_history(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+    except UnauthorizedError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+    return payload
+
+
+@router.get("/knowledge-graphs/{kg_id}/extraction-jobs/jobs/{job_id}/archived-mutations")
+async def get_archived_job_mutations(
+    kg_id: str,
+    job_id: str,
+    service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> dict[str, Any]:
+    try:
+        payload = await service.get_archived_job_mutations(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            job_id=job_id,
+        )
+    except UnauthorizedError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archived job not found")
+    return payload
+
+
 @router.get("/knowledge-graphs/{kg_id}/extraction-jobs/database-status")
 async def get_extraction_database_status(
     kg_id: str,

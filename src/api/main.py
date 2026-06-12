@@ -179,6 +179,7 @@ class _SessionedIngestionEventHandler:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Kartograph-GitHub-Ingestion/1.0",
         }
         token = credentials.get("token") or credentials.get("access_token")
         if token:

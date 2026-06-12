@@ -130,4 +130,4 @@ def test_build_agent_system_prompt_compact_extraction_jobs_keeps_description_aut
     assert "**per_instance_description_authoring**" in prompt
     assert "IGNORE lines" in prompt
     assert "relationship_authoring_by_entity_type" in prompt
-    assert "verifies_inverse -> ComponentTest" in prompt
+    assert "entity_type_authoring_context" in prompt

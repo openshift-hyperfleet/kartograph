@@ -8,7 +8,9 @@ from typing import Any
 
 
 from management.domain.extraction_relationship_authoring import (
+    per_instance_description_property_errors,
     per_instance_description_relationship_errors,
+    per_instance_description_unknown_relationship_errors,
 )
 class ExtractionJobSetStrategy(StrEnum):
     """Batching strategy for an extraction job set."""
@@ -39,6 +41,7 @@ class ExtractionJobSetDefinition:
         *,
         entity_instance_counts: dict[str, int],
         edge_types: list[dict[str, Any]] | None = None,
+        node_types: list[dict[str, Any]] | None = None,
     ) -> tuple[str, ...]:
         """Return human-readable validation errors for this job set."""
         if not self.enabled:
@@ -68,6 +71,23 @@ class ExtractionJobSetDefinition:
                         self.entity_type,
                         edge_types=edge_types,
                         entity_instance_counts=entity_instance_counts,
+                    )
+                )
+                errors.extend(
+                    f"{self.name}: {err}"
+                    for err in per_instance_description_unknown_relationship_errors(
+                        self.description,
+                        self.entity_type,
+                        edge_types=edge_types,
+                    )
+                )
+            if self.entity_type and node_types:
+                errors.extend(
+                    f"{self.name}: {err}"
+                    for err in per_instance_description_property_errors(
+                        self.description,
+                        self.entity_type,
+                        node_types=node_types,
                     )
                 )
         elif self.strategy == ExtractionJobSetStrategy.BY_FILES:
@@ -136,6 +156,7 @@ class ExtractionJobConfigDocument:
         *,
         entity_instance_counts: dict[str, int],
         edge_types: list[dict[str, Any]] | None = None,
+        node_types: list[dict[str, Any]] | None = None,
     ) -> tuple[str, ...]:
         errors: list[str] = []
         seen_names: set[str] = set()
@@ -147,6 +168,7 @@ class ExtractionJobConfigDocument:
                 job_set.validation_errors(
                     entity_instance_counts=entity_instance_counts,
                     edge_types=edge_types,
+                    node_types=node_types,
                 )
             )
         return tuple(errors)

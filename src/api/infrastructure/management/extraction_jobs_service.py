@@ -41,6 +41,8 @@ from management.domain.extraction_job_config import (
 )
 from management.domain.extraction_relationship_authoring import (
     edge_type_dicts_from_ontology,
+    entity_type_authoring_context,
+    node_type_dicts_from_ontology,
     relationship_authoring_by_entity_type,
 )
 from management.infrastructure.repositories.knowledge_graph_repository import (
@@ -114,10 +116,20 @@ class ExtractionJobsService:
         )
         ontology = await self._knowledge_graph_repository.get_ontology(kg_id)
         edge_types = edge_type_dicts_from_ontology(ontology)
+        node_types = node_type_dicts_from_ontology(ontology)
         entity_types = [
             {"name": name, "instance_count": count}
             for name, count in sorted(counts.items(), key=lambda item: item[0])
         ]
+        authoring_context = {
+            entity_type: entity_type_authoring_context(
+                entity_type,
+                node_types=node_types,
+                edge_types=edge_types,
+                entity_instance_counts=counts,
+            )
+            for entity_type in counts
+        }
         return {
             **document.to_dict(),
             "entity_types": entity_types,
@@ -125,6 +137,7 @@ class ExtractionJobsService:
                 entity_instance_counts=counts,
                 edge_types=edge_types,
             ),
+            "entity_type_authoring_context": authoring_context,
         }
 
     async def save_extraction_jobs_document(
@@ -152,9 +165,11 @@ class ExtractionJobsService:
         )
         ontology = await self._knowledge_graph_repository.get_ontology(kg_id)
         edge_types = edge_type_dicts_from_ontology(ontology)
+        node_types = node_type_dicts_from_ontology(ontology)
         errors = document.validation_errors(
             entity_instance_counts=counts,
             edge_types=edge_types,
+            node_types=node_types,
         )
         if errors:
             raise ValueError("; ".join(errors))
@@ -339,6 +354,7 @@ class ExtractionJobsService:
                 "pending": counts.get("pending", 0),
                 "in_progress": counts.get("in_progress", 0),
                 "completed": counts.get("completed", 0),
+                "archived": counts.get("archived", 0),
                 "failed": counts.get("failed", 0),
             },
             "jobsBySet": jobs_by_set,
@@ -547,6 +563,53 @@ class ExtractionJobsService:
             "message": (
                 f"Reset {reset} running job(s) to pending and stopped {stopped} container(s)."
             ),
+        }
+
+    async def get_archived_extraction_history(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+    ) -> dict[str, Any] | None:
+        from extraction.application.archived_extraction_history import (
+            group_archived_jobs_by_run_and_set,
+        )
+
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            return None
+        jobs = await self._extraction_job_repository.list_archived_jobs(
+            knowledge_graph_id=kg_id,
+        )
+        runs = group_archived_jobs_by_run_and_set(jobs)
+        return {
+            "archivedJobCount": len(jobs),
+            "runs": runs,
+        }
+
+    async def get_archived_job_mutations(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        job_id: str,
+    ) -> dict[str, Any] | None:
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            return None
+        job = await self._extraction_job_repository.get_by_job_id(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+        )
+        if job is None or job.status != ExtractionJobStatus.ARCHIVED:
+            return None
+        return {
+            "jobId": job.job_id,
+            "jobSet": job.job_set_name,
+            "runStartedAt": job.run_started_at.isoformat() if job.run_started_at else None,
+            "archivedAt": job.archived_at.isoformat() if job.archived_at else None,
+            "jsonl": job.applied_mutations_jsonl or "",
+            "writeOps": job.write_ops(),
         }
 
     async def reset_completed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:

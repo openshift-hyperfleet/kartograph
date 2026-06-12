@@ -27,6 +27,7 @@ import {
   isActiveSyncStatus,
   isSyncTerminal,
   latestSyncRun,
+  sortSyncRunsByRecent,
   type SyncRunStatus,
 } from '@/utils/kgDataSourcesSync'
 import {
@@ -397,7 +398,7 @@ async function prepareAllDataSources() {
 
   preparingAll.value = true
   try {
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       queue.map((ds) =>
         apiFetch(`/management/data-sources/${ds.id}/sync`, {
           method: 'POST',
@@ -405,14 +406,34 @@ async function prepareAllDataSources() {
         }),
       ),
     )
-    toast.success(`Preparing ${queue.length} data source${queue.length === 1 ? '' : 's'}`)
+    const failures = results.filter((result) => result.status === 'rejected')
     await loadDataSources()
     if (hasAnyActiveSync(dataSources.value)) startPolling()
+
+    if (failures.length === queue.length) {
+      const reason = failures[0]?.status === 'rejected'
+        ? (failures[0].reason instanceof Error ? failures[0].reason.message : 'Request failed')
+        : 'Request failed'
+      toast.error('Failed to start preparation', { description: reason })
+      return
+    }
+    if (failures.length > 0) {
+      toast.warning(
+        `Started ${queue.length - failures.length} of ${queue.length} preparations`,
+        { description: 'Some sources could not be queued. Check permissions and retry.' },
+      )
+      return
+    }
+    toast.success(`Preparing ${queue.length} data source${queue.length === 1 ? '' : 's'}`)
   } catch {
     toast.error('Failed to start preparation')
   } finally {
     preparingAll.value = false
   }
+}
+
+function recentSyncRuns(ds: DataSourceItem): SyncRun[] {
+  return sortSyncRunsByRecent(ds.sync_runs).slice(0, 2)
 }
 
 // Edit config sheet
@@ -853,7 +874,7 @@ watch(tenantVersion, async () => {
 
                       <div v-if="ds.sync_runs?.length" class="mt-2 space-y-1">
                         <div
-                          v-for="run in ds.sync_runs.slice(0, 2)"
+                          v-for="run in recentSyncRuns(ds)"
                           :key="run.id"
                           class="flex items-center gap-2 text-[10px] text-muted-foreground"
                         >

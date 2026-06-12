@@ -12,6 +12,7 @@ import {
   shortCommitHash,
   unpulledCommitStatusLabel,
 } from '@/utils/kgDataSourcesCommits'
+import { latestSyncRun, sortSyncRunsByRecent } from '@/utils/kgDataSourcesSync'
 
 const phase1Vue = readFileSync(
   resolve(__dirname, '../pages/knowledge-graphs/[kgId]/data-sources/index.vue'),
@@ -108,5 +109,30 @@ describe('kgDataSourcesCommits helpers', () => {
     expect(needsIngestionPrepare({ tracked_branch_head_commit: 'abc', last_prepared_commit: null })).toBe(true)
     expect(hasUnpulledCommits({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(false)
     expect(isIngestionPreparedAtHead({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(true)
+  })
+})
+
+describe('sync run ordering helpers', () => {
+  it('treats the most recent started_at run as latest', () => {
+    const runs = [
+      {
+        id: 'old-failed',
+        status: 'failed' as const,
+        error: '403',
+        started_at: '2026-06-12T19:02:50.000Z',
+      },
+      {
+        id: 'new-ingested',
+        status: 'ingested' as const,
+        error: null,
+        started_at: '2026-06-12T19:10:49.000Z',
+      },
+    ]
+
+    expect(latestSyncRun(runs)?.id).toBe('new-ingested')
+    expect(sortSyncRunsByRecent(runs).map((run) => run.id)).toEqual([
+      'new-ingested',
+      'old-failed',
+    ])
   })
 })

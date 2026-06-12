@@ -27,12 +27,24 @@ export interface SyncRunSummary {
   id: string
   status: SyncRunStatus
   error: string | null
+  started_at?: string
   token_usage_total?: number | null
   cost_total_usd?: number | null
 }
 
+export function sortSyncRunsByRecent<T extends SyncRunSummary>(
+  runs: T[] | undefined,
+): T[] {
+  if (!runs?.length) return []
+  return [...runs].sort((left, right) => {
+    const leftTime = left.started_at ? Date.parse(left.started_at) : 0
+    const rightTime = right.started_at ? Date.parse(right.started_at) : 0
+    return rightTime - leftTime
+  })
+}
+
 export function latestSyncRun<T extends SyncRunSummary>(runs: T[] | undefined): T | undefined {
-  return runs?.[0]
+  return sortSyncRunsByRecent(runs)[0]
 }
 
 export function hasAnyActiveSync<T extends { sync_runs?: SyncRunSummary[] }>(

@@ -49,6 +49,10 @@ def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
         entities_created=model.entities_created,
         entities_modified=model.entities_modified,
         relationships_created=model.relationships_created,
+        relationships_modified=model.relationships_modified,
+        run_started_at=model.run_started_at,
+        archived_at=model.archived_at,
+        applied_mutations_jsonl=model.applied_mutations_jsonl,
     )
 
 
@@ -371,9 +375,12 @@ class ExtractionJobRepository:
         model = result.scalar_one_or_none()
         if model is None:
             return None
+        run = await self.get_run(knowledge_graph_id=knowledge_graph_id)
         model.status = ExtractionJobStatus.IN_PROGRESS.value
         model.worker_id = worker_id
         model.started_at = datetime.now(UTC)
+        if run is not None and run.started_at is not None:
+            model.run_started_at = run.started_at
         model.attempt = int(model.attempt) + 1
         await self._session.flush()
         return _job_model_to_record(model)
@@ -386,24 +393,50 @@ class ExtractionJobRepository:
         metrics: dict[str, Any] | None = None,
     ) -> None:
         payload = metrics or {}
+        entities_created = int(payload.get("entities_created", 0))
+        entities_modified = int(payload.get("entities_modified", 0))
+        relationships_created = int(payload.get("relationships_created", 0))
+        relationships_modified = int(payload.get("relationships_modified", 0))
+        write_ops = int(
+            payload.get("write_ops")
+            or (
+                entities_created
+                + entities_modified
+                + relationships_created
+                + relationships_modified
+            )
+        )
+        now = datetime.now(UTC)
+        status = (
+            ExtractionJobStatus.ARCHIVED.value
+            if write_ops > 0
+            else ExtractionJobStatus.COMPLETED.value
+        )
+        values: dict[str, Any] = {
+            "status": status,
+            "completed_at": now,
+            "input_tokens": int(payload.get("input_tokens", 0)),
+            "output_tokens": int(payload.get("output_tokens", 0)),
+            "cache_read_tokens": int(payload.get("cache_read_tokens", 0)),
+            "cache_creation_tokens": int(payload.get("cache_creation_tokens", 0)),
+            "cost_usd": float(payload.get("cost_usd", 0.0)),
+            "entities_created": entities_created,
+            "entities_modified": entities_modified,
+            "relationships_created": relationships_created,
+            "relationships_modified": relationships_modified,
+        }
+        if write_ops > 0:
+            values["archived_at"] = now
+            applied_jsonl = payload.get("applied_mutations_jsonl")
+            if isinstance(applied_jsonl, str) and applied_jsonl.strip():
+                values["applied_mutations_jsonl"] = applied_jsonl
         await self._session.execute(
             update(ExtractionJobModel)
             .where(
                 ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
                 ExtractionJobModel.job_id == job_id,
             )
-            .values(
-                status=ExtractionJobStatus.COMPLETED.value,
-                completed_at=datetime.now(UTC),
-                input_tokens=int(payload.get("input_tokens", 0)),
-                output_tokens=int(payload.get("output_tokens", 0)),
-                cache_read_tokens=int(payload.get("cache_read_tokens", 0)),
-                cache_creation_tokens=int(payload.get("cache_creation_tokens", 0)),
-                cost_usd=float(payload.get("cost_usd", 0.0)),
-                entities_created=int(payload.get("entities_created", 0)),
-                entities_modified=int(payload.get("entities_modified", 0)),
-                relationships_created=int(payload.get("relationships_created", 0)),
-            )
+            .values(**values)
         )
 
     async def mark_job_failed(
@@ -485,6 +518,29 @@ class ExtractionJobRepository:
                 from_status=status,
             )
         return total
+
+    async def list_archived_jobs(
+        self,
+        *,
+        knowledge_graph_id: str,
+        limit: int = 500,
+    ) -> list[ExtractionJobRecord]:
+        stmt = (
+            select(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.ARCHIVED.value,
+            )
+            .order_by(
+                ExtractionJobModel.run_started_at.desc().nullslast(),
+                ExtractionJobModel.archived_at.desc().nullslast(),
+                ExtractionJobModel.job_set_name.asc(),
+                ExtractionJobModel.order_index.asc(),
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [_job_model_to_record(model) for model in result.scalars().all()]
 
     async def aggregate_token_metrics(self, *, knowledge_graph_id: str) -> dict[str, float | int]:
         stmt = select(

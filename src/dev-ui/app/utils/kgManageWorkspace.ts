@@ -16,7 +16,7 @@ export type StepActionLabel = 'Open' | 'Revisit' | 'Run'
 export const WORKSPACE_STEP_TITLES: Record<WorkspaceStepId, string> = {
   'data-sources': 'Data Sources',
   'graph-management': 'Graph Management',
-  'mutation-logs': 'MutationLogs',
+  'mutation-logs': 'Extraction Archive',
   maintain: 'Maintain',
 }
 

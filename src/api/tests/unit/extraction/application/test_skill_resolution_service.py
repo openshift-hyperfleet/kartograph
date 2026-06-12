@@ -65,7 +65,8 @@ class TestExtractionSkillResolutionService:
         assert "job_setup" in resolved.skills
         assert "per_instance_description_authoring" in resolved.skills
         assert "EntityType} ->" in resolved.skills["per_instance_description_authoring"]
-        assert "MORE live instances" in resolved.skills["per_instance_description_authoring"]
+        assert "entity_type_authoring_context" in resolved.skills["per_instance_description_authoring"]
+        assert "never invent relationship labels" in resolved.skills["per_instance_description_authoring"]
         assert "Ignore these relationships" in resolved.skills["per_instance_description_authoring"]
         assert "IGNORE" in resolved.skills["per_instance_description_authoring"]
         assert "Implementation Analysis" in resolved.skills["per_instance_description_authoring"]

@@ -203,10 +203,11 @@ const workerCount = computed(() => Math.max(1, Math.floor(Number(workers.value) 
 const pendingJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.pending || 0))
 const inProgressJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.in_progress || 0))
 const completedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.completed || 0))
+const archivedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.archived || 0))
 const failedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.failed || 0))
 const remainingJobsCount = computed(() => pendingJobsCount.value + inProgressJobsCount.value)
 const materializedJobsTotal = computed(
-  () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value,
+  () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value + archivedJobsCount.value,
 )
 const extractionRunLive = computed(() => {
   if (optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value) return true
@@ -216,7 +217,7 @@ const hasRunningJobs = computed(() => inProgressJobsCount.value > 0)
 const extractionProgressPercent = computed(() => {
   const total = materializedJobsTotal.value
   if (total <= 0) return 0
-  return Math.round(((completedJobsCount.value + failedJobsCount.value) / total) * 100)
+  return Math.round(((completedJobsCount.value + archivedJobsCount.value + failedJobsCount.value) / total) * 100)
 })
 const plannedKnownTotalJobs = computed(() => {
   const sets = planSummary.value?.job_sets || []
@@ -730,10 +731,8 @@ onUnmounted(() => {
               <p class="text-xl font-semibold">{{ failedJobsCount }}</p>
             </div>
             <div class="rounded-lg border p-3 text-center">
-              <p class="text-xs text-muted-foreground">Stale candidates</p>
-              <p class="text-xl font-semibold">
-                {{ extractionRunLive ? 0 : inProgressJobsCount }}
-              </p>
+              <p class="text-xs text-muted-foreground">Archived</p>
+              <p class="text-xl font-semibold">{{ archivedJobsCount }}</p>
             </div>
           </div>
 

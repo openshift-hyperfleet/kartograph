@@ -83,6 +83,56 @@ def test_includes_inbound_relationship_when_target_side_has_more_instances() -> 
     assert lines[0].counterpart_type == "Route"
 
 
+def test_rejects_hallucinated_relationship_label() -> None:
+    edges = [
+        {"label": "deploys", "source_type": "Adapter", "target_type": "Cluster"},
+    ]
+    description = """
+Properties:
+- name: from source
+
+Adapter -> operates_on -> Resource: invented edge
+"""
+    from management.domain.extraction_relationship_authoring import (
+        per_instance_description_unknown_relationship_errors,
+    )
+
+    errors = per_instance_description_unknown_relationship_errors(
+        description,
+        "Adapter",
+        edge_types=edges,
+    )
+
+    assert any("operates_on" in err and "not a relationship type" in err for err in errors)
+
+
+def test_rejects_unknown_property_name() -> None:
+    node_types = [
+        {
+            "label": "Adapter",
+            "required_properties": ["name", "slug"],
+            "optional_properties": ["description"],
+        }
+    ]
+    description = """
+Properties:
+- name: from source
+- operates_on: invented property
+"""
+    from management.domain.extraction_relationship_authoring import (
+        per_instance_description_property_errors,
+    )
+
+    errors = per_instance_description_property_errors(
+        description,
+        "Adapter",
+        node_types=node_types,
+    )
+
+    assert any("operates_on" in err and "not defined" in err for err in errors)
+    assert any("slug" in err and "missing property" in err for err in errors)
+
+
 def test_rejects_active_line_for_ignored_relationship() -> None:
     counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
     edges = [

@@ -14,6 +14,7 @@ class ExtractionJobStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    ARCHIVED = "archived"
     FAILED = "failed"
 
 
@@ -102,6 +103,18 @@ class ExtractionJobRecord:
     entities_created: int = 0
     entities_modified: int = 0
     relationships_created: int = 0
+    relationships_modified: int = 0
+    run_started_at: datetime | None = None
+    archived_at: datetime | None = None
+    applied_mutations_jsonl: str | None = None
+
+    def write_ops(self) -> int:
+        return (
+            self.entities_created
+            + self.entities_modified
+            + self.relationships_created
+            + self.relationships_modified
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -129,6 +142,10 @@ class ExtractionJobRecord:
             "entities_created": self.entities_created,
             "entities_modified": self.entities_modified,
             "relationships_created": self.relationships_created,
+            "relationships_modified": self.relationships_modified,
+            "write_ops": self.write_ops(),
+            "run_started_at": self.run_started_at.isoformat() if self.run_started_at else None,
+            "archived_at": self.archived_at.isoformat() if self.archived_at else None,
             "instance_count": len(self.target_instances),
             "file_count": len(self.target_files),
         }

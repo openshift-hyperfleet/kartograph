@@ -4,15 +4,16 @@ Extracts file content from GitHub repositories via the GitHub REST API,
 producing raw content and changeset entries for packaging into a JobPackage.
 
 Supports:
-- Full refresh: fetches all blobs from the repository tree.
+- Full refresh: downloads a repository tarball (one archive fetch).
 - Incremental sync: uses the GitHub Compare API to find only files that
   changed since the previous checkpoint commit SHA.
 
 API endpoints used:
 - GET /repos/{owner}/{repo}/branches/{branch}  — resolve branch to commit SHA
-- GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1  — full tree (blobs)
+- GET /repos/{owner}/{repo}/tarball/{ref}  — full refresh archive download
+- GET /repos/{owner}/{repo}/git/trees/{sha}?recursive=1  — branch file counts
 - GET /repos/{owner}/{repo}/compare/{base}...{head}  — changed files
-- GET /repos/{owner}/{repo}/git/blobs/{sha}  — raw file content (base64)
+- GET /repos/{owner}/{repo}/git/blobs/{sha}  — incremental blob content (base64)
 
 dlt integration note: this adapter class provides the extraction contract
 (IDatasourceAdapter). The Ingestion service (a future task) wraps this adapter
@@ -25,7 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
+import json
 import mimetypes
+import tarfile
 from typing import Any
 
 import httpx
@@ -41,6 +45,7 @@ from shared_kernel.job_package.value_objects import (
 
 # GitHub REST API base URL
 _GITHUB_API_BASE = "https://api.github.com"
+_USER_AGENT = "Kartograph-GitHub-Ingestion/1.0"
 
 # Version of the checkpoint schema this adapter understands.
 # Bump on backwards-incompatible checkpoint changes; callers should
@@ -129,6 +134,17 @@ class GitHubAdapter:
             "connection_config must include either 'repo_url' or 'owner'+'repo' keys"
         )
 
+    @staticmethod
+    def _github_headers(token: str) -> dict[str, str]:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": _USER_AGENT,
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
     async def extract(
         self,
         connection_config: dict[str, str],
@@ -163,10 +179,6 @@ class GitHubAdapter:
         """
         owner, repo, branch = self._parse_connection_config(connection_config)
         token = credentials.get("token") or credentials.get("access_token", "")
-        if not token:
-            raise ValueError(
-                "GitHub credentials must include 'token' or 'access_token'"
-            )
 
         use_full_refresh = (
             sync_mode == SyncMode.FULL_REFRESH
@@ -174,27 +186,27 @@ class GitHubAdapter:
             or _COMMIT_SHA_KEY not in checkpoint.data
         )
 
-        client = self._http_client or httpx.AsyncClient()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+        client = self._http_client or httpx.AsyncClient(follow_redirects=True)
+        headers = self._github_headers(token)
 
         try:
-            # Step 1: Resolve branch to current HEAD commit SHA
             head_sha = await self._get_branch_head_sha(
                 client, headers, owner, repo, branch
             )
 
-            # Step 2: Determine which files to fetch
             if use_full_refresh:
-                files_to_fetch = await self._get_all_tree_blobs(
-                    client, headers, owner, repo, head_sha
+                changeset_entries, content_blobs, branch_file_count = (
+                    await self._extract_full_refresh_via_tarball(
+                        client,
+                        headers,
+                        owner,
+                        repo,
+                        branch,
+                        head_sha,
+                    )
                 )
-                branch_file_count = len(files_to_fetch)
             else:
-                assert checkpoint is not None  # narrowed above
+                assert checkpoint is not None
                 base_sha = checkpoint.data[_COMMIT_SHA_KEY]
                 files_to_fetch = await self._get_changed_files(
                     client, headers, owner, repo, base_sha, head_sha
@@ -202,11 +214,9 @@ class GitHubAdapter:
                 branch_file_count = await self._count_tree_blobs(
                     client, headers, owner, repo, head_sha
                 )
-
-            # Step 3: Fetch content for each file
-            changeset_entries, content_blobs = await self._fetch_file_contents(
-                client, headers, owner, repo, files_to_fetch
-            )
+                changeset_entries, content_blobs = await self._fetch_file_contents(
+                    client, headers, owner, repo, files_to_fetch
+                )
 
         finally:
             # Only close the client if we created it ourselves
@@ -253,9 +263,7 @@ class GitHubAdapter:
             httpx.HTTPStatusError: If the GitHub API returns a non-2xx status.
         """
         url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/branches/{branch}"
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        data: dict[str, Any] = response.json()
+        data = await self._get_json_with_auth_fallback(client, url, headers=headers)
         return str(data["commit"]["sha"])
 
     async def _get_all_tree_blobs(
@@ -284,9 +292,7 @@ class GitHubAdapter:
         url = (
             f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
         )
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        tree_data: dict[str, Any] = response.json()
+        tree_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
 
         result: list[dict[str, Any]] = []
         for item in tree_data.get("tree", []):
@@ -314,9 +320,7 @@ class GitHubAdapter:
         url = (
             f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
         )
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        tree_data: dict[str, Any] = response.json()
+        tree_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
         return sum(
             1 for item in tree_data.get("tree", []) if item.get("type") == "blob"
         )
@@ -349,9 +353,7 @@ class GitHubAdapter:
             ``previous_path`` keys.
         """
         url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}"
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        compare_data: dict[str, Any] = response.json()
+        compare_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
 
         result: list[dict[str, Any]] = []
         for file_info in compare_data.get("files", []):
@@ -377,6 +379,138 @@ class GitHubAdapter:
                 }
             )
         return result
+
+    async def _extract_full_refresh_via_tarball(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        owner: str,
+        repo: str,
+        branch: str,
+        head_sha: str,
+    ) -> tuple[list[ChangesetEntry], dict[str, bytes], int]:
+        """Download repository tarball and build ADD changeset entries."""
+        url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/tarball/{branch}"
+        archive_bytes = await self._get_bytes_with_auth_fallback(
+            client,
+            url,
+            headers=headers,
+        )
+        try:
+            branch_file_count = await self._count_tree_blobs(
+                client, headers, owner, repo, head_sha
+            )
+        except httpx.HTTPStatusError:
+            # Tarball extraction already succeeded; tree count is metadata only.
+            branch_file_count = 0
+        return self._changeset_from_tarball(archive_bytes, branch_file_count=branch_file_count)
+
+    @staticmethod
+    def _changeset_from_tarball(
+        archive_bytes: bytes,
+        *,
+        branch_file_count: int,
+    ) -> tuple[list[ChangesetEntry], dict[str, bytes], int]:
+        changeset_entries: list[ChangesetEntry] = []
+        content_blobs: dict[str, bytes] = {}
+        file_count = 0
+
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+            members = [member for member in archive.getmembers() if member.isfile()]
+            if not members:
+                return [], {}, branch_file_count
+
+            root_prefix = members[0].name.split("/", 1)[0] + "/"
+            for member in members:
+                if not member.name.startswith(root_prefix):
+                    continue
+                relative_path = member.name[len(root_prefix) :]
+                if not relative_path or relative_path.endswith("/"):
+                    continue
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    continue
+                raw_bytes = extracted.read()
+                file_count += 1
+                content_ref = ContentRef.from_bytes(raw_bytes)
+                content_type, _ = mimetypes.guess_type(relative_path)
+                if content_type is None:
+                    content_type = "application/octet-stream"
+                changeset_entries.append(
+                    ChangesetEntry(
+                        operation=ChangeOperation.ADD,
+                        id=content_ref.hex_digest,
+                        type=_ENTRY_TYPE_FILE,
+                        path=relative_path,
+                        content_ref=content_ref,
+                        content_type=content_type,
+                        metadata={},
+                    )
+                )
+                content_blobs[content_ref.hex_digest] = raw_bytes
+
+        return changeset_entries, content_blobs, branch_file_count or file_count
+
+    @staticmethod
+    def _unauthenticated_headers(headers: dict[str, str]) -> dict[str, str]:
+        return {
+            key: value
+            for key, value in headers.items()
+            if key.lower() != "authorization"
+        }
+
+    async def _get_with_auth_fallback(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        response = await client.get(url, headers=headers)
+        if response.status_code == 403 and headers.get("Authorization"):
+            response = await client.get(
+                url,
+                headers=self._unauthenticated_headers(headers),
+            )
+        if response.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                self._github_error_detail(response),
+                request=response.request,
+                response=response,
+            )
+        return response
+
+    async def _get_json_with_auth_fallback(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        headers: dict[str, str],
+    ) -> dict[str, Any]:
+        response = await self._get_with_auth_fallback(client, url, headers=headers)
+        return response.json()
+
+    async def _get_bytes_with_auth_fallback(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        headers: dict[str, str],
+    ) -> bytes:
+        response = await self._get_with_auth_fallback(client, url, headers=headers)
+        return response.content
+
+    @staticmethod
+    def _github_error_detail(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except json.JSONDecodeError:
+            return response.text.strip() or f"HTTP {response.status_code}"
+        message = str(payload.get("message") or "").strip()
+        documentation = str(payload.get("documentation_url") or "").strip()
+        if message and documentation:
+            return f"{message} ({documentation})"
+        return message or f"HTTP {response.status_code}"
 
     async def _fetch_file_contents(
         self,
@@ -480,9 +614,7 @@ class GitHubAdapter:
             ValueError: If the blob encoding is not ``base64``.
         """
         url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/blobs/{blob_sha}"
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        blob_data: dict[str, Any] = response.json()
+        blob_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
 
         encoding: str = blob_data.get("encoding", "base64")
         if encoding != "base64":

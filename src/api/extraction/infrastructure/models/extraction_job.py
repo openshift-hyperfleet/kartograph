@@ -39,6 +39,10 @@ class ExtractionJobModel(Base, TimestampMixin):
     entities_created: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     entities_modified: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
     relationships_created: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    relationships_modified: Mapped[int] = mapped_column(sa.Integer(), nullable=False, default=0)
+    run_started_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    applied_mutations_jsonl: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
 
 
 class ExtractionRunModel(Base, TimestampMixin):

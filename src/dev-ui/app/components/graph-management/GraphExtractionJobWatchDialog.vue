@@ -45,6 +45,7 @@ interface JobActivityPayload {
     entitiesCreated: number
     entitiesModified: number
     relationshipsCreated: number
+    relationshipsModified: number
     writeOps: number
     instanceCount: number
     fileCount: number
@@ -230,6 +231,9 @@ function messageClass(kind: string): string {
               <p>{{ payload.detail.entitiesCreated }} entities created</p>
               <p>{{ payload.detail.entitiesModified }} entities modified</p>
               <p>{{ payload.detail.relationshipsCreated }} relationships created</p>
+              <p v-if="payload.detail.relationshipsModified">
+                {{ payload.detail.relationshipsModified }} relationships modified
+              </p>
               <p class="font-medium text-foreground">{{ payload.detail.writeOps }} total write ops</p>
             </div>
 

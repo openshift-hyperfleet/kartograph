@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import SyncPhaseIndicator from '@/components/graph/SyncPhaseIndicator.vue'
+import { latestSyncRun, sortSyncRunsByRecent } from '@/utils/kgDataSourcesSync'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { CopyableText } from '@/components/ui/copyable-text'
 import {
@@ -727,7 +728,7 @@ async function loadDataSources() {
  */
 const hasActiveSyncs = computed(() =>
   dataSources.value.some((ds) => {
-    const latestStatus = ds.sync_runs?.[0]?.status
+    const latestStatus = latestSyncRun(ds.sync_runs)?.status
     return latestStatus !== undefined && ACTIVE_STATUSES.includes(latestStatus)
   }),
 )
@@ -1210,8 +1211,8 @@ async function handleDeleteDs() {
             </div>
             <div class="flex items-center gap-2">
               <SyncPhaseIndicator
-                v-if="ds.sync_runs?.[0]"
-                :status="ds.sync_runs[0].status"
+                v-if="latestSyncRun(ds.sync_runs)"
+                :status="latestSyncRun(ds.sync_runs)!.status"
               />
               <Badge v-else variant="secondary" class="text-[10px]">Idle</Badge>
               <!-- Edit Ontology button (FAIL 2) -->
@@ -1343,7 +1344,7 @@ async function handleDeleteDs() {
           <div v-if="ds.sync_runs && ds.sync_runs.length > 0" class="border-t px-4 py-3">
             <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Sync History</p>
             <div class="space-y-1">
-              <div v-for="run in ds.sync_runs" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
+              <div v-for="run in sortSyncRunsByRecent(ds.sync_runs)" :key="run.id" class="flex items-center gap-2 text-xs text-muted-foreground">
                 <SyncPhaseIndicator :status="run.status" />
                 <span>{{ new Date(run.started_at).toLocaleString() }}</span>
                 <span v-if="run.completed_at">

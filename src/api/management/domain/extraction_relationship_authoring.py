@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,6 +61,170 @@ def edge_type_dicts_from_ontology(ontology: Any | None) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def node_type_dicts_from_ontology(ontology: Any | None) -> list[dict[str, Any]]:
+    """Normalize ontology node types for property authoring helpers."""
+    if ontology is None:
+        return []
+    node_types = getattr(ontology, "node_types", None) or []
+    rows: list[dict[str, Any]] = []
+    for node in node_types:
+        rows.append(
+            {
+                "label": str(getattr(node, "label", "") or "").strip(),
+                "description": str(getattr(node, "description", "") or "").strip(),
+                "required_properties": list(getattr(node, "required_properties", None) or ()),
+                "optional_properties": list(getattr(node, "optional_properties", None) or ()),
+            }
+        )
+    return rows
+
+
+def properties_for_entity_type(
+    entity_type: str,
+    *,
+    node_types: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    """Return all schema property names declared on one entity type."""
+    for node in node_types:
+        if str(node.get("label") or "").strip() != entity_type:
+            continue
+        required = tuple(str(name).strip() for name in node.get("required_properties") or () if str(name).strip())
+        optional = tuple(str(name).strip() for name in node.get("optional_properties") or () if str(name).strip())
+        return required + optional
+    return ()
+
+
+def entity_type_authoring_context(
+    entity_type: str,
+    *,
+    node_types: list[dict[str, Any]],
+    edge_types: list[dict[str, Any]],
+    entity_instance_counts: dict[str, int],
+) -> dict[str, Any]:
+    """Schema-backed context for drafting one by_instances job set description."""
+    properties = properties_for_entity_type(entity_type, node_types=node_types)
+    relationship_payload = relationship_authoring_payload_for_entity_type(
+        entity_type,
+        edge_types=edge_types,
+        entity_instance_counts=entity_instance_counts,
+    )
+    return {
+        "entity_type": entity_type,
+        "properties": list(properties),
+        "relationship_authoring": relationship_payload,
+    }
+
+
+_RELATIONSHIP_LINE_RE = re.compile(
+    r"^(?:IGNORE\s+)?(?P<entity>[^>]+?)\s*->\s*(?P<label>[^>]+?)\s*->\s*(?P<counterpart>[^:]+?)\s*:",
+    re.IGNORECASE,
+)
+
+
+def _parse_relationship_lines(description: str) -> list[tuple[bool, str, str, str]]:
+    """Return (is_ignore, entity_type, label, counterpart) tuples from description lines."""
+    parsed: list[tuple[bool, str, str, str]] = []
+    for raw_line in description.splitlines():
+        stripped = raw_line.strip()
+        if "->" not in stripped or ":" not in stripped:
+            continue
+        is_ignore = stripped.upper().startswith("IGNORE ")
+        match = _RELATIONSHIP_LINE_RE.match(stripped)
+        if match is None:
+            continue
+        parsed.append(
+            (
+                is_ignore,
+                match.group("entity").strip(),
+                match.group("label").strip(),
+                match.group("counterpart").strip(),
+            )
+        )
+    return parsed
+
+
+def _valid_relationship_keys_for_entity(
+    entity_type: str,
+    *,
+    edge_types: list[dict[str, Any]],
+) -> set[tuple[str, str, str]]:
+    keys: set[tuple[str, str, str]] = set()
+    for line in _relationship_lines_involving_entity_type(entity_type, edge_types=edge_types):
+        keys.add((line.entity_type, line.relationship_label, line.counterpart_type))
+    return keys
+
+
+def _property_names_from_description(description: str) -> set[str]:
+    names: set[str] = set()
+    in_properties = False
+    for raw_line in description.splitlines():
+        stripped = raw_line.strip()
+        if stripped.lower().startswith("properties:"):
+            in_properties = True
+            continue
+        if in_properties and "->" in stripped and ":" in stripped:
+            in_properties = False
+        if not in_properties:
+            continue
+        if stripped.startswith("- "):
+            body = stripped[2:].strip()
+            if ":" in body:
+                names.add(body.split(":", 1)[0].strip())
+    return names
+
+
+def per_instance_description_property_errors(
+    description: str,
+    entity_type: str,
+    *,
+    node_types: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    """Validate Properties section names against ontology node type definitions."""
+    if not node_types:
+        return ()
+    known = set(properties_for_entity_type(entity_type, node_types=node_types))
+    if not known:
+        return (f"{entity_type}: entity type not found in ontology.",)
+
+    listed = _property_names_from_description(description)
+    errors: list[str] = []
+    unknown = sorted(name for name in listed if name not in known)
+    for name in unknown:
+        errors.append(
+            f"{entity_type}: property '{name}' is not defined on this entity type in the ontology."
+        )
+    missing = sorted(name for name in known if name not in listed)
+    for name in missing:
+        errors.append(
+            f"{entity_type}: missing property line '- {name}:' under Properties (required by schema)."
+        )
+    return tuple(errors)
+
+
+def per_instance_description_unknown_relationship_errors(
+    description: str,
+    entity_type: str,
+    *,
+    edge_types: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    """Reject relationship lines that do not exist in the ontology for this entity type."""
+    if not edge_types:
+        return ()
+    valid = _valid_relationship_keys_for_entity(entity_type, edge_types=edge_types)
+    errors: list[str] = []
+    for is_ignore, line_entity, label, counterpart in _parse_relationship_lines(description):
+        if line_entity != entity_type:
+            continue
+        key = (line_entity, label, counterpart)
+        if key not in valid:
+            action = "IGNORE line" if is_ignore else "relationship line"
+            errors.append(
+                f"{entity_type}: {action} '{line_entity} -> {label} -> {counterpart}' "
+                "is not a relationship type in the ontology for this entity type."
+            )
+    return tuple(errors)
 
 
 def _relationship_lines_involving_entity_type(

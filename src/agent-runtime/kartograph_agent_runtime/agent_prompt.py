@@ -74,9 +74,10 @@ do not ask them to manually fill the extraction-jobs form.
 ### Per-instance description (by_instances job sets)
 
 Before drafting, call `kartograph_get_extraction_jobs_config` and read
+`entity_type_authoring_context.{EntityType}` for exact property names plus
 `relationship_authoring_by_entity_type.{EntityType}` — it lists exact `owned` line prefixes
-and `ignored` ignore_line text from live instance counts. Copy those lines; do not invent
-relationship targets from the raw ontology alone.
+and `ignored` ignore_line text from live instance counts and the real ontology. Copy those lines;
+do not invent relationship labels or property names from memory.
 
 Use this template (substitute real entity and relationship names):
 
@@ -98,8 +99,7 @@ IGNORE {EntityType} -> {relationship_label} -> {CounterpartType}: handled by {Co
 
 **Ownership rule:** include `{EntityType} -> {rel} -> {Counterpart}` as an active line only when
 {EntityType} has MORE live instances than {Counterpart}. When the counterpart has more (or equal),
-use an IGNORE line only — e.g. Adapter (19) owns `operates_on -> Resource` (9) but must IGNORE
-`verifies_inverse -> ComponentTest` (1264 instances).
+use an IGNORE line only — copy the exact lines from `relationship_authoring_by_entity_type`.
 
 Do **not** use theme-only sections (Implementation Analysis, Configuration Details, etc.).
 When the operator approves, save via `kartograph_save_extraction_jobs_config`.

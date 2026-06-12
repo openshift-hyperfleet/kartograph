@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
+import tarfile
 
 import httpx
 import pytest
@@ -115,6 +117,21 @@ def _blob_response(content: bytes) -> dict:
     }
 
 
+def _tarball_bytes(
+    files: dict[str, bytes],
+    *,
+    root: str = "myorg-myrepo-abc123",
+) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, content in files.items():
+            payload = io.BytesIO(content)
+            info = tarfile.TarInfo(name=f"{root}/{path}")
+            info.size = len(content)
+            archive.addfile(info, payload)
+    return buffer.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # Fake transport
 # ---------------------------------------------------------------------------
@@ -138,6 +155,14 @@ class FakeGitHubTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url_path = request.url.path
         for path_suffix, response_data in self._responses.items():
+            if path_suffix == "__tarball__":
+                if "/tarball/" in url_path:
+                    payload = response_data if isinstance(response_data, bytes) else response_data["bytes"]
+                    return httpx.Response(
+                        status_code=200,
+                        content=payload,
+                        headers={"content-type": "application/x-gzip"},
+                    )
             if url_path.endswith(path_suffix) or path_suffix in url_path:
                 return httpx.Response(
                     status_code=200,
@@ -170,13 +195,14 @@ def full_refresh_transport() -> FakeGitHubTransport:
     """Transport configured for a full refresh extraction."""
     return FakeGitHubTransport(
         {
-            # Branch tip
             "/branches/main": _branch_response(HEAD_SHA),
-            # Full tree
             f"/git/trees/{HEAD_SHA}": _tree_response(),
-            # Blobs
-            f"/git/blobs/{BLOB_SHA_README}": _blob_response(README_CONTENT),
-            f"/git/blobs/{BLOB_SHA_MAIN}": _blob_response(MAIN_PY_CONTENT),
+            "__tarball__": _tarball_bytes(
+                {
+                    "README.md": README_CONTENT,
+                    "src/main.py": MAIN_PY_CONTENT,
+                }
+            ),
         }
     )
 
@@ -307,29 +333,20 @@ class TestFullRefresh:
     async def test_full_refresh_skips_tree_entries_that_are_not_blobs(
         self, connection_config, credentials
     ):
-        """Directory (tree-type) entries in the tree are skipped."""
+        """Tarball extraction ignores directory entries and keeps file paths."""
         transport = FakeGitHubTransport(
             {
                 "/branches/main": _branch_response(HEAD_SHA),
                 f"/git/trees/{HEAD_SHA}": _tree_response(
                     [
                         {
-                            "path": "src",
-                            "type": "tree",  # directory — must be skipped
-                            "sha": "dir-sha",
-                            "size": 0,
-                            "mode": "040000",
-                        },
-                        {
                             "path": "src/main.py",
                             "type": "blob",
                             "sha": BLOB_SHA_MAIN,
-                            "size": len(MAIN_PY_CONTENT),
-                            "mode": "100644",
                         },
                     ]
                 ),
-                f"/git/blobs/{BLOB_SHA_MAIN}": _blob_response(MAIN_PY_CONTENT),
+                "__tarball__": _tarball_bytes({"src/main.py": MAIN_PY_CONTENT}),
             }
         )
         client = httpx.AsyncClient(transport=transport)
@@ -658,6 +675,7 @@ class TestCredentialHandling:
             {
                 "/branches/main": _branch_response(HEAD_SHA),
                 f"/git/trees/{HEAD_SHA}": _tree_response([]),
+                "__tarball__": _tarball_bytes({}),
             }
         )
         calls: list[str] = []
@@ -700,6 +718,12 @@ class TestCredentialHandling:
                     data: dict = _branch_response(HEAD_SHA)
                 elif "git/trees" in url_path:
                     data = _tree_response([])
+                elif "/tarball/" in url_path:
+                    return httpx.Response(
+                        200,
+                        content=_tarball_bytes({}),
+                        headers={"content-type": "application/x-gzip"},
+                    )
                 else:
                     raise RuntimeError(f"Unexpected: {url_path}")
                 return httpx.Response(
@@ -884,47 +908,59 @@ class TestContentFetching:
             assert entry.type == "io.kartograph.change.file"
 
     @pytest.mark.asyncio
-    async def test_full_refresh_fetches_blobs_with_parallelism(
+    async def test_full_refresh_downloads_repository_tarball(
         self, connection_config, credentials
     ):
-        """Blob fetches should run concurrently for better throughput."""
-        max_in_flight = 0
-        in_flight = 0
+        """Full refresh should download one archive instead of per-blob API calls."""
+        tarball_requests = 0
+        blob_requests = 0
 
-        files = [
-            {
-                "path": f"src/file_{i}.py",
-                "type": "blob",
-                "sha": f"blob{i:02d}" * 5,
-            }
-            for i in range(4)
-        ]
-
-        class ConcurrentBlobTransport(httpx.AsyncBaseTransport):
+        class TarballTransport(httpx.AsyncBaseTransport):
             async def handle_async_request(
                 self, request: httpx.Request
             ) -> httpx.Response:
-                nonlocal max_in_flight, in_flight
+                nonlocal tarball_requests, blob_requests
                 url_path = request.url.path
                 if url_path.endswith("/branches/main"):
                     data: dict = _branch_response(HEAD_SHA)
-                elif f"/git/trees/{HEAD_SHA}" in url_path:
-                    data = _tree_response(files)
-                elif "/git/blobs/" in url_path:
-                    in_flight += 1
-                    max_in_flight = max(max_in_flight, in_flight)
-                    await asyncio.sleep(0.03)
-                    in_flight -= 1
+                    return httpx.Response(
+                        200,
+                        content=json.dumps(data).encode(),
+                        headers={"content-type": "application/json"},
+                    )
+                if f"/git/trees/{HEAD_SHA}" in url_path:
+                    data = _tree_response(
+                        [
+                            {"path": f"src/file_{i}.py", "type": "blob", "sha": f"sha{i}"}
+                            for i in range(4)
+                        ]
+                    )
+                    return httpx.Response(
+                        200,
+                        content=json.dumps(data).encode(),
+                        headers={"content-type": "application/json"},
+                    )
+                if "/tarball/" in url_path:
+                    tarball_requests += 1
+                    payload = _tarball_bytes(
+                        {f"src/file_{i}.py": b"print('hi')\n" for i in range(4)}
+                    )
+                    return httpx.Response(
+                        200,
+                        content=payload,
+                        headers={"content-type": "application/x-gzip"},
+                    )
+                if "/git/blobs/" in url_path:
+                    blob_requests += 1
                     data = _blob_response(b"print('hi')\n")
-                else:
-                    raise RuntimeError(f"Unexpected URL: {url_path}")
-                return httpx.Response(
-                    200,
-                    content=json.dumps(data).encode(),
-                    headers={"content-type": "application/json"},
-                )
+                    return httpx.Response(
+                        200,
+                        content=json.dumps(data).encode(),
+                        headers={"content-type": "application/json"},
+                    )
+                raise RuntimeError(f"Unexpected URL: {url_path}")
 
-        client = httpx.AsyncClient(transport=ConcurrentBlobTransport())
+        client = httpx.AsyncClient(transport=TarballTransport())
         adapter = GitHubAdapter(http_client=client)
 
         result = await adapter.extract(
@@ -935,4 +971,70 @@ class TestContentFetching:
         )
 
         assert len(result.changeset_entries) == 4
-        assert max_in_flight >= 2
+        assert tarball_requests == 1
+        assert blob_requests == 0
+
+    @pytest.mark.asyncio
+    async def test_full_refresh_retries_without_auth_when_token_returns_403(
+        self, connection_config, credentials
+    ):
+        """Restricted PATs on public repos should fall back to unauthenticated access."""
+        auth_attempts = 0
+        unauth_attempts = 0
+
+        class ForbiddenWithTokenTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(
+                self, request: httpx.Request
+            ) -> httpx.Response:
+                nonlocal auth_attempts, unauth_attempts
+                url_path = request.url.path
+                has_auth = bool(request.headers.get("authorization"))
+
+                if url_path.endswith("/branches/main"):
+                    if has_auth:
+                        auth_attempts += 1
+                        return httpx.Response(403, content=b'{"message":"Forbidden"}')
+                    unauth_attempts += 1
+                    data = _branch_response(HEAD_SHA)
+                    return httpx.Response(
+                        200,
+                        content=json.dumps(data).encode(),
+                        headers={"content-type": "application/json"},
+                    )
+                if "/tarball/" in url_path:
+                    if has_auth:
+                        auth_attempts += 1
+                        return httpx.Response(403, content=b'{"message":"Forbidden"}')
+                    unauth_attempts += 1
+                    payload = _tarball_bytes({"README.md": b"# hello\n"})
+                    return httpx.Response(
+                        200,
+                        content=payload,
+                        headers={"content-type": "application/x-gzip"},
+                    )
+                if f"/git/trees/{HEAD_SHA}" in url_path:
+                    if has_auth:
+                        auth_attempts += 1
+                        return httpx.Response(403, content=b'{"message":"Forbidden"}')
+                    unauth_attempts += 1
+                    data = _tree_response([{"path": "README.md", "type": "blob", "sha": "abc"}])
+                    return httpx.Response(
+                        200,
+                        content=json.dumps(data).encode(),
+                        headers={"content-type": "application/json"},
+                    )
+                raise RuntimeError(f"Unexpected URL: {url_path}")
+
+        client = httpx.AsyncClient(transport=ForbiddenWithTokenTransport())
+        adapter = GitHubAdapter(http_client=client)
+
+        result = await adapter.extract(
+            connection_config=connection_config,
+            credentials=credentials,
+            checkpoint=None,
+            sync_mode=SyncMode.FULL_REFRESH,
+        )
+
+        assert len(result.changeset_entries) == 1
+        assert auth_attempts >= 1
+        assert unauth_attempts >= 1

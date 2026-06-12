@@ -23,7 +23,7 @@ from extraction.infrastructure.extraction_job_activity import (
     format_activity_log_line,
     format_claude_code_stream_line,
 )
-from extraction.infrastructure.extraction_job_metrics import metrics_from_otel_log
+from extraction.infrastructure.extraction_job_metrics import merge_extraction_job_metrics
 from extraction.infrastructure.extraction_job_prompt import (
     EXTRACTION_JOB_INVOKE_PROMPT,
     build_extraction_job_prompt,
@@ -98,13 +98,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         )
         _patch_job_context_api_base(workdir, self._settings.agentic_ci_api_base_url)
         prompt = build_extraction_job_prompt(job=job)
-        return await self._run_in_container(
-            job=job,
-            workdir=workdir,
-            prompt=prompt,
-            tenant_id=tenant_id,
-            workload_token=credentials.token,
-        )
+        return await self._run_in_container(job=job, workdir=workdir, prompt=prompt)
 
     async def _run_in_container(
         self,
@@ -112,27 +106,16 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         job: ExtractionJobRecord,
         workdir: Path,
         prompt: str,
-        tenant_id: str,
-        workload_token: str,
     ) -> dict[str, Any]:
         import asyncio
 
-        return await asyncio.to_thread(
-            self._run_in_container_sync,
-            job,
-            workdir,
-            prompt,
-            tenant_id,
-            workload_token,
-        )
+        return await asyncio.to_thread(self._run_in_container_sync, job, workdir, prompt)
 
     def _run_in_container_sync(
         self,
         job: ExtractionJobRecord,
         workdir: Path,
         prompt: str,
-        tenant_id: str,
-        workload_token: str,
     ) -> dict[str, Any]:
         runtime = create_container_runtime(self._settings.container_engine)
         binary = getattr(runtime, "_binary", "podman")
@@ -145,12 +128,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         try:
             otel_proc, otel_port, otel_log_path, _otel_rate = otel.start_collector(run_dir)
             otel_log = Path(otel_log_path)
-            env = self._build_container_env(
-                otel_port=otel_port,
-                job=job,
-                tenant_id=tenant_id,
-                workload_token=workload_token,
-            )
+            env = self._build_container_env(otel_port=otel_port)
             binds = self._build_binds(workdir=workdir)
             write_extraction_prompt_file(workdir=workdir, prompt=prompt)
             command = _strip_harness_binary(
@@ -172,7 +150,12 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             if otel_proc is not None:
                 otel.stop_collector(otel_proc)
                 otel_proc = None
-            metrics = metrics_from_otel_log(otel_log) if otel_log is not None else {}
+            log_path = activity_log_path(workdir)
+            metrics = merge_extraction_job_metrics(
+                otel_log=otel_log,
+                workdir=workdir,
+                activity_log=log_path,
+            )
             if rc != 0:
                 raise RuntimeError(
                     f"agentic-ci container exited with code {rc} for job {job.job_id}"
@@ -186,10 +169,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                     "via workload API."
                 ),
             )
-            metrics = {
-                **metrics,
-                "operations_applied": verdict.operations_applied,
-            }
+            metrics["operations_applied"] = verdict.operations_applied
             return metrics
         finally:
             if otel_proc is not None:
@@ -210,28 +190,13 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             return from_env
         return self._harness.default_model()
 
-    def _build_container_env(
-        self,
-        *,
-        otel_port: int,
-        job: ExtractionJobRecord | None = None,
-        tenant_id: str = "",
-        workload_token: str = "",
-    ) -> dict[str, str]:
+    def _build_container_env(self, *, otel_port: int) -> dict[str, str]:
         model = self._resolve_model()
         env: dict[str, str] = {
             "DISABLE_AUTOUPDATER": "1",
             "AGENT_MODEL": model,
             self._harness.model_env_var(): model,
         }
-        if workload_token.strip():
-            env["KARTOGRAPH_WORKLOAD_TOKEN"] = workload_token.strip()
-            env["KARTOGRAPH_API_BASE_URL"] = self._settings.agentic_ci_api_base_url.rstrip("/")
-            if job is not None:
-                env["KARTOGRAPH_KNOWLEDGE_GRAPH_ID"] = job.knowledge_graph_id
-            if tenant_id.strip():
-                env["KARTOGRAPH_TENANT_ID"] = tenant_id.strip()
-            env["KARTOGRAPH_WORKSPACE"] = "/workspace"
         if self._harness.auth_mode == "api-key":
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             if api_key:
@@ -353,9 +318,13 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             bufsize=1,
         )
         captured_tail: list[str] = []
+        stream_log_path = activity_log_path.parent / "agent_stream.jsonl"
         try:
             assert proc.stdout is not None
-            with activity_log_path.open("a", encoding="utf-8") as log_handle:
+            with activity_log_path.open("a", encoding="utf-8") as log_handle, stream_log_path.open(
+                "a",
+                encoding="utf-8",
+            ) as stream_handle:
                 for line in proc.stdout:
                     if time.monotonic() - started > timeout_seconds:
                         proc.kill()
@@ -370,6 +339,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                     cleaned = line.rstrip("\n")
                     if not cleaned:
                         continue
+                    if cleaned.startswith("{"):
+                        stream_handle.write(cleaned + "\n")
+                        stream_handle.flush()
                     parsed = format_claude_code_stream_line(cleaned)
                     if parsed:
                         ts = datetime.now(UTC).isoformat()

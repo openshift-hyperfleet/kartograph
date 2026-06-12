@@ -397,6 +397,66 @@ class TestFindByDataSource:
             assert result.data_source_id == ds1.id.value
 
     @pytest.mark.asyncio
+    async def test_find_by_data_source_orders_newest_first(
+        self,
+        data_source_sync_run_repository: DataSourceSyncRunRepository,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should return sync runs newest-first so UI can treat index 0 as latest."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Test KG",
+            description="For sync run ordering tests",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="Ordering DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        oldest_id = str(ULID())
+        middle_id = str(ULID())
+        newest_id = str(ULID())
+        timestamps = [
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 2, tzinfo=UTC),
+            datetime(2026, 1, 3, tzinfo=UTC),
+        ]
+        for run_id, created_at in zip(
+            [oldest_id, middle_id, newest_id],
+            timestamps,
+            strict=True,
+        ):
+            sync_run = DataSourceSyncRun(
+                id=run_id,
+                data_source_id=ds.id.value,
+                status="failed" if run_id == oldest_id else "ingested",
+                started_at=created_at,
+                completed_at=created_at,
+                error="old failure" if run_id == oldest_id else None,
+                created_at=created_at,
+            )
+            async with async_session.begin():
+                await data_source_sync_run_repository.save(sync_run)
+
+        results = await data_source_sync_run_repository.find_by_data_source(ds.id.value)
+
+        assert [run.id for run in results] == [newest_id, middle_id, oldest_id]
+
+    @pytest.mark.asyncio
     async def test_returns_empty_for_data_source_with_no_runs(
         self,
         data_source_sync_run_repository: DataSourceSyncRunRepository,

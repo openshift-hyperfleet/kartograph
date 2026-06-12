@@ -49,10 +49,10 @@ def append_extraction_jobs_tools(*, tooling: RuntimeTooling, tools: list[Any]) -
             "entity_type + instances_per_job for by_instances, or file_patterns + files_per_job "
             "for by_files. For by_instances, description must match per_instance_description_authoring: "
             "opening capture-everything paragraph, Properties section listing each property, then "
-            "one '{EntityType} -> {rel} -> {CounterpartType}:' line per relationship this entity "
-            "type owns (include only when this entity type has more live instances than the "
-            "counterpart type). Example: Adapter (19) includes operates_on->Resource (9), "
-            "excludes verifies/verifies_inverse->ComponentTest (1264)."
+            "one '{EntityType} -> {rel} -> {CounterpartType}:' line per owned relationship, "
+            "plus an 'Ignore these relationships:' section with explicit IGNORE lines for edges "
+            "where the counterpart type has more instances (e.g. IGNORE Adapter -> "
+            "verifies_inverse -> ComponentTest when ComponentTest count >> Adapter count)."
         ),
         {
             "version": str,

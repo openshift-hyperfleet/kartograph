@@ -23,7 +23,9 @@ def append_extraction_jobs_tools(*, tooling: RuntimeTooling, tools: list[Any]) -
         "kartograph_get_extraction_jobs_config",
         (
             "Read saved extraction job sets for this knowledge graph, including live "
-            "entity type instance counts. Call before proposing or saving changes."
+            "entity type instance counts and relationship_authoring_by_entity_type "
+            "(owned line prefixes and IGNORE lines per entity type). Call before proposing "
+            "or saving changes."
         ),
         {},
     )

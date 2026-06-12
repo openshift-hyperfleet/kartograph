@@ -30,6 +30,10 @@ from management.domain.extraction_job_config import (
     ExtractionJobSetDefinition,
     ExtractionJobSetStrategy,
 )
+from management.domain.extraction_relationship_authoring import (
+    edge_type_dicts_from_ontology,
+    relationship_authoring_by_entity_type,
+)
 from management.domain.value_objects import KnowledgeGraphId
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
@@ -92,6 +96,8 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
             graph_data=graph_data,
         )
+        ontology = await self._knowledge_graph_repository.get_ontology(knowledge_graph_id)
+        edge_types = edge_type_dicts_from_ontology(ontology)
         entity_types = [
             {"name": name, "instance_count": count}
             for name, count in sorted(counts.items(), key=lambda item: item[0])
@@ -99,6 +105,10 @@ class GraphWorkloadExtractionJobsService:
         return {
             **document.to_dict(),
             "entity_types": entity_types,
+            "relationship_authoring_by_entity_type": relationship_authoring_by_entity_type(
+                entity_instance_counts=counts,
+                edge_types=edge_types,
+            ),
         }
 
     async def save_document(
@@ -125,7 +135,12 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
             graph_data=graph_data,
         )
-        errors = document.validation_errors(entity_instance_counts=counts)
+        ontology = await self._knowledge_graph_repository.get_ontology(knowledge_graph_id)
+        edge_types = edge_type_dicts_from_ontology(ontology)
+        errors = document.validation_errors(
+            entity_instance_counts=counts,
+            edge_types=edge_types,
+        )
         if errors:
             raise ValueError("; ".join(errors))
 

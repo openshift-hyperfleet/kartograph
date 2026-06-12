@@ -89,6 +89,16 @@ class ExtractionRunOrchestrator:
             )
             await session.commit()
 
+    async def stop_workers(self, *, knowledge_graph_id: str) -> None:
+        """Cancel worker tasks without changing job rows (for reset-to-pending flows)."""
+        state = self._active.get(knowledge_graph_id)
+        if state is None:
+            return
+        state.stop_event.set()
+        for task in state.tasks:
+            task.cancel()
+        self._active.pop(knowledge_graph_id, None)
+
     async def halt(self, *, knowledge_graph_id: str) -> None:
         state = self._active.get(knowledge_graph_id)
         if state is not None:

@@ -15,7 +15,10 @@ from infrastructure.management.extraction_job_materializer import (
     materialize_jobs_from_config,
     projected_job_count,
 )
-from extraction.infrastructure.extraction_job_container import stop_extraction_job_container
+from extraction.infrastructure.extraction_job_container import (
+    stop_extraction_job_container,
+    stop_extraction_job_containers,
+)
 from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
 from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
 from extraction.infrastructure.extraction_job_activity import (
@@ -35,6 +38,10 @@ from management.domain.extraction_job_config import (
     ExtractionJobConfigDocument,
     ExtractionJobSetDefinition,
     ExtractionJobSetStrategy,
+)
+from management.domain.extraction_relationship_authoring import (
+    edge_type_dicts_from_ontology,
+    relationship_authoring_by_entity_type,
 )
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
@@ -105,6 +112,8 @@ class ExtractionJobsService:
             knowledge_graph_id=kg_id,
             graph_data=graph_data,
         )
+        ontology = await self._knowledge_graph_repository.get_ontology(kg_id)
+        edge_types = edge_type_dicts_from_ontology(ontology)
         entity_types = [
             {"name": name, "instance_count": count}
             for name, count in sorted(counts.items(), key=lambda item: item[0])
@@ -112,6 +121,10 @@ class ExtractionJobsService:
         return {
             **document.to_dict(),
             "entity_types": entity_types,
+            "relationship_authoring_by_entity_type": relationship_authoring_by_entity_type(
+                entity_instance_counts=counts,
+                edge_types=edge_types,
+            ),
         }
 
     async def save_extraction_jobs_document(
@@ -137,7 +150,12 @@ class ExtractionJobsService:
             knowledge_graph_id=kg_id,
             graph_data=graph_data,
         )
-        errors = document.validation_errors(entity_instance_counts=counts)
+        ontology = await self._knowledge_graph_repository.get_ontology(kg_id)
+        edge_types = edge_type_dicts_from_ontology(ontology)
+        errors = document.validation_errors(
+            entity_instance_counts=counts,
+            edge_types=edge_types,
+        )
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -216,6 +234,18 @@ class ExtractionJobsService:
         )
         await self._session.commit()
         return result
+
+    async def _stop_in_progress_containers(self, *, kg_id: str) -> int:
+        runtime_settings = get_extraction_workload_runtime_settings()
+        job_ids = await self._extraction_job_repository.list_in_progress_job_ids(
+            knowledge_graph_id=kg_id,
+        )
+        if not job_ids:
+            return 0
+        return stop_extraction_job_containers(
+            job_ids=job_ids,
+            container_engine=runtime_settings.container_engine,
+        )
 
     async def cancel_job(
         self,
@@ -481,19 +511,43 @@ class ExtractionJobsService:
         kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
         if kg is None:
             raise ValueError(f"Knowledge graph '{kg_id}' not found")
+        job_ids = await self._extraction_job_repository.list_in_progress_job_ids(
+            knowledge_graph_id=kg_id,
+        )
         orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
         await orchestrator.halt(knowledge_graph_id=kg_id)
+        runtime_settings = get_extraction_workload_runtime_settings()
+        stopped = stop_extraction_job_containers(
+            job_ids=job_ids,
+            container_engine=runtime_settings.container_engine,
+        )
         await self._session.commit()
-        return {"success": True, "message": "Extraction halted and incomplete jobs marked failed."}
+        return {
+            "success": True,
+            "message": (
+                "Extraction halted, incomplete jobs marked failed, and "
+                f"{stopped} extraction container(s) stopped."
+            ),
+        }
 
     async def reset_stale_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        await orchestrator.stop_workers(knowledge_graph_id=kg_id)
+        stopped = await self._stop_in_progress_containers(kg_id=kg_id)
         reset = await self._extraction_job_repository.reset_jobs_by_status(
             knowledge_graph_id=kg_id,
             from_status=ExtractionJobStatus.IN_PROGRESS,
         )
         await self._session.commit()
-        return {"success": True, "reset_count": reset}
+        return {
+            "success": True,
+            "reset_count": reset,
+            "containers_stopped": stopped,
+            "message": (
+                f"Reset {reset} running job(s) to pending and stopped {stopped} container(s)."
+            ),
+        }
 
     async def reset_completed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)

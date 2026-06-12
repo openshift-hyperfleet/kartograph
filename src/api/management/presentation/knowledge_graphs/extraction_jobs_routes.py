@@ -39,7 +39,7 @@ class ExtractionJobsDocumentResponse(BaseModel):
 
 
 class StartExtractionRequest(BaseModel):
-    workers: int = Field(default=2, ge=1, le=32)
+    workers: int = Field(default=20, ge=1, le=32)
 
 
 class ActionResponse(BaseModel):

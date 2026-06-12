@@ -63,7 +63,7 @@ _EXTRACTION_JOBS_TOOLS_REFERENCE = """
 
 | Tool | Purpose |
 |------|---------|
-| `kartograph_get_extraction_jobs_config` | Read saved job sets and live entity instance counts |
+| `kartograph_get_extraction_jobs_config` | Read saved job sets, live instance counts, and `relationship_authoring_by_entity_type` |
 | `kartograph_save_extraction_jobs_config` | Save job sets and regenerate pending jobs (operator-approved configs) |
 | `kartograph_get_extraction_jobs_plan_summary` | Projected job counts per job set before/after save |
 | `kartograph_get_extraction_jobs_status` | Queue metrics: pending/in-progress/completed/failed jobs |
@@ -73,18 +73,33 @@ do not ask them to manually fill the extraction-jobs form.
 
 ### Per-instance description (by_instances job sets)
 
-Use this template (substitute real entity and relationship names from `kartograph_get_schema_ontology`):
+Before drafting, call `kartograph_get_extraction_jobs_config` and read
+`relationship_authoring_by_entity_type.{EntityType}` — it lists exact `owned` line prefixes
+and `ignored` ignore_line text from live instance counts. Copy those lines; do not invent
+relationship targets from the raw ontology alone.
+
+Use this template (substitute real entity and relationship names):
 
 ```
-For each of the instances of {EntityType} you've been assigned, capture everything into the knowledge graph: all properties of that instance and every relationship instance an instance of {EntityType} can have.
+For each of the instances of {EntityType} you've been assigned, capture everything into the knowledge graph: all properties of that instance and every relationship instance this job set owns (see lines below).
 
 Properties:
 - {property_name}: {how to extract, where in repository-files/, value shape}
 - ...
 
 {EntityType} -> {relationship_label} -> {CounterpartType}: {when to create/update; how to resolve counterpart slug}
-{EntityType} -> {other_rel} -> {OtherType}: ...
+(one line per entry in relationship_authoring_by_entity_type.{EntityType}.owned only)
+
+Ignore these relationships:
+IGNORE {EntityType} -> {relationship_label} -> {CounterpartType}: handled by {CounterpartType} job sets ({counterpart_count} vs {EntityType} {entity_count} instances). Do not create or update this edge in this job set.
+(one line per entry in relationship_authoring_by_entity_type.{EntityType}.ignored — never list these as active extraction targets)
+
 ```
+
+**Ownership rule:** include `{EntityType} -> {rel} -> {Counterpart}` as an active line only when
+{EntityType} has MORE live instances than {Counterpart}. When the counterpart has more (or equal),
+use an IGNORE line only — e.g. Adapter (19) owns `operates_on -> Resource` (9) but must IGNORE
+`verifies_inverse -> ComponentTest` (1264 instances).
 
 Do **not** use theme-only sections (Implementation Analysis, Configuration Details, etc.).
 When the operator approves, save via `kartograph_save_extraction_jobs_config`.
@@ -179,6 +194,9 @@ def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+_EXTRACTION_JOBS_COMPACT_SKILL_KEYS = ("per_instance_description_authoring", "job_set_contract")
+
+
 def build_agent_system_prompt(
     agent_configuration: dict[str, Any],
     *,
@@ -205,19 +223,36 @@ def build_agent_system_prompt(
     if ui_mode:
         skill_sections.append(f"UI mode: {ui_mode}")
 
-    for key, value in sorted(skills.items()):
+    skills_dict = dict(skills) if isinstance(skills, dict) else {}
+    if prompt_detail == "compact" and ui_mode == "extraction-jobs":
+        skill_items = sorted(
+            (key, value)
+            for key, value in skills_dict.items()
+            if key in _EXTRACTION_JOBS_COMPACT_SKILL_KEYS
+        )
+    elif prompt_detail == "full":
+        skill_items = sorted(skills_dict.items())
+    else:
+        skill_items = []
+
+    for key, value in skill_items:
         text = str(value).strip()
         if text:
             skill_sections.append(f"**{key}**: {text}")
 
     skills_block = ""
-    if prompt_detail == "full" and skill_sections:
+    if skill_sections and (prompt_detail == "full" or skill_items):
         skills_block = "## Skills\n\n" + "\n\n".join(skill_sections)
 
     tools_block = ""
     if include_tools_manifest and settings is not None and settings.workload_token.strip():
         if prompt_detail == "compact":
-            tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}"
+            extraction_jobs_block = (
+                f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
+                if ui_mode == "extraction-jobs"
+                else ""
+            )
+            tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}{extraction_jobs_block}"
         else:
             kartograph_tools = ", ".join(
                 f"`{name}`"

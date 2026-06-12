@@ -19,3 +19,16 @@ def stop_extraction_job_container(*, job_id: str, container_engine: str = "auto"
     runtime = create_container_runtime(container_engine)
     name = extraction_job_container_name(job_id)
     return runtime.remove_by_name(name, force=True)
+
+
+def stop_extraction_job_containers(
+    *,
+    job_ids: tuple[str, ...] | list[str],
+    container_engine: str = "auto",
+) -> int:
+    """Stop and remove extraction containers for many jobs. Returns count removed."""
+    stopped = 0
+    for job_id in job_ids:
+        if stop_extraction_job_container(job_id=job_id, container_engine=container_engine):
+            stopped += 1
+    return stopped

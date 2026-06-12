@@ -50,3 +50,31 @@ def test_document_rejects_duplicate_job_set_names() -> None:
     )
     errors = document.validation_errors(entity_instance_counts={"Feature": 3})
     assert any("Duplicate" in err for err in errors)
+
+
+def test_by_instances_rejects_counterpart_owned_relationship_line() -> None:
+    document = ExtractionJobConfigDocument(
+        version="1.0",
+        job_sets=(
+            ExtractionJobSetDefinition(
+                name="adapters",
+                strategy=ExtractionJobSetStrategy.BY_INSTANCES,
+                entity_type="Adapter",
+                instances_per_job=3,
+                description=(
+                    "Properties:\n"
+                    "- name: from source\n\n"
+                    "Adapter -> operates_on -> Resource: link resources\n"
+                    "Adapter -> verifies_inverse -> ComponentTest: link tests\n"
+                ),
+            ),
+        ),
+    )
+    edges = [
+        {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
+        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+    ]
+    counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
+    errors = document.validation_errors(entity_instance_counts=counts, edge_types=edges)
+
+    assert any("verifies_inverse" in err and "must not" in err.lower() for err in errors)

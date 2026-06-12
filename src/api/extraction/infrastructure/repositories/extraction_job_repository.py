@@ -241,6 +241,14 @@ class ExtractionJobRepository:
         )
         return int(result.rowcount or 0) > 0
 
+    async def list_in_progress_job_ids(self, *, knowledge_graph_id: str) -> list[str]:
+        stmt = select(ExtractionJobModel.job_id).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+        )
+        result = await self._session.execute(stmt)
+        return [str(row[0]) for row in result.all()]
+
     async def count_by_status(self, *, knowledge_graph_id: str) -> dict[str, int]:
         stmt = (
             select(ExtractionJobModel.status, func.count())

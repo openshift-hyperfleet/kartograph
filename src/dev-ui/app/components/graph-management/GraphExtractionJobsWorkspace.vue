@@ -96,7 +96,7 @@ const dbRefreshing = ref(false)
 const dbError = ref<string | null>(null)
 const extractionRunState = ref<ExtractionRunState | null>(null)
 const planSummary = ref<PlanSummary | null>(null)
-const workers = ref(2)
+const workers = ref(20)
 const startingExtraction = ref(false)
 const pausingExtraction = ref(false)
 const killingExtraction = ref(false)
@@ -402,8 +402,13 @@ async function resetByKind(kind: 'stale' | 'completed' | 'failed' | 'all') {
   } as const
   map[kind].ref.value = true
   try {
-    await apiFetch(`${basePath.value}/${map[kind].path}`, { method: 'POST' })
-    toast.success('Jobs reset')
+    const res = await apiFetch<{ message?: string; reset_count?: number; containers_stopped?: number }>(
+      `${basePath.value}/${map[kind].path}`,
+      { method: 'POST' },
+    )
+    toast.success(kind === 'stale' ? 'Running jobs reset' : 'Jobs reset', {
+      description: res.message || (res.reset_count !== undefined ? `${res.reset_count} job(s) reset` : undefined),
+    })
     await refreshAll()
   } catch (e: unknown) {
     toast.error('Reset failed', { description: e instanceof Error ? e.message : 'Request failed' })

@@ -106,3 +106,28 @@ def test_build_agent_system_prompt_compact_omits_skills_and_full_tools_table() -
     assert "Quick workflow" not in prompt
     assert "entities_to_jsonl.py" in prompt
     assert "never /tmp" in prompt.lower() or "Never /tmp" in prompt
+
+
+def test_build_agent_system_prompt_compact_extraction_jobs_keeps_description_authoring_skill() -> None:
+    prompt = build_agent_system_prompt(
+        {
+            "system_prompt": "You are the Graph Management Assistant.",
+            "skills": {
+                "prepopulation": "Run instance_generators with Bash.",
+                "per_instance_description_authoring": "Use IGNORE lines when counterpart has more instances.",
+                "job_set_contract": "Save via kartograph_save_extraction_jobs_config.",
+            },
+            "graph_management_ui_mode": "extraction-jobs",
+        },
+        settings=AgentRuntimeSettings(
+            KARTOGRAPH_WORKLOAD_TOKEN="token",
+            KARTOGRAPH_KNOWLEDGE_GRAPH_ID="kg-123",
+        ),
+        prompt_detail="compact",
+    )
+
+    assert "**prepopulation**" not in prompt
+    assert "**per_instance_description_authoring**" in prompt
+    assert "IGNORE lines" in prompt
+    assert "relationship_authoring_by_entity_type" in prompt
+    assert "verifies_inverse -> ComponentTest" in prompt

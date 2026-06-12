@@ -7,6 +7,9 @@ from enum import StrEnum
 from typing import Any
 
 
+from management.domain.extraction_relationship_authoring import (
+    per_instance_description_relationship_errors,
+)
 class ExtractionJobSetStrategy(StrEnum):
     """Batching strategy for an extraction job set."""
 
@@ -31,7 +34,12 @@ class ExtractionJobSetDefinition:
         if not self.name or not self.name.strip():
             raise ValueError("Job set name must not be empty")
 
-    def validation_errors(self, *, entity_instance_counts: dict[str, int]) -> tuple[str, ...]:
+    def validation_errors(
+        self,
+        *,
+        entity_instance_counts: dict[str, int],
+        edge_types: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, ...]:
         """Return human-readable validation errors for this job set."""
         if not self.enabled:
             return ()
@@ -51,6 +59,16 @@ class ExtractionJobSetDefinition:
             if not self.description or not self.description.strip():
                 errors.append(
                     f"{self.name}: per-instance extraction description is required."
+                )
+            elif self.entity_type and edge_types:
+                errors.extend(
+                    f"{self.name}: {err}"
+                    for err in per_instance_description_relationship_errors(
+                        self.description,
+                        self.entity_type,
+                        edge_types=edge_types,
+                        entity_instance_counts=entity_instance_counts,
+                    )
                 )
         elif self.strategy == ExtractionJobSetStrategy.BY_FILES:
             if not self.file_patterns:
@@ -113,14 +131,24 @@ class ExtractionJobConfigDocument:
     def enabled_job_sets(self) -> tuple[ExtractionJobSetDefinition, ...]:
         return tuple(job_set for job_set in self.job_sets if job_set.enabled)
 
-    def validation_errors(self, *, entity_instance_counts: dict[str, int]) -> tuple[str, ...]:
+    def validation_errors(
+        self,
+        *,
+        entity_instance_counts: dict[str, int],
+        edge_types: list[dict[str, Any]] | None = None,
+    ) -> tuple[str, ...]:
         errors: list[str] = []
         seen_names: set[str] = set()
         for job_set in self.job_sets:
             if job_set.name in seen_names:
                 errors.append(f"Duplicate job set name '{job_set.name}'.")
             seen_names.add(job_set.name)
-            errors.extend(job_set.validation_errors(entity_instance_counts=entity_instance_counts))
+            errors.extend(
+                job_set.validation_errors(
+                    entity_instance_counts=entity_instance_counts,
+                    edge_types=edge_types,
+                )
+            )
         return tuple(errors)
 
     def to_dict(self) -> dict[str, Any]:

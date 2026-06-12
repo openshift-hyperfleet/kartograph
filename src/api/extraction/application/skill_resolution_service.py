@@ -146,9 +146,34 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Prioritize extraction job set authoring: by_instances batches with required "
             "per-instance extraction descriptions (no separate extraction_plan.md). "
             "Each description tells the extraction worker what to enrich for assigned entity slugs. "
-            "When the operator approves a proposed configuration, persist it yourself with "
+            "Follow per_instance_description_authoring — default to exhaustive property and "
+            "relationship coverage unless the operator narrows scope. When the operator approves "
+            "a proposed configuration, persist it yourself with "
             "kartograph_save_extraction_jobs_config — never instruct them to manually enter "
             "values in the extraction-jobs UI."
+        ),
+        "per_instance_description_authoring": (
+            "The job set `description` is the shared per-instance brief for every by_instances job "
+            "in that set. Default stance: capture everything related to each assigned instance — "
+            "populate or update every schema property and every applicable relationship instance; "
+            "partial coverage is incomplete unless the operator explicitly narrows scope. "
+            "Before drafting: call kartograph_get_schema_ontology (and "
+            "kartograph_get_schema_authoring_guide if needed) for the target entity_type — list "
+            "all properties on that type and every edge_types row where it is a source or target "
+            "label. Structure the description explicitly, in order: "
+            "(1) Properties — one numbered note per property: what to extract, where to find it "
+            "in repository-files/, and the expected value shape; add a separate note for any "
+            "property needing special handling (enums, derived values, secrets/redaction, "
+            "multi-file joins, defaults when absent). "
+            "(2) Relationships — one numbered note per relationship type: require discovering "
+            "and creating or updating every relationship instance that includes the assigned "
+            "entity (as source or target); explain how to resolve counterpart entity slugs and "
+            "when to create missing endpoints. For bidirectional types, cover both directions. "
+            "Do not substitute vague theme headings (e.g. 'Implementation Analysis') for this "
+            "property- and relationship-level checklist — themes may group notes but every "
+            "property and relationship type from the ontology must appear. When the operator "
+            "requests focused extraction, state explicitly which properties or relationship types "
+            "are out of scope."
         ),
         "job_set_contract": (
             "Use kartograph_get_extraction_jobs_config before editing and "
@@ -180,9 +205,10 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
     },
     GraphManagementUiMode.EXTRACTION_JOBS: {
         "ui_mode_framing": (
-            "Focus on extraction job set setup: define by_instances batches with per-instance "
-            "extraction descriptions, persist via kartograph_save_extraction_jobs_config when "
-            "the operator approves, then guide them to Run extraction. Use "
+            "Focus on extraction job set setup: by_instances batches whose description follows "
+            "per_instance_description_authoring (exhaustive property + relationship coverage by "
+            "default). Persist via kartograph_save_extraction_jobs_config when the operator "
+            "approves, then guide them to Run extraction. Use kartograph_get_schema_ontology and "
             "kartograph_list_instances_by_type to size batches. JobPackage readiness still "
             "applies when file-backed context is required."
         ),

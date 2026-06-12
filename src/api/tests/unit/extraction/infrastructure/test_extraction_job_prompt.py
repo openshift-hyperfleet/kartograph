@@ -34,6 +34,8 @@ def test_build_extraction_job_prompt_includes_instances_and_files() -> None:
     prompt = build_extraction_job_prompt(job=job)
 
     assert "Extract acceptance criteria." in prompt
+    assert "## Coverage default" in prompt
+    assert "every schema property" in prompt
     assert "Feature: feature-a" in prompt
     assert "repo-a/features/a.feature" in prompt
     assert "job-context.json" in prompt

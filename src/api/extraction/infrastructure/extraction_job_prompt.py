@@ -18,6 +18,11 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
     if job.target_instances:
         lines.extend(
             [
+                "## Coverage default",
+                "For each assigned instance: populate or update every schema property and every",
+                "applicable relationship instance (create missing edges; update existing ones).",
+                "Treat partial coverage as incomplete unless the job instructions below narrow scope.",
+                "",
                 "## Target entity instances",
                 "Process only the instances listed below. Use the workload API to read existing graph",
                 "context and emit JSONL mutations for new or updated entities and relationships.",

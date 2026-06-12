@@ -70,6 +70,23 @@ _EXTRACTION_JOBS_TOOLS_REFERENCE = """
 
 When the operator approves a job set proposal, call `kartograph_save_extraction_jobs_config` —
 do not ask them to manually fill the extraction-jobs form.
+
+### Per-instance description (by_instances job sets)
+
+The job set `description` is the shared brief for every assigned instance in that set.
+**Default: capture everything** — every schema property filled or updated, and every
+applicable relationship instance created or updated for each assigned slug.
+
+Before writing a description:
+1. `kartograph_get_schema_ontology` — list properties on the target entity type and every
+   relationship type where that type is source or target.
+2. Structure the description explicitly:
+   - **Properties:** one note per property; add extra notes for special handling (enums,
+     derived values, secrets, multi-file sources).
+   - **Relationships:** one note per relationship type; require every relationship instance
+     involving the assigned entity to be considered, resolved, and created or updated.
+3. Avoid vague theme-only headings without mapping to concrete properties and relationship types.
+   Narrow scope only when the operator explicitly asks.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (

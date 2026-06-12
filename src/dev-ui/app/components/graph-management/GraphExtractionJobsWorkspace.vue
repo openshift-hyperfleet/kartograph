@@ -78,6 +78,7 @@ const selectedOntologyTab = ref<OntologyTab>('entities')
 const jobSetsReloadNonce = ref(0)
 const dbStatus = ref<DbStatus | null>(null)
 const dbLoading = ref(true)
+const dbRefreshing = ref(false)
 const dbError = ref<string | null>(null)
 const extractionRunState = ref<ExtractionRunState | null>(null)
 const planSummary = ref<PlanSummary | null>(null)
@@ -98,28 +99,54 @@ let clockInterval: ReturnType<typeof setInterval> | null = null
 
 const basePath = computed(() => `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`)
 
-async function loadDatabaseStatus() {
-  dbLoading.value = true
-  dbError.value = null
+async function loadDatabaseStatus(options?: { background?: boolean }) {
+  const background = options?.background ?? false
+  const hasExistingData = dbStatus.value !== null
+
+  if (background && hasExistingData) {
+    dbRefreshing.value = true
+  } else {
+    dbLoading.value = true
+  }
+  if (!background) {
+    dbError.value = null
+  }
   try {
     dbStatus.value = await apiFetch<DbStatus>(`${basePath.value}/database-status`)
+    dbError.value = null
   } catch (e: unknown) {
-    dbError.value = e instanceof Error ? e.message : 'Failed to load status'
+    if (!background || !hasExistingData) {
+      dbError.value = e instanceof Error ? e.message : 'Failed to load status'
+    }
   } finally {
     dbLoading.value = false
+    dbRefreshing.value = false
   }
 }
 
 async function loadExtractionRunState() {
-  extractionRunState.value = await apiFetch<ExtractionRunState>(`${basePath.value}/run-state`)
+  try {
+    extractionRunState.value = await apiFetch<ExtractionRunState>(`${basePath.value}/run-state`)
+  } catch {
+    // Keep prior run state during background refresh failures.
+  }
 }
 
 async function loadPlanSummary() {
-  planSummary.value = await apiFetch<PlanSummary>(`${basePath.value}/plan-summary`)
+  try {
+    planSummary.value = await apiFetch<PlanSummary>(`${basePath.value}/plan-summary`)
+  } catch {
+    // Keep prior plan summary during background refresh failures.
+  }
 }
 
-async function refreshAll() {
-  await Promise.all([loadDatabaseStatus(), loadExtractionRunState(), loadPlanSummary()])
+async function refreshAll(options?: { background?: boolean }) {
+  const background = options?.background ?? dbStatus.value !== null
+  await Promise.all([
+    loadDatabaseStatus({ background }),
+    loadExtractionRunState(),
+    loadPlanSummary(),
+  ])
 }
 
 const workerCount = computed(() => Math.max(1, Math.floor(Number(workers.value) || 1)))
@@ -243,7 +270,7 @@ async function resetByKind(kind: 'stale' | 'completed' | 'failed' | 'all') {
 
 function startAutoRefresh() {
   if (autoRefreshInterval) return
-  autoRefreshInterval = setInterval(() => { void refreshAll() }, 1500)
+  autoRefreshInterval = setInterval(() => { void refreshAll({ background: true }) }, 1500)
 }
 
 function stopAutoRefresh() {
@@ -254,7 +281,7 @@ function stopAutoRefresh() {
 
 function onJobSetsSaved() {
   jobSetsReloadNonce.value += 1
-  void refreshAll()
+  void refreshAll({ background: dbStatus.value !== null })
 }
 
 watch(
@@ -267,7 +294,7 @@ watch(
 
 watch(
   () => props.reloadNonce,
-  () => { void refreshAll() },
+  () => { void refreshAll({ background: dbStatus.value !== null }) },
 )
 
 onMounted(() => {
@@ -422,15 +449,16 @@ onUnmounted(() => {
         <CardTitle class="flex items-center gap-2 text-base">
           <ClipboardList class="size-4" />
           Job Status
+          <Loader2 v-if="dbRefreshing" class="size-3.5 animate-spin text-muted-foreground" />
         </CardTitle>
         <CardDescription>Aggregate job metrics and maintenance actions.</CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
-        <div v-if="dbLoading" class="flex items-center gap-2 text-sm text-muted-foreground">
+        <div v-if="dbLoading && !dbStatus" class="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 class="size-4 animate-spin" />
           Loading job status...
         </div>
-        <div v-else-if="dbError" class="text-sm text-destructive">{{ dbError }}</div>
+        <div v-else-if="dbError && !dbStatus" class="text-sm text-destructive">{{ dbError }}</div>
         <template v-else-if="dbStatus">
           <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div class="rounded-lg border p-3 text-center">

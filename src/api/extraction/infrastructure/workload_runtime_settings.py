@@ -31,6 +31,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     agentic_ci_image: str = Field(default="ghcr.io/opendatahub-io/ai-helpers:latest")
     agentic_ci_harness: str = Field(default="claude-code")
     agentic_ci_model: str = Field(default="")
+    agentic_ci_api_base_url: str = Field(
+        default="http://127.0.0.1:8000",
+        description=(
+            "API base URL reachable from agentic-ci job containers. "
+            "Jobs use --network host, so docker service names like api:8000 will not resolve."
+        ),
+    )
     agentic_ci_timeout_seconds: int = Field(default=1200, ge=60, le=7200)
     extraction_job_work_dir: str = Field(default="/tmp/kartograph/extraction_jobs")
     sticky_command: tuple[str, ...] = Field(

@@ -8,6 +8,8 @@ import {
   Settings,
   ClipboardList,
   AlertCircle,
+  Eye,
+  XCircle,
 } from 'lucide-vue-next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -16,6 +18,7 @@ import { Separator } from '@/components/ui/separator'
 import GraphExtractionJobSetsPanel from '@/components/graph-management/GraphExtractionJobSetsPanel.vue'
 import GraphDesignEntitiesPanel from '@/components/graph-management/GraphDesignEntitiesPanel.vue'
 import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDesignRelationshipsPanel.vue'
+import GraphExtractionJobWatchDialog from '@/components/graph-management/GraphExtractionJobWatchDialog.vue'
 
 const props = defineProps<{
   kgId: string
@@ -45,6 +48,11 @@ interface DbStatus {
     inputTokens: number
     outputTokens: number
     writeOps: number
+    entitiesCreated?: number
+    entitiesModified?: number
+    relationshipsCreated?: number
+    instanceCount?: number
+    errorMessage?: string | null
     assistantPreview: string | null
   }>
   activeWorkers?: Array<{
@@ -55,6 +63,11 @@ interface DbStatus {
     instanceCount: number
     startedAt: string | null
   }>
+}
+
+type RecentJobEvent = DbStatus['recentJobs'][number] & {
+  eventKey: string
+  seenAtMs: number
 }
 
 interface ExtractionRunState {
@@ -68,6 +81,7 @@ interface PlanSummary {
   job_sets: Array<{
     name: string
     strategy: string
+    enabled?: boolean
     entity_type?: string
     instances_per_job?: number
     projected_jobs?: number | null
@@ -93,6 +107,39 @@ const resettingFailed = ref(false)
 const resettingAll = ref(false)
 const optimisticLiveUntilMs = ref<number | null>(null)
 const nowMs = ref(Date.now())
+const lastStatusRefreshMs = ref<number | null>(null)
+const recentJobEvents = ref<RecentJobEvent[]>([])
+const watchJobId = ref<string | null>(null)
+const watchDialogOpen = ref(false)
+const cancellingJobId = ref<string | null>(null)
+
+function resolveApiErrorDescription(e: unknown): string {
+  const err = e as { data?: { detail?: unknown }; message?: string }
+  const detail = err.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: string }).message)
+  }
+  if (err.message) return err.message
+  return 'Request failed'
+}
+
+function resolveRegenerateFailureMessage(description: string): { title: string; hint?: string } {
+  const lower = description.toLowerCase()
+  if (lower.includes('in progress') || lower.includes('still running')) {
+    return {
+      title: 'Cannot refresh jobs for that set yet',
+      hint: 'Wait for running jobs to finish, use Cancel on individual jobs, or use Kill extraction to stop all workers — then Regenerate jobs again.',
+    }
+  }
+  if (lower.includes('description') || lower.includes('entity type')) {
+    return {
+      title: 'Job set configuration is invalid',
+      hint: 'Fix the errors shown in the Job Sets panel, then Save job sets or Regenerate jobs.',
+    }
+  }
+  return { title: 'Regenerate failed', hint: description }
+}
 
 let autoRefreshInterval: ReturnType<typeof setInterval> | null = null
 let clockInterval: ReturnType<typeof setInterval> | null = null
@@ -112,7 +159,10 @@ async function loadDatabaseStatus(options?: { background?: boolean }) {
     dbError.value = null
   }
   try {
-    dbStatus.value = await apiFetch<DbStatus>(`${basePath.value}/database-status`)
+    const status = await apiFetch<DbStatus>(`${basePath.value}/database-status`)
+    dbStatus.value = status
+    mergeRecentJobEvents(status.recentJobs || [])
+    lastStatusRefreshMs.value = Date.now()
     dbError.value = null
   } catch (e: unknown) {
     if (!background || !hasExistingData) {
@@ -177,6 +227,69 @@ const plannedVsMaterializedMismatch = computed(() => {
   if (planned <= 0) return false
   return planned !== materializedJobsTotal.value
 })
+const recentJobs = computed(() => recentJobEvents.value)
+const activeWorkerCount = computed(() => dbStatus.value?.activeWorkers?.length || 0)
+const idleWorkerCount = computed(() => Math.max(0, workerCount.value - activeWorkerCount.value))
+const statusAgeSeconds = computed(() => {
+  if (!lastStatusRefreshMs.value) return null
+  return Math.max(0, Math.floor((nowMs.value - lastStatusRefreshMs.value) / 1000))
+})
+const showOptimisticLiveActivity = computed(
+  () => Boolean(optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value),
+)
+
+function mergeRecentJobEvents(incoming: DbStatus['recentJobs']) {
+  const now = Date.now()
+  const existingByJobId = new Map(recentJobEvents.value.map((event) => [event.jobId, event] as const))
+  for (const job of incoming) {
+    existingByJobId.set(job.jobId, { ...job, eventKey: job.jobId, seenAtMs: now })
+  }
+  const maxAgeMs = 15 * 60 * 1000
+  const merged = Array.from(existingByJobId.values()).filter((event) => now - event.seenAtMs <= maxAgeMs)
+  merged.sort((a, b) => {
+    const aTs = Date.parse(a.completedAt || a.startedAt || '') || a.seenAtMs
+    const bTs = Date.parse(b.completedAt || b.startedAt || '') || b.seenAtMs
+    return bTs - aTs
+  })
+  recentJobEvents.value = merged.slice(0, 80)
+}
+
+function clearRecentJobEvents() {
+  recentJobEvents.value = []
+}
+
+function openWatch(jobId: string) {
+  watchJobId.value = jobId
+  watchDialogOpen.value = true
+}
+
+function recentJobBadgeVariant(status: string): 'default' | 'outline' | 'secondary' | 'destructive' | 'success' {
+  if (status === 'in_progress') return 'default'
+  if (status === 'failed') return 'destructive'
+  if (status === 'completed') return 'success'
+  return 'outline'
+}
+
+function formatRecentWhen(startedAt: string | null, completedAt: string | null): string {
+  if (completedAt && startedAt) {
+    const startMs = Date.parse(startedAt)
+    const endMs = Date.parse(completedAt)
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
+      const deltaSec = Math.max(0, Math.floor((endMs - startMs) / 1000))
+      if (deltaSec < 60) return `${deltaSec}s`
+      const mins = Math.floor(deltaSec / 60)
+      const secs = deltaSec % 60
+      if (mins < 60) return `${mins}m ${secs}s`
+      const hours = Math.floor(mins / 60)
+      return `${hours}h ${mins % 60}m`
+    }
+  }
+  return completedAt || startedAt || '—'
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
 
 async function startExtraction() {
   startingExtraction.value = true
@@ -234,19 +347,50 @@ async function killExtraction() {
 async function regenerateJobs() {
   regeneratingJobs.value = true
   try {
-    const res = await apiFetch<{ generated_jobs?: number; message?: string }>(
+    const res = await apiFetch<{ generated_jobs?: number; message?: string; warnings?: string[] }>(
       `${basePath.value}/regenerate`,
       { method: 'POST' },
     )
-    toast.success('Jobs regenerated', { description: res.message })
+    toast.success('Jobs synced', {
+      description: res.message || `Synced ${res.generated_jobs ?? 0} pending job(s).`,
+    })
+    if (Array.isArray(res.warnings) && res.warnings.length > 0) {
+      toast.warning('Some job sets were skipped', {
+        description: `${res.warnings.join(' ')} Save job sets after those jobs finish, or cancel them first.`,
+        duration: 10000,
+      })
+    }
     await refreshAll()
   } catch (e: unknown) {
-    toast.error('Regenerate failed', {
-      description: e instanceof Error ? e.message : 'Request failed',
+    const description = resolveApiErrorDescription(e)
+    const failure = resolveRegenerateFailureMessage(description)
+    toast.error(failure.title, {
+      description: failure.hint || description,
+      duration: 10000,
     })
   } finally {
     regeneratingJobs.value = false
   }
+}
+
+async function cancelJob(jobId: string) {
+  cancellingJobId.value = jobId
+  try {
+    const res = await apiFetch<{ message?: string }>(
+      `${basePath.value}/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: 'POST' },
+    )
+    toast.success('Job cancelled', { description: res.message })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Cancel failed', { description: resolveApiErrorDescription(e) })
+  } finally {
+    cancellingJobId.value = null
+  }
+}
+
+function canCancelJob(status: string): boolean {
+  return status === 'pending' || status === 'in_progress'
 }
 
 async function resetByKind(kind: 'stale' | 'completed' | 'failed' | 'all') {
@@ -290,6 +434,7 @@ watch(
     if (active) startAutoRefresh()
     else if (!optimisticLiveUntilMs.value) stopAutoRefresh()
   },
+  { immediate: true },
 )
 
 watch(
@@ -419,30 +564,132 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-if="extractionRunLive" class="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
-          Extraction run is live — status refreshes every 1.5s.
-        </div>
-
         <div v-if="plannedVsMaterializedMismatch" class="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
           <AlertCircle class="mt-0.5 size-4 shrink-0 text-amber-600" />
           <div>
             Planned job count ({{ plannedKnownTotalJobs }}) differs from materialized total ({{ materializedJobsTotal }}).
+            Regenerate syncs pending jobs for enabled sets only; running jobs are left untouched.
             <Button size="sm" variant="link" class="h-auto p-0 text-xs" :disabled="regeneratingJobs" @click="regenerateJobs">
               Regenerate jobs
             </Button>
           </div>
         </div>
 
-        <div v-if="(dbStatus?.activeWorkers?.length || 0) > 0" class="space-y-2">
-          <p class="text-xs font-medium text-muted-foreground">Active workers</p>
-          <div class="flex flex-wrap gap-2">
-            <Badge v-for="worker in dbStatus?.activeWorkers" :key="worker.workerId" variant="outline" class="font-mono text-[10px]">
-              {{ worker.workerId }} → {{ worker.jobId }}
-            </Badge>
+        <div class="rounded-lg border bg-card p-3">
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p class="text-xs font-medium text-foreground/90">Live extraction activity</p>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" class="font-mono text-[11px]">
+                {{ completedJobsCount }} completed · {{ inProgressJobsCount }} running · {{ pendingJobsCount }} ready
+              </Badge>
+              <Badge variant="outline" class="font-mono text-[11px]">
+                workers: {{ activeWorkerCount }}/{{ workerCount }}
+              </Badge>
+              <Badge v-if="idleWorkerCount > 0" variant="outline" class="font-mono text-[11px]">
+                {{ idleWorkerCount }} idle
+              </Badge>
+              <Badge v-if="statusAgeSeconds !== null" variant="outline" class="font-mono text-[11px]">
+                updated {{ statusAgeSeconds }}s ago
+              </Badge>
+            </div>
+          </div>
+          <div class="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              class="h-full bg-primary/80 transition-all"
+              :style="{ width: `${extractionProgressPercent}%` }"
+            />
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs font-medium text-foreground/90">Recent job events</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 px-2 text-[11px]"
+                :disabled="recentJobs.length === 0"
+                @click="clearRecentJobEvents"
+              >
+                Clear events
+              </Button>
+            </div>
+            <div v-if="recentJobs.length === 0" class="text-xs text-muted-foreground">
+              {{
+                startingExtraction || showOptimisticLiveActivity
+                  ? 'Starting extraction workers. Job events will appear as jobs are claimed and completed.'
+                  : 'No job events yet.'
+              }}
+            </div>
+            <div v-else class="max-h-80 space-y-1 overflow-y-auto pr-1">
+              <div
+                v-for="job in recentJobs"
+                :key="`recent-${job.jobId}`"
+                class="rounded-md border bg-muted/10 px-2 py-1.5"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Badge :variant="recentJobBadgeVariant(job.status)" class="font-mono">{{ job.status }}</Badge>
+                    <span class="font-medium text-foreground">{{ job.jobSet }}</span>
+                    <span class="font-mono text-muted-foreground">{{ job.jobId }}</span>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2 text-muted-foreground">
+                    <span v-if="job.workerId" class="font-mono">{{ job.workerId }}</span>
+                    <span>{{ formatRecentWhen(job.startedAt, job.completedAt) }}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      class="h-6 px-2 text-[10px]"
+                      @click="openWatch(job.jobId)"
+                    >
+                      <Eye class="mr-1 size-3" />
+                      Watch
+                    </Button>
+                    <Button
+                      v-if="canCancelJob(job.status)"
+                      variant="ghost"
+                      size="sm"
+                      class="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+                      :disabled="cancellingJobId === job.jobId"
+                      @click="cancelJob(job.jobId)"
+                    >
+                      <Loader2 v-if="cancellingJobId === job.jobId" class="mr-1 size-3 animate-spin" />
+                      <XCircle v-else class="mr-1 size-3" />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                  <span class="font-mono">
+                    tokens {{ formatCompactNumber(job.inputTokens) }} in / {{ formatCompactNumber(job.outputTokens) }} out
+                  </span>
+                  <span class="font-mono">
+                    writes {{ job.writeOps }}
+                    <template v-if="job.entitiesCreated || job.entitiesModified || job.relationshipsCreated">
+                      ({{ job.entitiesCreated || 0 }}+{{ job.entitiesModified || 0 }}e / {{ job.relationshipsCreated || 0 }}r)
+                    </template>
+                  </span>
+                  <span v-if="job.instanceCount" class="font-mono">{{ job.instanceCount }} instances</span>
+                </div>
+                <p
+                  v-if="job.assistantPreview"
+                  class="line-clamp-1 text-[10px] leading-snug text-muted-foreground"
+                >
+                  {{ job.assistantPreview }}
+                </p>
+                <p v-if="job.errorMessage" class="line-clamp-1 text-[10px] text-destructive">
+                  {{ job.errorMessage }}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </CardContent>
     </Card>
+
+    <GraphExtractionJobWatchDialog
+      v-model:open="watchDialogOpen"
+      :kg-id="kgId"
+      :job-id="watchJobId"
+    />
 
     <Card>
       <CardHeader>

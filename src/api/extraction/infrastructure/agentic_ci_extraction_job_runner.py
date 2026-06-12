@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import tempfile
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +16,27 @@ from agentic_ci.harness import create_harness
 from agentic_ci import otel
 
 from extraction.domain.extraction_job import ExtractionJobRecord
+from extraction.infrastructure.extraction_job_activity import (
+    activity_log_path,
+    append_activity_line,
+    append_activity_message,
+    format_activity_log_line,
+    format_claude_code_stream_line,
+)
 from extraction.infrastructure.extraction_job_metrics import metrics_from_otel_log
-from extraction.infrastructure.extraction_job_prompt import build_extraction_job_prompt
+from extraction.infrastructure.extraction_job_prompt import (
+    EXTRACTION_JOB_INVOKE_PROMPT,
+    build_extraction_job_prompt,
+    write_extraction_prompt_file,
+)
 from extraction.infrastructure.extraction_job_workdir_materializer import (
     ExtractionJobWorkdirMaterializer,
 )
-from extraction.infrastructure.vertex_runtime_env import build_vertex_container_env
+from extraction.infrastructure.vertex_runtime_env import (
+    build_gcloud_adc_env,
+    build_gcloud_config_bind,
+    build_vertex_container_env,
+)
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
@@ -29,12 +47,26 @@ from shared_kernel.container_runtime.factory import create_container_runtime
 from shared_kernel.container_runtime.ports import ContainerRuntimeError
 
 _CONTAINER_NAME_SAFE = re.compile(r"[^a-zA-Z0-9_.-]+")
-_GCLOUD_ADC_FILENAME = "application_default_credentials.json"
 
 
 def _sanitize_container_name(job_id: str) -> str:
     cleaned = _CONTAINER_NAME_SAFE.sub("-", job_id).strip("-")
     return f"kartograph-extract-{cleaned}"[:63].rstrip("-_.")
+
+
+def _strip_harness_binary(command: list[str]) -> list[str]:
+    """Drop the CLI binary when the image entrypoint already execs it."""
+    if command and command[0] in {"claude", "opencode"}:
+        return command[1:]
+    return command
+
+
+def _patch_job_context_api_base(workdir: Path, api_base_url: str) -> None:
+    """Rewrite api_base_url so host-network job containers can reach the API."""
+    context_path = workdir / "job-context.json"
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context["api_base_url"] = api_base_url.rstrip("/")
+    context_path.write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
 
 
 class AgenticCiExtractionJobRunner(IExtractionJobRunner):
@@ -63,6 +95,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             tenant_id=tenant_id,
             credentials=credentials,
         )
+        _patch_job_context_api_base(workdir, self._settings.agentic_ci_api_base_url)
         prompt = build_extraction_job_prompt(job=job)
         return await self._run_in_container(job=job, workdir=workdir, prompt=prompt)
 
@@ -96,7 +129,12 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             otel_log = Path(otel_log_path)
             env = self._build_container_env(otel_port=otel_port)
             binds = self._build_binds(workdir=workdir)
-            command = self._harness.build_args(prompt, model)
+            write_extraction_prompt_file(workdir=workdir, prompt=prompt)
+            command = _strip_harness_binary(
+                self._harness.build_args(EXTRACTION_JOB_INVOKE_PROMPT, model)
+            )
+            log_path = activity_log_path(workdir)
+            append_activity_line(log_path, f"📡 Processing job {job.job_id}...")
             rc = self._run_foreground(
                 binary=binary,
                 image=self._settings.agentic_ci_image,
@@ -105,7 +143,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                 binds=binds,
                 command=command,
                 timeout_seconds=self._settings.agentic_ci_timeout_seconds,
+                activity_log_path=log_path,
             )
+            append_activity_line(log_path, f"✅ Container finished with exit code {rc}")
             if otel_proc is not None:
                 otel.stop_collector(otel_proc)
                 otel_proc = None
@@ -135,9 +175,11 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         return self._harness.default_model()
 
     def _build_container_env(self, *, otel_port: int) -> dict[str, str]:
+        model = self._resolve_model()
         env: dict[str, str] = {
             "DISABLE_AUTOUPDATER": "1",
-            "AGENT_MODEL": self._resolve_model(),
+            "AGENT_MODEL": model,
+            self._harness.model_env_var(): model,
         }
         if self._harness.auth_mode == "api-key":
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
@@ -150,6 +192,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                     region=self._settings.vertex_region,
                 )
             )
+            if self._settings.gcloud_config_mount:
+                container_gcloud = self._settings.gcloud_config_container_path.rstrip("/")
+                env.update(build_gcloud_adc_env(container_config_path=container_gcloud))
         if self._harness.supports_otel and otel_port:
             env.update(
                 {
@@ -166,18 +211,12 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
     def _build_binds(self, *, workdir: Path) -> list[str]:
         binds = [f"{workdir}:/workspace:z"]
         if self._settings.gcloud_config_mount and self._settings.vertex_enabled():
-            mount_target = self._harness.credential_mount_target()
-            gcloud_root = self._settings.gcloud_config_mount.rstrip("/")
-            adc = f"{gcloud_root}/{_GCLOUD_ADC_FILENAME}"
-            config = f"{gcloud_root}/configurations/config_default"
-            if Path(adc).is_file():
-                binds.append(
-                    f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z"
+            binds.append(
+                build_gcloud_config_bind(
+                    host_mount=self._settings.gcloud_config_mount,
+                    container_path=self._settings.gcloud_config_container_path,
                 )
-            if Path(config).is_file():
-                binds.append(
-                    f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z"
-                )
+            )
         return binds
 
     def _run_foreground(
@@ -190,6 +229,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         binds: list[str],
         command: list[str],
         timeout_seconds: int,
+        activity_log_path: Path | None = None,
     ) -> int:
         cmd = [
             binary,
@@ -215,6 +255,15 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             cmd.extend(["--volume", bind])
         cmd.append(image)
         cmd.extend(command)
+        if activity_log_path is not None:
+            return self._run_foreground_streaming(
+                cmd=cmd,
+                binary=binary,
+                name=name,
+                timeout_seconds=timeout_seconds,
+                activity_log_path=activity_log_path,
+            )
+
         try:
             result = subprocess.run(
                 cmd,
@@ -234,3 +283,75 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                 f"{binary} run failed for {name}: {detail or 'unknown error'}"
             )
         return int(result.returncode)
+
+    def _run_foreground_streaming(
+        self,
+        *,
+        cmd: list[str],
+        binary: str,
+        name: str,
+        timeout_seconds: int,
+        activity_log_path: Path,
+    ) -> int:
+        started = time.monotonic()
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        captured_tail: list[str] = []
+        try:
+            assert proc.stdout is not None
+            with activity_log_path.open("a", encoding="utf-8") as log_handle:
+                for line in proc.stdout:
+                    if time.monotonic() - started > timeout_seconds:
+                        proc.kill()
+                        append_activity_message(
+                            activity_log_path,
+                            kind="error",
+                            text=f"Container timed out after {timeout_seconds}s",
+                        )
+                        raise RuntimeError(
+                            f"agentic-ci container timed out after {timeout_seconds}s"
+                        )
+                    cleaned = line.rstrip("\n")
+                    if not cleaned:
+                        continue
+                    parsed = format_claude_code_stream_line(cleaned)
+                    if parsed:
+                        ts = datetime.now(UTC).isoformat()
+                        for kind, text in parsed:
+                            log_handle.write(f"{ts} {format_activity_log_line(kind=kind, text=text)}\n")
+                            captured_tail.append(text)
+                    else:
+                        ts = datetime.now(UTC).isoformat()
+                        log_handle.write(f"{ts} {format_activity_log_line(kind='info', text=cleaned)}\n")
+                        captured_tail.append(cleaned)
+                    log_handle.flush()
+                    if len(captured_tail) > 20:
+                        captured_tail.pop(0)
+            rc = proc.wait(timeout=30)
+        except subprocess.TimeoutExpired as exc:
+            proc.kill()
+            subprocess.run([binary, "rm", "-f", name], capture_output=True, check=False)
+            append_activity_line(activity_log_path, "❌ Container wait timed out")
+            raise RuntimeError(
+                f"agentic-ci container timed out after {timeout_seconds}s"
+            ) from exc
+
+        if rc != 0:
+            detail = next(
+                (line for line in reversed(captured_tail) if line.strip()),
+                f"exit code {rc}",
+            )
+            append_activity_message(
+                activity_log_path,
+                kind="error",
+                text=f"Container failed: {detail}",
+            )
+            raise ContainerRuntimeError(
+                f"{binary} run failed for {name}: {detail}"
+            )
+        return int(rc)

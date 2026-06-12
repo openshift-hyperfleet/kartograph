@@ -18,6 +18,16 @@ def test_by_instances_requires_description_and_entity_type() -> None:
     assert any("description" in err.lower() for err in errors)
 
 
+def test_disabled_job_set_skips_validation() -> None:
+    job_set = ExtractionJobSetDefinition(
+        name="disabled_set",
+        strategy=ExtractionJobSetStrategy.BY_INSTANCES,
+        enabled=False,
+    )
+    errors = job_set.validation_errors(entity_instance_counts={})
+    assert errors == ()
+
+
 def test_document_rejects_duplicate_job_set_names() -> None:
     document = ExtractionJobConfigDocument(
         version="1.0",

@@ -25,6 +25,7 @@ class ExtractionJobSetDefinition:
     instances_per_job: int | None = None
     file_patterns: tuple[str, ...] = field(default_factory=tuple)
     files_per_job: int | None = None
+    enabled: bool = True
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -32,6 +33,8 @@ class ExtractionJobSetDefinition:
 
     def validation_errors(self, *, entity_instance_counts: dict[str, int]) -> tuple[str, ...]:
         """Return human-readable validation errors for this job set."""
+        if not self.enabled:
+            return ()
         errors: list[str] = []
         if self.strategy == ExtractionJobSetStrategy.BY_INSTANCES:
             if not self.entity_type or not self.entity_type.strip():
@@ -61,6 +64,7 @@ class ExtractionJobSetDefinition:
         payload: dict[str, Any] = {
             "name": self.name,
             "strategy": self.strategy.value,
+            "enabled": self.enabled,
         }
         if self.description:
             payload["description"] = self.description
@@ -79,6 +83,12 @@ class ExtractionJobSetDefinition:
     def from_dict(cls, data: dict[str, Any]) -> ExtractionJobSetDefinition:
         strategy = ExtractionJobSetStrategy(str(data["strategy"]))
         raw_patterns = data.get("file_patterns") or []
+        enabled_raw = data.get("enabled", True)
+        enabled = bool(enabled_raw) if not isinstance(enabled_raw, str) else enabled_raw.lower() not in {
+            "0",
+            "false",
+            "no",
+        }
         return cls(
             name=str(data["name"]),
             strategy=strategy,
@@ -89,6 +99,7 @@ class ExtractionJobSetDefinition:
             else None,
             file_patterns=tuple(str(pattern) for pattern in raw_patterns),
             files_per_job=int(data["files_per_job"]) if data.get("files_per_job") is not None else None,
+            enabled=enabled,
         )
 
 
@@ -98,6 +109,9 @@ class ExtractionJobConfigDocument:
 
     version: str
     job_sets: tuple[ExtractionJobSetDefinition, ...] = field(default_factory=tuple)
+
+    def enabled_job_sets(self) -> tuple[ExtractionJobSetDefinition, ...]:
+        return tuple(job_set for job_set in self.job_sets if job_set.enabled)
 
     def validation_errors(self, *, entity_instance_counts: dict[str, int]) -> tuple[str, ...]:
         errors: list[str] = []

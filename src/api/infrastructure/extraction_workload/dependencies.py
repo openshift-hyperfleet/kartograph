@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
@@ -59,10 +59,12 @@ def get_workload_schema_service(
 
 
 def get_workload_extraction_jobs_service(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_write_session)],
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
 ) -> IWorkloadExtractionJobsService:
     return GraphWorkloadExtractionJobsService(
         session=session,
         connection_pool=pool,
+        session_factory=request.app.state.write_sessionmaker,
     )

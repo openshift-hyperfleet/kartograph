@@ -135,6 +135,17 @@ class ExtractionRunOrchestrator:
                         worker_id=worker_id,
                     )
                     if job is None:
+                        counts = await repo.count_by_status(
+                            knowledge_graph_id=state.knowledge_graph_id
+                        )
+                        if counts.get("in_progress", 0) > 0:
+                            await session.commit()
+                            await asyncio.sleep(2)
+                            continue
+                        if counts.get("pending", 0) > 0:
+                            await session.commit()
+                            await asyncio.sleep(2)
+                            continue
                         await session.commit()
                         await self._maybe_finish_run(state)
                         break
@@ -193,6 +204,36 @@ class ExtractionRunOrchestrator:
     def is_live(self, *, knowledge_graph_id: str) -> bool:
         state = self._active.get(knowledge_graph_id)
         return state is not None and not state.stop_event.is_set()
+
+    async def ensure_workers_for_pending(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+    ) -> None:
+        """Start worker tasks when pending jobs exist but the pool has stopped."""
+        if self.is_live(knowledge_graph_id=knowledge_graph_id):
+            return
+
+        async with self._session_factory() as session:
+            repo = ExtractionJobRepository(session)
+            counts = await repo.count_by_status(knowledge_graph_id=knowledge_graph_id)
+            run = await repo.get_run(knowledge_graph_id=knowledge_graph_id)
+
+        pending = counts.get("pending", 0)
+        if pending <= 0:
+            return
+        if run is None or run.status not in {
+            ExtractionRunStatus.RUNNING,
+            ExtractionRunStatus.PAUSING,
+        }:
+            return
+
+        await self.start(
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+            worker_count=run.worker_count,
+        )
 
 
 _orchestrator_singleton: ExtractionRunOrchestrator | None = None

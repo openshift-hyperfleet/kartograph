@@ -11,7 +11,10 @@ from ulid import ULID
 from extraction.infrastructure.sticky_session_workspace_binds import (
     build_sticky_session_workspace_binds,
 )
-from extraction.infrastructure.vertex_runtime_env import build_vertex_container_env
+from extraction.infrastructure.vertex_runtime_env import (
+    build_gcloud_adc_env,
+    build_vertex_container_env,
+)
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
     EphemeralWorkerLaunchResult,
@@ -30,18 +33,6 @@ def _sanitize_container_name(prefix: str, identifier: str) -> str:
     cleaned = _CONTAINER_NAME_SAFE.sub("-", identifier).strip("-")
     name = f"{prefix}{cleaned}"
     return name[:63].rstrip("-_.") or f"{prefix}runtime"
-
-
-_GCLOUD_ADC_FILENAME = "application_default_credentials.json"
-
-
-def _gcloud_adc_env(*, container_config_path: str) -> dict[str, str]:
-    base = container_config_path.rstrip("/")
-    return {
-        "CLOUDSDK_CONFIG": base,
-        "GOOGLE_APPLICATION_CREDENTIALS": f"{base}/{_GCLOUD_ADC_FILENAME}",
-        "HOME": "/tmp",
-    }
 
 
 class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
@@ -323,7 +314,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         if self._gcloud_config_mount:
             container_gcloud = self._gcloud_config_container_path.rstrip("/")
             binds.append(f"{self._gcloud_config_mount}:{container_gcloud}:ro")
-            env.update(_gcloud_adc_env(container_config_path=container_gcloud))
+            env.update(build_gcloud_adc_env(container_config_path=container_gcloud))
 
         container_user: str | None = None
         if self._container_run_uid is not None and self._container_run_gid is not None:

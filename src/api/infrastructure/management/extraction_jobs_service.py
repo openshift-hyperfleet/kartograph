@@ -15,8 +15,16 @@ from infrastructure.management.extraction_job_materializer import (
     materialize_jobs_from_config,
     projected_job_count,
 )
+from extraction.infrastructure.extraction_job_container import stop_extraction_job_container
 from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
 from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
+from extraction.infrastructure.extraction_job_activity import (
+    job_workdir,
+    parse_activity_messages,
+    read_activity_log,
+    serialize_job_detail,
+    serialize_recent_job,
+)
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
@@ -31,6 +39,23 @@ from management.domain.extraction_job_config import (
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,
 )
+
+
+def _format_pending_sync_message(
+    *,
+    generated_jobs: int,
+    enabled_job_set_count: int,
+    disabled_job_set_count: int,
+    warnings: tuple[str, ...],
+) -> str:
+    parts = [
+        f"Synced {generated_jobs} pending job(s) from {enabled_job_set_count} enabled job set(s)."
+    ]
+    if disabled_job_set_count:
+        parts.append(f"{disabled_job_set_count} disabled job set(s) were excluded.")
+    if warnings:
+        parts.append(" ".join(warnings))
+    return " ".join(parts)
 
 
 class ExtractionJobsService:
@@ -120,21 +145,12 @@ class ExtractionJobsService:
         await self._session.commit()
         return document.to_dict()
 
-    async def regenerate_jobs(
+    async def _materialize_and_sync_pending_jobs(
         self,
         *,
-        user_id: str,
         kg_id: str,
+        document: ExtractionJobConfigDocument,
     ) -> dict[str, Any]:
-        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
-        if kg is None:
-            raise ValueError(f"Knowledge graph '{kg_id}' not found")
-
-        if await self._extraction_job_repository.has_in_progress_jobs(knowledge_graph_id=kg_id):
-            raise ValueError("Cannot regenerate jobs while extraction jobs are in progress.")
-
-        config = await self._knowledge_graph_repository.get_extraction_job_config(kg_id)
-        document = config or ExtractionJobConfigDocument.empty()
         graph_data = await self._load_graph_data()
         runtime_settings = get_extraction_workload_runtime_settings()
         prepared_reader = SqlPreparedJobPackageReader(
@@ -151,12 +167,108 @@ class ExtractionJobsService:
             job_packages=job_packages,
             job_package_work_dir=Path(runtime_settings.job_package_work_dir),
         )
-        generated = await self._extraction_job_repository.replace_pending_jobs(
+        configured_names = {job_set.name for job_set in document.job_sets}
+        enabled_names = {job_set.name for job_set in document.enabled_job_sets()}
+        blocked_names = await self._extraction_job_repository.job_set_names_with_in_progress(
+            knowledge_graph_id=kg_id,
+        )
+        generated, warnings = await self._extraction_job_repository.sync_pending_jobs(
             knowledge_graph_id=kg_id,
             jobs=jobs,
+            configured_job_set_names=configured_names,
+            enabled_job_set_names=enabled_names,
+            blocked_job_set_names=blocked_names,
+        )
+        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        await orchestrator.ensure_workers_for_pending(
+            tenant_id=self._tenant_id,
+            knowledge_graph_id=kg_id,
+        )
+        disabled_count = len(configured_names - enabled_names)
+        message = _format_pending_sync_message(
+            generated_jobs=generated,
+            enabled_job_set_count=len(enabled_names),
+            disabled_job_set_count=disabled_count,
+            warnings=warnings,
+        )
+        return {
+            "success": True,
+            "generated_jobs": generated,
+            "warnings": list(warnings),
+            "message": message,
+        }
+
+    async def regenerate_jobs(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+    ) -> dict[str, Any]:
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            raise ValueError(f"Knowledge graph '{kg_id}' not found")
+
+        config = await self._knowledge_graph_repository.get_extraction_job_config(kg_id)
+        document = config or ExtractionJobConfigDocument.empty()
+        result = await self._materialize_and_sync_pending_jobs(
+            kg_id=kg_id,
+            document=document,
         )
         await self._session.commit()
-        return {"success": True, "generated_jobs": generated}
+        return result
+
+    async def cancel_job(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            raise ValueError(f"Knowledge graph '{kg_id}' not found")
+
+        job = await self._extraction_job_repository.get_by_job_id(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+        )
+        if job is None:
+            raise ValueError(f"Extraction job '{job_id}' not found")
+
+        runtime_settings = get_extraction_workload_runtime_settings()
+        if job.status == ExtractionJobStatus.PENDING:
+            removed = await self._extraction_job_repository.delete_pending_job(
+                knowledge_graph_id=kg_id,
+                job_id=job_id,
+            )
+            if not removed:
+                raise ValueError(f"Job '{job_id}' is no longer pending.")
+            await self._session.commit()
+            return {
+                "success": True,
+                "message": f"Removed pending job {job_id} from the queue.",
+            }
+
+        if job.status != ExtractionJobStatus.IN_PROGRESS:
+            raise ValueError(
+                f"Job '{job_id}' is {job.status.value} and cannot be cancelled. "
+                "Use Reset Failed or Reset All Jobs to re-queue finished jobs."
+            )
+
+        stop_extraction_job_container(
+            job_id=job_id,
+            container_engine=runtime_settings.container_engine,
+        )
+        await self._extraction_job_repository.mark_job_failed(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+            error_message="Cancelled by operator",
+        )
+        await self._session.commit()
+        return {
+            "success": True,
+            "message": f"Cancelled running job {job_id} and stopped its container.",
+        }
 
     async def get_database_status(
         self,
@@ -190,6 +302,7 @@ class ExtractionJobsService:
             knowledge_graph_id=kg_id,
             graph_data=graph_data,
         )
+        runtime_settings = get_extraction_workload_runtime_settings()
         return {
             "exists": True,
             "jobsByStatus": {
@@ -200,18 +313,7 @@ class ExtractionJobsService:
             },
             "jobsBySet": jobs_by_set,
             "recentJobs": [
-                {
-                    "jobId": job.job_id,
-                    "jobSet": job.job_set_name,
-                    "status": job.status.value,
-                    "workerId": job.worker_id,
-                    "startedAt": job.started_at.isoformat() if job.started_at else None,
-                    "completedAt": job.completed_at.isoformat() if job.completed_at else None,
-                    "inputTokens": job.input_tokens,
-                    "outputTokens": job.output_tokens,
-                    "writeOps": job.entities_created + job.entities_modified + job.relationships_created,
-                    "assistantPreview": job.description[:120] if job.description else None,
-                }
+                serialize_recent_job(job, settings=runtime_settings)
                 for job in recent_jobs
             ],
             "activeWorkers": active_workers,
@@ -219,6 +321,56 @@ class ExtractionJobsService:
             "entitiesByType": entity_counts,
             "entitiesTotal": sum(entity_counts.values()),
             **token_metrics,
+        }
+
+    async def get_job_detail(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        job_id: str,
+    ) -> dict[str, Any] | None:
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            return None
+        job = await self._extraction_job_repository.get_by_job_id(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+        )
+        if job is None:
+            return None
+        runtime_settings = get_extraction_workload_runtime_settings()
+        return serialize_job_detail(job, settings=runtime_settings)
+
+    async def get_job_activity(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        job_id: str,
+    ) -> dict[str, Any] | None:
+        kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        if kg is None:
+            return None
+        job = await self._extraction_job_repository.get_by_job_id(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+        )
+        if job is None:
+            return None
+        runtime_settings = get_extraction_workload_runtime_settings()
+        workdir = job_workdir(
+            knowledge_graph_id=kg_id,
+            job_id=job_id,
+            settings=runtime_settings,
+        )
+        raw_log = read_activity_log(workdir)
+        return {
+            "jobId": job.job_id,
+            "status": job.status.value,
+            "log": raw_log,
+            "messages": parse_activity_messages(raw_log),
+            "detail": serialize_job_detail(job, settings=runtime_settings),
         }
 
     async def get_extraction_run_state(

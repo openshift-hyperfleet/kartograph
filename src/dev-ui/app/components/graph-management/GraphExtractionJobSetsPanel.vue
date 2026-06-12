@@ -26,6 +26,7 @@ const inputClass =
 
 interface ExtractionJobSet {
   name: string
+  enabled?: boolean
   description?: string
   strategy: 'by_instances' | 'by_files'
   entity_type?: string
@@ -68,7 +69,9 @@ async function load() {
       : []
     doc.value = cloneDoc({
       version: data.version || '1.0',
-      job_sets: Array.isArray(data.job_sets) ? data.job_sets : [],
+      job_sets: Array.isArray(data.job_sets)
+        ? data.job_sets.map((js) => ({ enabled: js.enabled !== false, ...js }))
+        : [],
     })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -100,6 +103,7 @@ function addJobSet() {
   const index = doc.value.job_sets.length + 1
   doc.value.job_sets.push({
     name: `job_set_${index}`,
+    enabled: true,
     strategy: 'by_instances',
     entity_type: entityTypeOptions.value[0]?.name ?? '',
     instances_per_job: 4,
@@ -112,7 +116,11 @@ function buildPayload(): ExtractionJobsDocument {
   return {
     version: doc.value.version || '1.0',
     job_sets: doc.value.job_sets.map((js) => {
-      const base = { name: js.name, strategy: js.strategy } as ExtractionJobSet
+      const base = {
+        name: js.name,
+        strategy: js.strategy,
+        enabled: js.enabled !== false,
+      } as ExtractionJobSet
       if (typeof js.description === 'string' && js.description.trim()) {
         base.description = js.description.trim()
       }
@@ -137,6 +145,7 @@ function getEntityTypeInstanceCount(entityType?: string): number | null {
 }
 
 function jobSetErrors(js: ExtractionJobSet): string[] {
+  if (js.enabled === false) return []
   const errs: string[] = []
   if (js.strategy === 'by_instances') {
     if (!js.entity_type?.trim()) errs.push('Entity type is required for by_instances.')
@@ -151,6 +160,7 @@ function jobSetErrors(js: ExtractionJobSet): string[] {
 }
 
 function projectedJobCount(js: ExtractionJobSet): number | null {
+  if (js.enabled === false) return 0
   if (js.strategy !== 'by_instances') return null
   const total = getEntityTypeInstanceCount(js.entity_type)
   const perJob = Number(js.instances_per_job)
@@ -168,11 +178,18 @@ async function save() {
   if (!doc.value) return
   saving.value = true
   try {
-    await apiFetch(
+    const res = await apiFetch<{ message?: string; warnings?: string[] }>(
       `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`,
       { method: 'PUT', body: buildPayload() },
     )
-    toast.success('Saved job sets and regenerated pending jobs')
+    toast.success('Saved job sets', {
+      description: res.message || 'Pending jobs were synced for enabled job sets.',
+    })
+    if (Array.isArray(res.warnings) && res.warnings.length > 0) {
+      toast.warning('Some job sets were not refreshed', {
+        description: res.warnings.join(' '),
+      })
+    }
     emit('saved')
     await load()
   } catch (e: unknown) {
@@ -219,7 +236,7 @@ defineExpose({ refresh: load })
             Job sets
           </CardTitle>
           <CardDescription>
-            Author with the assistant above or edit directly. Save regenerates pending jobs from live graph instances.
+            Author with the assistant above or edit directly. Save syncs pending jobs for enabled sets only — you can add or enable sets while extraction is running.
           </CardDescription>
         </CardHeader>
         <CardContent class="space-y-6">
@@ -231,12 +248,19 @@ defineExpose({ refresh: load })
             v-for="(js, idx) in doc.job_sets"
             :key="`${js.name}-${idx}`"
             class="space-y-4 rounded-xl border border-cyan-500/30 bg-gradient-to-br from-cyan-500/10 via-card to-card p-4 md:p-5"
+            :class="js.enabled === false ? 'opacity-60' : ''"
           >
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="space-y-1">
                 <input v-model="js.name" :class="inputClass" placeholder="Job set name" />
               </div>
-              <Badge variant="outline" class="text-[11px]">#{{ idx + 1 }}</Badge>
+              <div class="flex flex-wrap items-center gap-2">
+                <label class="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input v-model="js.enabled" type="checkbox" class="size-4 rounded border-border" />
+                  Enabled
+                </label>
+                <Badge variant="outline" class="text-[11px]">#{{ idx + 1 }}</Badge>
+              </div>
             </div>
 
             <div class="grid gap-2 sm:grid-cols-2">

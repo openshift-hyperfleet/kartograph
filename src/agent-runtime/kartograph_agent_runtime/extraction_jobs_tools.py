@@ -49,7 +49,9 @@ def append_extraction_jobs_tools(*, tooling: RuntimeTooling, tools: list[Any]) -
             "entity_type + instances_per_job for by_instances, or file_patterns + files_per_job "
             "for by_files. For by_instances, description must match per_instance_description_authoring: "
             "opening capture-everything paragraph, Properties section listing each property, then "
-            "one '{EntityType} -> {rel} -> {CounterpartType}:' line per ontology relationship."
+            "one '{EntityType} -> {rel} -> {CounterpartType}:' line per relationship this entity "
+            "type owns (include only when this entity type has more live instances than the "
+            "counterpart type)."
         ),
         {
             "version": str,

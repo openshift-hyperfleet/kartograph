@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
+from typing import Any
+
+GCLOUD_ADC_FILENAME = "application_default_credentials.json"
+DEFAULT_GCLOUD_CONTAINER_PATH = "/gcloud/config"
 
 
 def is_truthy_env(value: str | None) -> bool:
@@ -29,6 +34,24 @@ def build_vertex_container_env(
         env["CLOUD_ML_REGION"] = region.strip()
         env["VERTEXAI_LOCATION"] = region.strip()
     return env
+
+
+def build_gcloud_adc_env(*, container_config_path: str) -> dict[str, str]:
+    """Env vars so Google client libraries find ADC inside extraction containers."""
+    base = container_config_path.rstrip("/")
+    return {
+        "CLOUDSDK_CONFIG": base,
+        "GOOGLE_APPLICATION_CREDENTIALS": f"{base}/{GCLOUD_ADC_FILENAME}",
+        "HOME": "/tmp",
+    }
+
+
+def build_gcloud_config_bind(
+    *,
+    host_mount: str,
+    container_path: str = DEFAULT_GCLOUD_CONTAINER_PATH,
+) -> str:
+    return f"{host_mount.rstrip('/')}:{container_path.rstrip('/')}:ro,z"
 
 
 def claude_model_configured() -> bool:

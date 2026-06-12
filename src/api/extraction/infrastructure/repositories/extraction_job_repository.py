@@ -101,6 +101,146 @@ class ExtractionJobRepository:
         await self._session.flush()
         return len(jobs)
 
+    async def sync_pending_jobs(
+        self,
+        *,
+        knowledge_graph_id: str,
+        jobs: list[ExtractionJobRecord],
+        configured_job_set_names: set[str],
+        enabled_job_set_names: set[str],
+        blocked_job_set_names: set[str],
+    ) -> tuple[int, tuple[str, ...]]:
+        """Replace pending jobs per enabled job set without touching active work."""
+        warnings: list[str] = []
+        for job_set_name in sorted(configured_job_set_names):
+            if job_set_name not in enabled_job_set_names:
+                await self._delete_pending_for_job_set(
+                    knowledge_graph_id=knowledge_graph_id,
+                    job_set_name=job_set_name,
+                )
+                continue
+            if job_set_name in blocked_job_set_names:
+                in_progress = await self.count_in_progress_for_job_set(
+                    knowledge_graph_id=knowledge_graph_id,
+                    job_set_name=job_set_name,
+                )
+                warnings.append(
+                    f"Skipped refreshing pending jobs for '{job_set_name}' because "
+                    f"{in_progress} job(s) are still running."
+                )
+                continue
+            await self._delete_pending_for_job_set(
+                knowledge_graph_id=knowledge_graph_id,
+                job_set_name=job_set_name,
+            )
+            for job in jobs:
+                if job.job_set_name != job_set_name:
+                    continue
+                self._session.add(
+                    ExtractionJobModel(
+                        id=job.id,
+                        knowledge_graph_id=job.knowledge_graph_id,
+                        job_id=job.job_id,
+                        job_set_name=job.job_set_name,
+                        strategy=job.strategy,
+                        status=job.status.value,
+                        order_index=job.order_index,
+                        description=job.description,
+                        target_instances=[
+                            instance.to_dict() for instance in job.target_instances
+                        ],
+                        target_files=[
+                            target_file.to_dict() for target_file in job.target_files
+                        ],
+                    )
+                )
+
+        stale_names = await self._list_pending_job_set_names(knowledge_graph_id=knowledge_graph_id)
+        for job_set_name in stale_names:
+            if job_set_name not in configured_job_set_names:
+                await self._delete_pending_for_job_set(
+                    knowledge_graph_id=knowledge_graph_id,
+                    job_set_name=job_set_name,
+                )
+
+        await self._session.flush()
+        generated = len(
+            [
+                job
+                for job in jobs
+                if job.job_set_name in enabled_job_set_names
+                and job.job_set_name not in blocked_job_set_names
+            ]
+        )
+        return generated, tuple(warnings)
+
+    async def _delete_pending_for_job_set(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_set_name: str,
+    ) -> None:
+        await self._session.execute(
+            delete(ExtractionJobModel).where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.job_set_name == job_set_name,
+                ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
+            )
+        )
+
+    async def _list_pending_job_set_names(self, *, knowledge_graph_id: str) -> set[str]:
+        stmt = (
+            select(ExtractionJobModel.job_set_name)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
+            )
+            .distinct()
+        )
+        result = await self._session.execute(stmt)
+        return {str(row[0]) for row in result.all()}
+
+    async def count_in_progress_for_job_set(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_set_name: str,
+    ) -> int:
+        stmt = select(func.count()).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.job_set_name == job_set_name,
+            ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def job_set_names_with_in_progress(self, *, knowledge_graph_id: str) -> set[str]:
+        stmt = (
+            select(ExtractionJobModel.job_set_name)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
+            )
+            .distinct()
+        )
+        result = await self._session.execute(stmt)
+        return {str(row[0]) for row in result.all()}
+
+    async def delete_pending_job(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_id: str,
+    ) -> bool:
+        result = await self._session.execute(
+            delete(ExtractionJobModel).where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.job_id == job_id,
+                ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
+            )
+        )
+        return int(result.rowcount or 0) > 0
+
     async def count_by_status(self, *, knowledge_graph_id: str) -> dict[str, int]:
         stmt = (
             select(ExtractionJobModel.status, func.count())
@@ -147,6 +287,22 @@ class ExtractionJobRepository:
         )
         result = await self._session.execute(stmt)
         return int(result.scalar_one()) > 0
+
+    async def get_by_job_id(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_id: str,
+    ) -> ExtractionJobRecord | None:
+        stmt = select(ExtractionJobModel).where(
+            ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+            ExtractionJobModel.job_id == job_id,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return _job_model_to_record(model)
 
     async def list_recent_jobs(
         self,

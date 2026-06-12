@@ -167,6 +167,8 @@ def materialize_jobs_from_config(
     order_index = 0
 
     for job_set in config.job_sets:
+        if not job_set.enabled:
+            continue
         if job_set.strategy == ExtractionJobSetStrategy.BY_INSTANCES:
             entity_type = job_set.entity_type or ""
             instances = instances_by_type.get(entity_type, [])
@@ -229,6 +231,8 @@ def projected_job_count(
     entity_instance_counts: dict[str, int],
     matched_file_count: int | None = None,
 ) -> int | None:
+    if not job_set.enabled:
+        return 0
     if job_set.strategy == ExtractionJobSetStrategy.BY_INSTANCES:
         total = entity_instance_counts.get(job_set.entity_type or "", 0)
         per_job = job_set.instances_per_job

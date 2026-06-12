@@ -15,7 +15,10 @@ from infrastructure.management.extraction_job_materializer import (
     materialize_jobs_from_config,
     projected_job_count,
 )
+from infrastructure.management.extraction_jobs_service import _format_pending_sync_message
 from extraction.domain.extraction_job import ExtractionJobStatus
+from extraction.infrastructure.extraction_job_activity import serialize_recent_job
+from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
@@ -41,9 +44,11 @@ class GraphWorkloadExtractionJobsService:
         *,
         session: AsyncSession,
         connection_pool: ConnectionPool,
+        session_factory: Any | None = None,
     ) -> None:
         self._session = session
         self._connection_pool = connection_pool
+        self._session_factory = session_factory
         outbox = OutboxRepository(session=session)
         self._knowledge_graph_repository = KnowledgeGraphRepository(session=session, outbox=outbox)
         self._extraction_job_repository = ExtractionJobRepository(session=session)
@@ -107,10 +112,6 @@ class GraphWorkloadExtractionJobsService:
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
         )
-        if await self._extraction_job_repository.has_in_progress_jobs(
-            knowledge_graph_id=knowledge_graph_id
-        ):
-            raise ValueError("Cannot save job sets while extraction jobs are in progress.")
 
         document = ExtractionJobConfigDocument(
             version=str(payload.get("version") or "1.0"),
@@ -148,10 +149,24 @@ class GraphWorkloadExtractionJobsService:
             job_packages=job_packages,
             job_package_work_dir=Path(runtime_settings.job_package_work_dir),
         )
-        generated = await self._extraction_job_repository.replace_pending_jobs(
+        configured_names = {job_set.name for job_set in document.job_sets}
+        enabled_names = {job_set.name for job_set in document.enabled_job_sets()}
+        blocked_names = await self._extraction_job_repository.job_set_names_with_in_progress(
+            knowledge_graph_id=knowledge_graph_id,
+        )
+        generated, warnings = await self._extraction_job_repository.sync_pending_jobs(
             knowledge_graph_id=knowledge_graph_id,
             jobs=jobs,
+            configured_job_set_names=configured_names,
+            enabled_job_set_names=enabled_names,
+            blocked_job_set_names=blocked_names,
         )
+        if self._session_factory is not None:
+            orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+            await orchestrator.ensure_workers_for_pending(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+            )
         await self._session.commit()
 
         saved = await self.get_document(
@@ -159,6 +174,13 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
         )
         saved["generated_jobs"] = generated
+        saved["warnings"] = list(warnings)
+        saved["message"] = _format_pending_sync_message(
+            generated_jobs=generated,
+            enabled_job_set_count=len(enabled_names),
+            disabled_job_set_count=len(configured_names - enabled_names),
+            warnings=warnings,
+        )
         return saved
 
     async def get_plan_summary(
@@ -238,6 +260,7 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
             graph_data=graph_data,
         )
+        runtime_settings = get_extraction_workload_runtime_settings()
         return {
             "exists": True,
             "jobsByStatus": {
@@ -248,20 +271,7 @@ class GraphWorkloadExtractionJobsService:
             },
             "jobsBySet": jobs_by_set,
             "recentJobs": [
-                {
-                    "jobId": job.job_id,
-                    "jobSet": job.job_set_name,
-                    "status": job.status.value,
-                    "workerId": job.worker_id,
-                    "startedAt": job.started_at.isoformat() if job.started_at else None,
-                    "completedAt": job.completed_at.isoformat() if job.completed_at else None,
-                    "inputTokens": job.input_tokens,
-                    "outputTokens": job.output_tokens,
-                    "writeOps": job.entities_created
-                    + job.entities_modified
-                    + job.relationships_created,
-                    "assistantPreview": job.description[:120] if job.description else None,
-                }
+                serialize_recent_job(job, settings=runtime_settings)
                 for job in recent_jobs
             ],
             "activeWorkers": active_workers,

@@ -51,7 +51,8 @@ def append_extraction_jobs_tools(*, tooling: RuntimeTooling, tools: list[Any]) -
             "opening capture-everything paragraph, Properties section listing each property, then "
             "one '{EntityType} -> {rel} -> {CounterpartType}:' line per relationship this entity "
             "type owns (include only when this entity type has more live instances than the "
-            "counterpart type)."
+            "counterpart type). Example: Adapter (19) includes operates_on->Resource (9), "
+            "excludes verifies/verifies_inverse->ComponentTest (1264)."
         ),
         {
             "version": str,

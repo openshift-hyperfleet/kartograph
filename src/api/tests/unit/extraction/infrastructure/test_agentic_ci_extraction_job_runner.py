@@ -44,6 +44,8 @@ def test_write_extraction_prompt_file_materializes_instructions(tmp_path: Path) 
 def test_extraction_job_invoke_prompt_references_materialized_file() -> None:
     assert "extraction_prompt.md" in EXTRACTION_JOB_INVOKE_PROMPT
     assert "job-context.json" in EXTRACTION_JOB_INVOKE_PROMPT
+    assert "helpers/workload-mutations.sh" in EXTRACTION_JOB_INVOKE_PROMPT
+    assert "mutations/result.json" in EXTRACTION_JOB_INVOKE_PROMPT
 
 
 def test_patch_job_context_api_base_rewrites_host_reachable_url(tmp_path: Path) -> None:

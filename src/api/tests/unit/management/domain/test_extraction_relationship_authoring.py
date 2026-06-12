@@ -43,6 +43,24 @@ def test_omits_relationship_when_counts_are_equal() -> None:
     assert lines == ()
 
 
+def test_adapter_omits_componenttest_relationship_but_keeps_resource() -> None:
+    counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
+    edges = [
+        {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
+        {"label": "verifies", "source_type": "ComponentTest", "target_type": "Adapter"},
+    ]
+    lines = relationship_authoring_lines_for_entity_type(
+        "Adapter",
+        edge_types=edges,
+        entity_instance_counts=counts,
+    )
+    labels = {(line.relationship_label, line.counterpart_type) for line in lines}
+
+    assert ("operates_on", "Resource") in labels
+    assert ("verifies", "ComponentTest") not in labels
+    assert len(lines) == 1
+
+
 def test_includes_inbound_relationship_when_target_side_has_more_instances() -> None:
     lines = relationship_authoring_lines_for_entity_type(
         "Service",

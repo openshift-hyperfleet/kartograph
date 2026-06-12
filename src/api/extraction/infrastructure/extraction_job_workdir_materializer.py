@@ -6,14 +6,25 @@ import json
 import shutil
 from pathlib import Path
 
-from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionTargetFile
+from extraction.domain.extraction_job import ExtractionJobRecord
+from extraction.domain.observability.extraction_job_probe import (
+    ExtractionJobMaterializationObservation,
+    ExtractionJobProbe,
+    LoggingExtractionJobProbe,
+)
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+from extraction.infrastructure.extraction_job_repository_files import (
+    RepositoryFilesMaterializationResult,
+    collect_instance_repository_paths,
+    materialize_all_repository_files,
+    materialize_instance_repository_paths,
+    materialize_target_files,
+    write_sources_index,
+)
+from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
 from extraction.ports.runtime import ScopedWorkloadCredentials
-from shared_kernel.job_package.path_safety import validate_zip_entry_name
-from shared_kernel.job_package.reader import JobPackageReader
-from shared_kernel.job_package.value_objects import JobPackageId
 
 
 class ExtractionJobWorkdirMaterializer:
@@ -24,10 +35,12 @@ class ExtractionJobWorkdirMaterializer:
         *,
         settings: ExtractionWorkloadRuntimeSettings,
         prepared_job_package_reader: SqlPreparedJobPackageReader,
+        probe: ExtractionJobProbe | None = None,
     ) -> None:
         self._settings = settings
         self._prepared_job_package_reader = prepared_job_package_reader
         self._job_package_work_dir = Path(settings.job_package_work_dir)
+        self._probe = probe or LoggingExtractionJobProbe()
 
     async def prepare(
         self,
@@ -39,6 +52,7 @@ class ExtractionJobWorkdirMaterializer:
         job_root = Path(self._settings.extraction_job_work_dir) / job.knowledge_graph_id / job.job_id
         if job_root.exists():
             shutil.rmtree(job_root)
+        job_root.mkdir(parents=True, exist_ok=True)
         repository_files_dir = job_root / "repository-files"
         repository_files_dir.mkdir(parents=True, exist_ok=True)
 
@@ -46,17 +60,34 @@ class ExtractionJobWorkdirMaterializer:
             knowledge_graph_id=job.knowledge_graph_id,
         )
         packages_by_id = {source.package_id: source for source in job_packages}
-        if job.target_files:
-            self._materialize_target_files(
-                repository_files_dir=repository_files_dir,
-                target_files=job.target_files,
-                packages_by_id=packages_by_id,
+        materialization = self._materialize_repository_files(
+            job=job,
+            repository_files_dir=repository_files_dir,
+            job_packages=job_packages,
+            packages_by_id=packages_by_id,
+        )
+        write_sources_index(
+            job_root=job_root,
+            knowledge_graph_id=job.knowledge_graph_id,
+            job_packages=job_packages,
+            materialization=materialization,
+        )
+        prepare_agentic_ci_workspace(
+            job_root,
+            container_run_uid=self._settings.container_run_uid,
+            container_run_gid=self._settings.container_run_gid,
+        )
+        self._probe.repository_files_materialized(
+            ExtractionJobMaterializationObservation(
+                job_id=job.job_id,
+                knowledge_graph_id=job.knowledge_graph_id,
+                files_written=materialization.files_written,
+                packages_requested=materialization.packages_requested,
+                packages_missing=materialization.packages_missing,
+                paths_requested=materialization.paths_requested,
+                warnings=materialization.warnings,
             )
-        else:
-            self._materialize_all_repository_files(
-                repository_files_dir=repository_files_dir,
-                job_packages=job_packages,
-            )
+        )
 
         context = {
             "tenant_id": tenant_id,
@@ -69,56 +100,51 @@ class ExtractionJobWorkdirMaterializer:
             "workload_token": credentials.token,
             "target_instances": [instance.to_dict() for instance in job.target_instances],
             "target_files": [target_file.to_dict() for target_file in job.target_files],
+            "repository_files": materialization.to_dict(),
         }
         (job_root / "job-context.json").write_text(
-            json.dumps(context, indent=2),
+            json.dumps(context, indent=2) + "\n",
             encoding="utf-8",
         )
         return job_root
 
-    def _materialize_all_repository_files(
+    def _materialize_repository_files(
         self,
         *,
+        job: ExtractionJobRecord,
         repository_files_dir: Path,
         job_packages: tuple[PreparedJobPackageSource, ...],
-    ) -> None:
-        for source in job_packages:
-            archive_path = self._job_package_work_dir / JobPackageId(
-                value=source.package_id
-            ).archive_name()
-            if not archive_path.is_file():
-                continue
-            reader = JobPackageReader(archive_path)
-            for change in reader.iter_changeset():
-                if change.content_ref is None or not change.path:
-                    continue
-                validate_zip_entry_name(change.path)
-                output_path = repository_files_dir / source.repository_folder / change.path
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(reader.read_content(change.content_ref))
-
-    def _materialize_target_files(
-        self,
-        *,
-        repository_files_dir: Path,
-        target_files: tuple[ExtractionTargetFile, ...],
         packages_by_id: dict[str, PreparedJobPackageSource],
-    ) -> None:
-        for target_file in target_files:
-            source = packages_by_id.get(target_file.package_id)
-            if source is None:
-                continue
-            archive_path = self._job_package_work_dir / JobPackageId(
-                value=source.package_id
-            ).archive_name()
-            if not archive_path.is_file():
-                continue
-            reader = JobPackageReader(archive_path)
-            for change in reader.iter_changeset():
-                if change.path != target_file.path or change.content_ref is None:
-                    continue
-                validate_zip_entry_name(change.path)
-                output_path = repository_files_dir / source.repository_folder / change.path
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(reader.read_content(change.content_ref))
-                break
+    ) -> RepositoryFilesMaterializationResult:
+        if job.target_files:
+            return materialize_target_files(
+                repository_files_dir=repository_files_dir,
+                job_package_work_dir=self._job_package_work_dir,
+                target_files=job.target_files,
+                packages_by_id=packages_by_id,
+            )
+
+        materialization = RepositoryFilesMaterializationResult()
+        if job.target_instances:
+            instance_paths = collect_instance_repository_paths(job.target_instances)
+            if instance_paths:
+                materialization = materialize_instance_repository_paths(
+                    repository_files_dir=repository_files_dir,
+                    job_package_work_dir=self._job_package_work_dir,
+                    job_packages=job_packages,
+                    paths=instance_paths,
+                )
+            if materialization.files_written == 0:
+                fallback = materialize_all_repository_files(
+                    repository_files_dir=repository_files_dir,
+                    job_package_work_dir=self._job_package_work_dir,
+                    job_packages=job_packages,
+                )
+                materialization = materialization.merge(fallback)
+            return materialization
+
+        return materialize_all_repository_files(
+            repository_files_dir=repository_files_dir,
+            job_package_work_dir=self._job_package_work_dir,
+            job_packages=job_packages,
+        )

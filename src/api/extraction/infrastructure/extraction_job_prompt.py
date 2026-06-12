@@ -7,12 +7,15 @@ from pathlib import Path
 from extraction.domain.extraction_job import ExtractionJobRecord
 
 EXTRACTION_PROMPT_FILENAME = "extraction_prompt.md"
+MUTATIONS_HELPER = "helpers/workload-mutations.sh"
 
 EXTRACTION_JOB_INVOKE_PROMPT = (
     "You are running a Kartograph extraction job in /workspace. "
-    f"Read {EXTRACTION_PROMPT_FILENAME} and job-context.json, then follow the instructions "
-    "completely. Use the workload API credentials in job-context.json to apply all required "
-    "graph mutations before you finish."
+    f"Read {EXTRACTION_PROMPT_FILENAME}, job-context.json, and sources-index.json, then follow "
+    "the instructions completely. Write JSONL batches under mutations/, validate with "
+    f"`bash {MUTATIONS_HELPER} validate mutations/<batch>.jsonl`, then apply with "
+    f"`bash {MUTATIONS_HELPER} apply mutations/<batch>.jsonl`. Do not finish until apply "
+    "succeeds and mutations/result.json reports operations_applied > 0."
 )
 
 
@@ -27,7 +30,8 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
     """Return the agent prompt for one materialized extraction job."""
     lines = [
         "You are an extraction agent for Kartograph, a knowledge graph platform.",
-        "Read job-context.json in the workspace for API credentials and scope.",
+        "Read job-context.json and sources-index.json in the workspace for API credentials,",
+        "JobPackage sources, and repository-files materialization status.",
         "",
         "## Job instructions",
         job.description.strip() or "Extract graph entities and relationships for the assigned targets.",
@@ -42,7 +46,9 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
                 "Treat partial coverage as incomplete unless the job instructions below narrow scope.",
                 "",
                 "## Target entity instances",
-                "Process only the instances listed below. Use the workload API to read existing graph",
+                "Process only the instances listed below. Read source files under repository-files/",
+                "when materialized (see job-context.json repository_files and instance property paths",
+                "such as config_file_path or source_path). Use the workload API to read existing graph",
                 "context and emit JSONL mutations for new or updated entities and relationships.",
                 "",
             ]
@@ -66,26 +72,32 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
         lines.append("")
     lines.extend(
         [
-            "## Workload API",
-            "This container has no Kartograph MCP tools. Call the workload HTTP API with Bash/curl.",
-            "Read api_base_url and workload_token from job-context.json.",
-            "Send header `X-Workload-Token: <workload_token>` on every request.",
+            "## Repository files",
+            "If job-context.json repository_files.files_written is 0, report the warnings there",
+            "and still apply any updates supported by graph context — but prefer reading",
+            "repository-files/ content whenever sample_paths are listed.",
             "",
-            "Base path: `{api_base_url}/extraction/workloads`",
+            "## Mutations workflow (required)",
+            "This container has no Kartograph MCP tools. Use the bundled helper script:",
+            f"- Validate: `bash {MUTATIONS_HELPER} validate mutations/<batch>.jsonl`",
+            f"- Apply: `bash {MUTATIONS_HELPER} apply mutations/<batch>.jsonl`",
+            "The helper reads api_base_url and workload_token from job-context.json, calls the",
+            "workload API, and writes mutations/result.json (the CI verdict artifact).",
+            "Always validate before apply. Do not finish until apply succeeds.",
             "",
-            "Useful endpoints:",
-            "- GET `/schema/authoring-guide` — JSONL mutation shapes and rules",
-            "- GET `/schema/ontology` — current graph schema",
-            "- GET `/graph/search?q=...` — search existing nodes",
-            "- GET `/graph/instances?entity_type=...` — list instances by type",
-            "- POST `/mutations/validate` with body `{\"jsonl\": \"...\"}` — dry-run",
-            "- POST `/mutations/apply` with body `{\"jsonl\": \"...\"}` — apply mutations",
+            "Manual curl (only if helper fails): base `{api_base_url}/extraction/workloads`,",
+            "header `X-Workload-Token: <workload_token>`, POST `/mutations/validate` or",
+            "`/mutations/apply` with JSON body `{\"jsonl\": \"<file contents>\"}`.",
             "",
-            "Write `.jsonl` files in the workspace when batches are large. Validate before apply.",
+            "Other useful GET endpoints:",
+            "- `/schema/authoring-guide` — JSONL mutation shapes and rules",
+            "- `/schema/ontology` — current graph schema",
+            "- `/graph/search?q=...` — search existing nodes",
+            "- `/graph/instances?entity_type=...` — list instances by type",
             "",
             "## Completion",
-            "When finished, ensure all required mutations are applied through the workload API.",
-            "Do not modify files outside repository-files/.",
+            "When finished, mutations/result.json must show action=apply and operations_applied > 0.",
+            "Do not modify files outside repository-files/ except mutations/ and helpers/.",
         ]
     )
     return "\n".join(lines)

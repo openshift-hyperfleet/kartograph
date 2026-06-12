@@ -32,6 +32,7 @@ from extraction.infrastructure.extraction_job_prompt import (
 from extraction.infrastructure.extraction_job_workdir_materializer import (
     ExtractionJobWorkdirMaterializer,
 )
+from extraction.infrastructure.extraction_job_verdict import require_successful_apply
 from extraction.infrastructure.vertex_runtime_env import (
     build_gcloud_adc_env,
     build_gcloud_config_bind,
@@ -154,6 +155,19 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                 raise RuntimeError(
                     f"agentic-ci container exited with code {rc} for job {job.job_id}"
                 )
+            verdict = require_successful_apply(workdir)
+            append_activity_message(
+                log_path,
+                kind="done",
+                text=(
+                    f"Applied {verdict.operations_applied} graph mutation operation(s) "
+                    "via workload API."
+                ),
+            )
+            metrics = {
+                **metrics,
+                "operations_applied": verdict.operations_applied,
+            }
             return metrics
         finally:
             if otel_proc is not None:

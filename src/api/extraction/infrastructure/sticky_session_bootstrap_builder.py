@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
 from extraction.infrastructure.sticky_session_workdir_materializer import (
     StickySessionWorkdirMaterializer,
 )
@@ -25,11 +26,13 @@ class StickySessionBootstrapBuilder:
         prepared_job_package_reader: IPreparedJobPackageReader,
         workdir_materializer: StickySessionWorkdirMaterializer,
         runtime_settings: ExtractionWorkloadRuntimeSettings | None = None,
+        archive_hydrator: JobPackageArchiveHydrator | None = None,
     ) -> None:
         self._credential_issuer = credential_issuer
         self._prepared_job_package_reader = prepared_job_package_reader
         self._workdir_materializer = workdir_materializer
         self._runtime_settings = runtime_settings or get_extraction_workload_runtime_settings()
+        self._archive_hydrator = archive_hydrator
 
     async def resolve_job_packages(
         self,
@@ -57,6 +60,11 @@ class StickySessionBootstrapBuilder:
 
         job_packages: tuple[PreparedJobPackageSource, ...] = ()
         if include_job_packages:
+            if self._archive_hydrator is not None:
+                await self._archive_hydrator.ensure_for_knowledge_graph(
+                    knowledge_graph_id=knowledge_graph_id,
+                    tenant_id=tenant_id,
+                )
             job_packages = await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
                 knowledge_graph_id=knowledge_graph_id,
             )

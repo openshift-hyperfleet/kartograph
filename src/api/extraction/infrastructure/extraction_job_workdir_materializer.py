@@ -23,6 +23,7 @@ from extraction.infrastructure.extraction_job_repository_files import (
 )
 from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
 from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
 from extraction.ports.runtime import ScopedWorkloadCredentials
 
@@ -36,11 +37,13 @@ class ExtractionJobWorkdirMaterializer:
         settings: ExtractionWorkloadRuntimeSettings,
         prepared_job_package_reader: SqlPreparedJobPackageReader,
         probe: ExtractionJobProbe | None = None,
+        archive_hydrator: JobPackageArchiveHydrator | None = None,
     ) -> None:
         self._settings = settings
         self._prepared_job_package_reader = prepared_job_package_reader
         self._job_package_work_dir = Path(settings.job_package_work_dir)
         self._probe = probe or LoggingExtractionJobProbe()
+        self._archive_hydrator = archive_hydrator
 
     async def prepare(
         self,
@@ -56,6 +59,14 @@ class ExtractionJobWorkdirMaterializer:
         repository_files_dir = job_root / "repository-files"
         repository_files_dir.mkdir(parents=True, exist_ok=True)
 
+        hydration_warnings: list[str] = []
+        if self._archive_hydrator is not None:
+            hydration = await self._archive_hydrator.ensure_for_knowledge_graph(
+                knowledge_graph_id=job.knowledge_graph_id,
+                tenant_id=tenant_id,
+            )
+            hydration_warnings.extend(hydration.errors)
+
         job_packages = await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
             knowledge_graph_id=job.knowledge_graph_id,
         )
@@ -66,6 +77,12 @@ class ExtractionJobWorkdirMaterializer:
             job_packages=job_packages,
             packages_by_id=packages_by_id,
         )
+        if hydration_warnings:
+            materialization = materialization.merge(
+                RepositoryFilesMaterializationResult(
+                    warnings=tuple(hydration_warnings),
+                )
+            )
         write_sources_index(
             job_root=job_root,
             knowledge_graph_id=job.knowledge_graph_id,

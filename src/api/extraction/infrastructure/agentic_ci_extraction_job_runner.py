@@ -98,7 +98,13 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         )
         _patch_job_context_api_base(workdir, self._settings.agentic_ci_api_base_url)
         prompt = build_extraction_job_prompt(job=job)
-        return await self._run_in_container(job=job, workdir=workdir, prompt=prompt)
+        return await self._run_in_container(
+            job=job,
+            workdir=workdir,
+            prompt=prompt,
+            tenant_id=tenant_id,
+            workload_token=credentials.token,
+        )
 
     async def _run_in_container(
         self,
@@ -106,16 +112,27 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         job: ExtractionJobRecord,
         workdir: Path,
         prompt: str,
+        tenant_id: str,
+        workload_token: str,
     ) -> dict[str, Any]:
         import asyncio
 
-        return await asyncio.to_thread(self._run_in_container_sync, job, workdir, prompt)
+        return await asyncio.to_thread(
+            self._run_in_container_sync,
+            job,
+            workdir,
+            prompt,
+            tenant_id,
+            workload_token,
+        )
 
     def _run_in_container_sync(
         self,
         job: ExtractionJobRecord,
         workdir: Path,
         prompt: str,
+        tenant_id: str,
+        workload_token: str,
     ) -> dict[str, Any]:
         runtime = create_container_runtime(self._settings.container_engine)
         binary = getattr(runtime, "_binary", "podman")
@@ -128,7 +145,12 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         try:
             otel_proc, otel_port, otel_log_path, _otel_rate = otel.start_collector(run_dir)
             otel_log = Path(otel_log_path)
-            env = self._build_container_env(otel_port=otel_port)
+            env = self._build_container_env(
+                otel_port=otel_port,
+                job=job,
+                tenant_id=tenant_id,
+                workload_token=workload_token,
+            )
             binds = self._build_binds(workdir=workdir)
             write_extraction_prompt_file(workdir=workdir, prompt=prompt)
             command = _strip_harness_binary(
@@ -188,13 +210,28 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             return from_env
         return self._harness.default_model()
 
-    def _build_container_env(self, *, otel_port: int) -> dict[str, str]:
+    def _build_container_env(
+        self,
+        *,
+        otel_port: int,
+        job: ExtractionJobRecord | None = None,
+        tenant_id: str = "",
+        workload_token: str = "",
+    ) -> dict[str, str]:
         model = self._resolve_model()
         env: dict[str, str] = {
             "DISABLE_AUTOUPDATER": "1",
             "AGENT_MODEL": model,
             self._harness.model_env_var(): model,
         }
+        if workload_token.strip():
+            env["KARTOGRAPH_WORKLOAD_TOKEN"] = workload_token.strip()
+            env["KARTOGRAPH_API_BASE_URL"] = self._settings.agentic_ci_api_base_url.rstrip("/")
+            if job is not None:
+                env["KARTOGRAPH_KNOWLEDGE_GRAPH_ID"] = job.knowledge_graph_id
+            if tenant_id.strip():
+                env["KARTOGRAPH_TENANT_ID"] = tenant_id.strip()
+            env["KARTOGRAPH_WORKSPACE"] = "/workspace"
         if self._harness.auth_mode == "api-key":
             api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
             if api_key:

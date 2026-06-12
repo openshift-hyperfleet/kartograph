@@ -2,35 +2,35 @@
 
 from __future__ import annotations
 
-from sqlalchemy import text
+from pathlib import Path
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from extraction.domain.value_objects import IngestionReadinessSnapshot
+from infrastructure.job_packages.readiness import materialized_data_source_counts
 
 
 class SqlIngestionReadinessReader:
     """Reads prepared data source counts from the shared data_sources table."""
 
-    def __init__(self, *, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        *,
+        session: AsyncSession,
+        job_package_work_dir_path: Path | None = None,
+    ) -> None:
         self._session = session
+        self._job_package_work_dir_path = job_package_work_dir_path
 
     async def read_for_knowledge_graph(
         self, *, knowledge_graph_id: str
     ) -> IngestionReadinessSnapshot:
-        result = await self._session.execute(
-            text(
-                """
-                SELECT
-                  COUNT(*) AS total,
-                  COUNT(*) FILTER (WHERE last_prepared_commit IS NOT NULL) AS prepared
-                FROM data_sources
-                WHERE knowledge_graph_id = :knowledge_graph_id
-                """
-            ),
-            {"knowledge_graph_id": knowledge_graph_id},
+        total, prepared = await materialized_data_source_counts(
+            session=self._session,
+            knowledge_graph_id=knowledge_graph_id,
+            job_package_work_dir_path=self._job_package_work_dir_path,
         )
-        row = result.one()
         return IngestionReadinessSnapshot(
-            data_source_count=int(row.total or 0),
-            prepared_source_count=int(row.prepared or 0),
+            data_source_count=total,
+            prepared_source_count=prepared,
         )

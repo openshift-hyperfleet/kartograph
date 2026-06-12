@@ -33,9 +33,15 @@ def create_extraction_job_runner(
         session=session,
         job_package_work_dir=Path(resolved.job_package_work_dir),
     )
+    from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
+
     materializer = ExtractionJobWorkdirMaterializer(
         settings=resolved,
         prepared_job_package_reader=prepared_reader,
+        archive_hydrator=JobPackageArchiveHydrator(
+            session=session,
+            job_package_work_dir=Path(resolved.job_package_work_dir),
+        ),
     )
     return AgenticCiExtractionJobRunner(
         settings=resolved,

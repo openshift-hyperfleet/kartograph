@@ -73,20 +73,21 @@ do not ask them to manually fill the extraction-jobs form.
 
 ### Per-instance description (by_instances job sets)
 
-The job set `description` is the shared brief for every assigned instance in that set.
-**Default: capture everything** — every schema property filled or updated, and every
-applicable relationship instance created or updated for each assigned slug.
+Use this template (substitute real entity and relationship names from `kartograph_get_schema_ontology`):
 
-Before writing a description:
-1. `kartograph_get_schema_ontology` — list properties on the target entity type and every
-   relationship type where that type is source or target.
-2. Structure the description explicitly:
-   - **Properties:** one note per property; add extra notes for special handling (enums,
-     derived values, secrets, multi-file sources).
-   - **Relationships:** one note per relationship type; require every relationship instance
-     involving the assigned entity to be considered, resolved, and created or updated.
-3. Avoid vague theme-only headings without mapping to concrete properties and relationship types.
-   Narrow scope only when the operator explicitly asks.
+```
+For each of the instances of {EntityType} you've been assigned, capture everything into the knowledge graph: all properties of that instance and every relationship instance an instance of {EntityType} can have.
+
+Properties:
+- {property_name}: {how to extract, where in repository-files/, value shape}
+- ...
+
+{EntityType} -> {relationship_label} -> {CounterpartType}: {when to create/update; how to resolve counterpart slug}
+{EntityType} -> {other_rel} -> {OtherType}: ...
+```
+
+Do **not** use theme-only sections (Implementation Analysis, Configuration Details, etc.).
+When the operator approves, save via `kartograph_save_extraction_jobs_config`.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (

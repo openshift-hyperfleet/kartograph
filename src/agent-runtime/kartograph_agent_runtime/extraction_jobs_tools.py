@@ -47,9 +47,9 @@ def append_extraction_jobs_tools(*, tooling: RuntimeTooling, tools: list[Any]) -
             "Pass the full job_sets array (read existing config first and merge edits). "
             "Each job set needs: name, strategy (by_instances or by_files), description, "
             "entity_type + instances_per_job for by_instances, or file_patterns + files_per_job "
-            "for by_files. For by_instances, the description must follow exhaustive per-instance "
-            "coverage: one note per property, extra notes for special properties, and one note "
-            "per relationship type requiring every related instance to be created or updated."
+            "for by_files. For by_instances, description must match per_instance_description_authoring: "
+            "opening capture-everything paragraph, Properties section listing each property, then "
+            "one '{EntityType} -> {rel} -> {CounterpartType}:' line per ontology relationship."
         ),
         {
             "version": str,

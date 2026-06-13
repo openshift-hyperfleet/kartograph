@@ -13,6 +13,7 @@ from graph.application.services.graph_mutation_service import GraphMutationServi
 from graph.domain.value_objects import MutationOperation, MutationOperationType
 from graph.infrastructure.age_bulk_loading import AgeBulkLoadingStrategy
 from graph.infrastructure.age_client import AgeGraphClient
+from graph.infrastructure.tenant_graph_handler import ensure_tenant_graph_operational
 from graph.infrastructure.mutation_applier import MutationApplier
 from graph.infrastructure.postgres_kg_type_definition_store import (
     PostgresKnowledgeGraphTypeDefinitionStore,
@@ -115,6 +116,7 @@ class GraphWorkloadGraphMutationWriter:
     ) -> dict[str, Any]:
         graph_name = f"tenant_{tenant_id}"
         factory = ConnectionFactory(self._settings, pool=self._pool)
+        ensure_tenant_graph_operational(factory, tenant_id)
         client = AgeGraphClient(
             self._settings,
             connection_factory=factory,

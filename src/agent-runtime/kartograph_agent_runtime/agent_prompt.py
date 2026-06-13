@@ -55,6 +55,15 @@ See `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered prepopulati
 7. Create relationship edges after entity IDs are known
 8. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`
 
+### Failure modes (stop prepopulation on infra errors)
+
+- **422** — fix ontology or JSONL; retry is appropriate.
+- **500/503 on readiness or apply after validate passed** — platform/graph storage issue; **stop**, report to the operator, do not advance to the next prepopulated label. Suggest `make dev-repair-age-graphs` in local dev.
+- **`approved_at: null`** — optional; does **not** block prepopulation.
+- **Validate pass + apply 500/503** — backend bug; report both outcomes; do not skip to the next entity type.
+
+Start prepopulation only when schema save succeeded **and** readiness returns 200 with gaps.
+
 Writes persist to the platform database for the active knowledge graph.
 """.strip()
 

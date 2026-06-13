@@ -8,6 +8,7 @@ from graph.application.observability import DefaultGraphServiceProbe
 from graph.application.services import GraphQueryService
 from graph.infrastructure.age_client import AgeGraphClient
 from graph.infrastructure.graph_repository import GraphExtractionReadOnlyRepository
+from graph.infrastructure.tenant_graph_handler import ensure_tenant_graph_operational
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings
@@ -27,6 +28,13 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         self._pool = pool
         self._settings = settings
 
+    def _connect_for_tenant(self, tenant_id: str) -> AgeGraphClient:
+        factory = ConnectionFactory(self._settings, pool=self._pool)
+        graph_name = ensure_tenant_graph_operational(factory, tenant_id)
+        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
+        client.connect()
+        return client
+
     async def search_by_slug(
         self,
         *,
@@ -35,14 +43,11 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         slug: str,
         entity_type: str | None = None,
     ) -> list[WorkloadGraphNode]:
-        graph_name = f"tenant_{tenant_id}"
-        factory = ConnectionFactory(self._settings, pool=self._pool)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
-        client.connect()
+        client = await asyncio.to_thread(self._connect_for_tenant, tenant_id)
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=graph_name,
+                graph_id=client.graph_name,
             )
             service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
             nodes = service.search_by_slug(
@@ -71,14 +76,11 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[WorkloadGraphNode], int]:
-        graph_name = f"tenant_{tenant_id}"
-        factory = ConnectionFactory(self._settings, pool=self._pool)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
-        client.connect()
+        client = await asyncio.to_thread(self._connect_for_tenant, tenant_id)
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=graph_name,
+                graph_id=client.graph_name,
             )
             service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
             bounded_limit = max(1, min(limit, 500))
@@ -113,14 +115,11 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         knowledge_graph_id: str,
         entity_type: str,
     ) -> int:
-        graph_name = f"tenant_{tenant_id}"
-        factory = ConnectionFactory(self._settings, pool=self._pool)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
-        client.connect()
+        client = await asyncio.to_thread(self._connect_for_tenant, tenant_id)
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=graph_name,
+                graph_id=client.graph_name,
             )
             service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
             return service.count_by_label(
@@ -146,14 +145,11 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[WorkloadGraphRelationship], int]:
-        graph_name = f"tenant_{tenant_id}"
-        factory = ConnectionFactory(self._settings, pool=self._pool)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
-        client.connect()
+        client = await asyncio.to_thread(self._connect_for_tenant, tenant_id)
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=graph_name,
+                graph_id=client.graph_name,
             )
             bounded_limit = max(1, min(limit, 500))
             bounded_offset = max(0, offset)
@@ -198,14 +194,11 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         source_entity_type: str | None = None,
         target_entity_type: str | None = None,
     ) -> int:
-        graph_name = f"tenant_{tenant_id}"
-        factory = ConnectionFactory(self._settings, pool=self._pool)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
-        client.connect()
+        client = await asyncio.to_thread(self._connect_for_tenant, tenant_id)
         try:
             repository = GraphExtractionReadOnlyRepository(
                 client=client,
-                graph_id=graph_name,
+                graph_id=client.graph_name,
             )
             return repository.count_relationship_instances(
                 relationship_type,
@@ -225,18 +218,13 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
     ) -> frozenset[str]:
         if not node_ids:
             return frozenset()
-        graph_name = f"tenant_{tenant_id}"
 
         def _query() -> set[str]:
-            factory = ConnectionFactory(self._settings, pool=self._pool)
-            client = AgeGraphClient(
-                self._settings, connection_factory=factory, graph_name=graph_name
-            )
-            client.connect()
+            client = self._connect_for_tenant(tenant_id)
             try:
                 repository = GraphExtractionReadOnlyRepository(
                     client=client,
-                    graph_id=graph_name,
+                    graph_id=client.graph_name,
                 )
                 return repository.find_existing_node_ids(
                     list(node_ids),
@@ -256,18 +244,13 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
     ) -> frozenset[str]:
         if not edge_ids:
             return frozenset()
-        graph_name = f"tenant_{tenant_id}"
 
         def _query() -> set[str]:
-            factory = ConnectionFactory(self._settings, pool=self._pool)
-            client = AgeGraphClient(
-                self._settings, connection_factory=factory, graph_name=graph_name
-            )
-            client.connect()
+            client = self._connect_for_tenant(tenant_id)
             try:
                 repository = GraphExtractionReadOnlyRepository(
                     client=client,
-                    graph_id=graph_name,
+                    graph_id=client.graph_name,
                 )
                 return repository.find_existing_edge_ids(
                     list(edge_ids),
@@ -288,18 +271,13 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
     ) -> frozenset[str]:
         if not slugs:
             return frozenset()
-        graph_name = f"tenant_{tenant_id}"
 
         def _query() -> set[str]:
-            factory = ConnectionFactory(self._settings, pool=self._pool)
-            client = AgeGraphClient(
-                self._settings, connection_factory=factory, graph_name=graph_name
-            )
-            client.connect()
+            client = self._connect_for_tenant(tenant_id)
             try:
                 repository = GraphExtractionReadOnlyRepository(
                     client=client,
-                    graph_id=graph_name,
+                    graph_id=client.graph_name,
                 )
                 return repository.find_existing_slugs_for_entity_type(
                     entity_type,

@@ -72,9 +72,21 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             ),
             (
                 "When readiness shows prepopulated gaps after schema save, execute immediately — do not ask "
-                "permission. One label per turn unless the user requested a single type only (then finish fully). "
+                "permission — but only after kartograph_get_workspace_readiness returns 200 with gaps. "
+                "If readiness or apply returns 500/503 while validation passed, stop prepopulation, report "
+                "a platform/infrastructure issue, and do not advance to the next label. "
+                "One label per turn unless the user requested a single type only (then finish fully). "
                 "Use readiness next_action and prepopulation_tasks for the suggested scanner path. "
                 "Only ask when discovery strategy is ambiguous or strict CREATE reports duplicates."
+            ),
+            (
+                "approved_at on saved ontology is optional metadata; null does not block prepopulation. "
+                "Do not treat missing approved_at as schema activation failure."
+            ),
+            (
+                "If kartograph_validate_graph_mutations_from_file passes and apply-from-file returns "
+                "500/503, report both outcomes as a backend bug — do not retry blindly or continue to "
+                "the next prepopulated type."
             ),
         ),
     },
@@ -132,13 +144,22 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Follow instance_generators/PREPOPULATION_WORKFLOW.md. Per gap: {Label}.py (case-sensitive filename) "
             "→ out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py or "
             "relationships_to_jsonl.py → validate/apply-from-file. Use scanner_common.generate_slug() and "
-            "dedupe_instances(). Entities before relationships. Primary relationship direction only."
+            "dedupe_instances(). Entities before relationships. Primary relationship direction only. "
+            "For the first prepopulated entity type after schema save, smoke-test with 1–2 instances "
+            "before the full batch. Stop and report if readiness/apply return 500/503 after validate passed."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "
             "next_action, prepopulation_tasks, blocking_reasons, and transition_eligible. When gaps remain "
             "after schema save, state which single prepopulation task you are executing next — do not poll "
-            "the user for permission to start unless the user asked for multiple types at once."
+            "the user for permission to start unless the user asked for multiple types at once. "
+            "If readiness returns 500/503, stop prepopulation and report infrastructure failure — do not "
+            "interpret approved_at=null as the cause."
+        ),
+        "failure_modes": (
+            "422 = fix ontology or JSONL. 500/503 on readiness or apply after validate passed = platform "
+            "graph storage issue — stop, report, suggest dev repair; do not continue to next label. "
+            "approved_at null is allowed. Validation success means apply should work unless the server fails."
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {

@@ -173,6 +173,7 @@ src/dev-ui/.output/
 
 certs/
 .instances/
+.kartograph/backups/
 
 # Demo web interface (not for production)
 demo-web/

@@ -2,6 +2,16 @@
 
 Use this checklist for every `prepopulated: true` type after the ontology is saved.
 
+## First entity type — smoke test (recommended)
+
+After the ontology is saved, for the **first** prepopulated entity label only:
+
+1. Run the scanner but limit output (e.g. `preview_instances.py {Label} --limit 2` or a tiny hand-trimmed JSON).
+2. Convert to JSONL, `kartograph_validate_graph_mutations_from_file`, then `kartograph_apply_graph_mutations_from_file`.
+3. Confirm with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness` (must return **200**).
+4. If validate passes but apply or readiness returns **500/503**, **stop** — report a platform issue; do not run the full batch or advance to the next label.
+5. When the smoke test succeeds, run the full scanner → JSONL → apply pipeline for that label.
+
 ## Entity prepopulation (six steps)
 
 ### Step 1 — Create scanner

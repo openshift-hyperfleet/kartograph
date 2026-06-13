@@ -41,6 +41,19 @@ down:
 	-@docker ps -aq --filter name=kartograph-worker- | xargs -r docker rm -f
 	-@docker ps -aq --filter name=kartograph-extract- | xargs -r docker rm -f
 
+.PHONY: dev-backup dev-restore dev-backup-list dev-repair-age-graphs
+dev-backup:
+	@./scripts/dev-data-backup.sh backup
+
+dev-restore:
+	@./scripts/dev-data-backup.sh restore $(or $(BACKUP),latest)
+
+dev-backup-list:
+	@./scripts/dev-data-backup.sh list
+
+dev-repair-age-graphs:
+	@./scripts/dev-data-backup.sh repair
+
 
 .PHONY: run
 run:

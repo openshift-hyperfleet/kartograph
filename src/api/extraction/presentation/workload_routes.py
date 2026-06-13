@@ -19,12 +19,21 @@ from infrastructure.extraction_workload.dependencies import (
     get_workload_graph_reader,
     get_workload_schema_service,
 )
+from infrastructure.extraction_workload.workload_errors import raise_graph_storage_http_error
 from management.domain.ontology_prepopulation import PrepopulationValidationError
 from management.domain.relationship_pairing import ontology_config_from_authoring_payload
 from management.domain.value_objects import OntologyConfig
 from management.ports.exceptions import CanonicalSchemaMutationError
 
 router = APIRouter(prefix="/workloads", tags=["extraction-workloads"])
+
+
+async def _await_graph_operation(awaitable):
+    """Run a graph-backed coroutine and map storage failures to HTTP 503."""
+    try:
+        return await awaitable
+    except Exception as exc:
+        raise_graph_storage_http_error(exc)
 
 
 def _require_chat_scope(auth: WorkloadAuthContext) -> None:
@@ -220,11 +229,14 @@ async def workload_validate_mutations(
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadMutationValidateResponse:
     _require_chat_scope(auth)
-    result = await schema_service.validate_mutation_jsonl(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        jsonl=request.jsonl,
-    )
+    try:
+        result = await schema_service.validate_mutation_jsonl(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            jsonl=request.jsonl,
+        )
+    except Exception as exc:
+        raise_graph_storage_http_error(exc)
     return WorkloadMutationValidateResponse(
         valid=bool(result.get("valid")),
         errors=[str(item) for item in result.get("errors", [])],
@@ -242,11 +254,14 @@ async def workload_apply_mutations(
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadMutationApplyResponse:
     _require_chat_scope(auth)
-    result = await schema_service.apply_mutation_jsonl(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        jsonl=request.jsonl,
-    )
+    try:
+        result = await schema_service.apply_mutation_jsonl(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            jsonl=request.jsonl,
+        )
+    except Exception as exc:
+        raise_graph_storage_http_error(exc)
     return WorkloadMutationApplyResponse(
         applied=bool(result.get("applied")),
         errors=[str(item) for item in result.get("errors", [])],
@@ -282,11 +297,13 @@ async def workload_check_slugs(
     normalized = tuple(
         sorted({str(slug).strip() for slug in request.slugs if str(slug).strip()})
     )
-    existing, missing = await reader.partition_slugs_by_existence(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        entity_type=request.entity_type.strip(),
-        slugs=normalized,
+    existing, missing = await _await_graph_operation(
+        reader.partition_slugs_by_existence(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            entity_type=request.entity_type.strip(),
+            slugs=normalized,
+        )
     )
     return WorkloadCheckSlugsResponse(
         entity_type=request.entity_type.strip(),
@@ -307,11 +324,13 @@ async def workload_search_graph_by_slug(
 ) -> WorkloadGraphSearchResponse:
     _require_chat_scope(auth)
 
-    nodes = await reader.search_by_slug(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        slug=slug,
-        entity_type=entity_type,
+    nodes = await _await_graph_operation(
+        reader.search_by_slug(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            slug=slug,
+            entity_type=entity_type,
+        )
     )
     serialized = [
         {
@@ -338,12 +357,14 @@ async def workload_list_instances_by_type(
 ) -> WorkloadInstanceListResponse:
     _require_chat_scope(auth)
 
-    nodes, total = await reader.list_instances_by_type(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        entity_type=entity_type,
-        limit=limit,
-        offset=offset,
+    nodes, total = await _await_graph_operation(
+        reader.list_instances_by_type(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            entity_type=entity_type,
+            limit=limit,
+            offset=offset,
+        )
     )
     serialized = [
         {
@@ -379,14 +400,16 @@ async def workload_list_relationship_instances(
 ) -> WorkloadRelationshipListResponse:
     _require_chat_scope(auth)
 
-    relationships, total = await reader.list_relationship_instances(
-        tenant_id=auth.tenant_id,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        relationship_type=relationship_type,
-        source_entity_type=source_entity_type,
-        target_entity_type=target_entity_type,
-        limit=limit,
-        offset=offset,
+    relationships, total = await _await_graph_operation(
+        reader.list_relationship_instances(
+            tenant_id=auth.tenant_id,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            relationship_type=relationship_type,
+            source_entity_type=source_entity_type,
+            target_entity_type=target_entity_type,
+            limit=limit,
+            offset=offset,
+        )
     )
     serialized = [
         {
@@ -429,12 +452,15 @@ async def workload_get_workspace_readiness(
     )
 
     ontology = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
-    snapshot = await build_workload_readiness_snapshot(
-        ontology=ontology,
-        knowledge_graph_id=auth.knowledge_graph_id,
-        tenant_id=auth.tenant_id,
-        graph_reader=reader,
-    )
+    try:
+        snapshot = await build_workload_readiness_snapshot(
+            ontology=ontology,
+            knowledge_graph_id=auth.knowledge_graph_id,
+            tenant_id=auth.tenant_id,
+            graph_reader=reader,
+        )
+    except Exception as exc:
+        raise_graph_storage_http_error(exc)
     return WorkloadReadinessResponse(**snapshot)
 
 

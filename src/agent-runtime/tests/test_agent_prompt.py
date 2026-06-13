@@ -31,6 +31,7 @@ def test_build_agent_system_prompt_includes_skills_tools_and_session_scope() -> 
     assert "**schema_modeling**" in prompt
     assert "kartograph_get_schema_ontology" in prompt
     assert "Quick workflow" in prompt
+    assert "Failure modes" in prompt
     assert "Bash" in prompt
     assert "instance_generators" in prompt
     assert "kg-123" in prompt
@@ -77,6 +78,8 @@ def test_build_agent_system_prompt_includes_workspace_readiness() -> None:
     assert "kartograph_get_workspace_readiness" in prompt
     assert "Read" in prompt
     assert "Glob" in prompt
+    assert "Failure modes" in prompt
+    assert "dev-repair-age-graphs" in prompt
 
 
 def test_build_agent_system_prompt_omits_tools_without_workload_token() -> None:

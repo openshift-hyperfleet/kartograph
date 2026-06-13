@@ -127,8 +127,29 @@ must be triggered explicitly.
 **Standard (single developer):**
 ```bash
 make dev    # starts all services: Postgres, SpiceDB, Keycloak, API, Dev UI
-make down   # tears everything down
+make down   # stops containers; Postgres data volume is preserved
 ```
+
+**Dev data backup / restore** (knowledge graphs, ontology, graph data, IAM, SpiceDB):
+
+```bash
+make dev-backup        # snapshot DBs to .kartograph/backups/<timestamp>/
+make dev-backup-list   # list available snapshots
+make dev-restore       # restore the latest snapshot (prompts for confirmation)
+make dev-restore BACKUP=2026-06-12T20-10-33Z
+make dev-repair-age-graphs   # fix corrupt AGE graphs without full DB restore
+```
+
+For isolated instances, set the compose project name:
+
+```bash
+COMPOSE_PROJECT=kg-my-feature ./scripts/dev-data-backup.sh backup
+COMPOSE_PROJECT=kg-my-feature ./scripts/dev-data-backup.sh restore latest --yes
+```
+
+Avoid `docker compose down -v` unless you intend to wipe volumes. After a
+restore, if the dev UI shows an empty tenant, delete `~/.kartograph/token.json`
+and sign in again.
 
 **Isolated instance (agents / worktrees):**
 

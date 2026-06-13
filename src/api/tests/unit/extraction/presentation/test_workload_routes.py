@@ -15,6 +15,7 @@ from infrastructure.extraction_workload.dependencies import (
     get_workload_graph_reader,
     get_workload_schema_service,
 )
+from infrastructure.database.exceptions import GraphQueryError
 from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
 
 
@@ -118,6 +119,11 @@ class _FakeGraphReader:
         return existing, missing
 
 
+class _BrokenGraphReader(_FakeGraphReader):
+    async def count_entity_instances_by_type(self, **kwargs):
+        raise GraphQueryError("graph with oid 17491 does not exist", query="MATCH (n) RETURN n")
+
+
 class _FakeExtractionJobsService:
     def __init__(self) -> None:
         self.saved_payload: dict[str, object] | None = None
@@ -215,6 +221,7 @@ def test_workload_get_schema_authoring_guide(workload_client: tuple[TestClient, 
     assert "kartograph_get_schema_ontology" in response.json()["guide"]
     assert "PREPOPULATION_WORKFLOW.md" in response.json()["guide"]
     assert "case-sensitive" in response.json()["guide"]
+    assert "Failure modes" in response.json()["guide"]
 
 
 def test_workload_get_workspace_readiness(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
@@ -229,6 +236,38 @@ def test_workload_get_workspace_readiness(workload_client: tuple[TestClient, _Fa
     assert payload["prepopulated_entity_types_without_instances_live"] == []
     assert payload["prepopulated_entity_types"][0]["live_instance_count"] == 1
     assert payload["prepopulated_entity_types"][0]["label"] == "service"
+
+
+def test_workload_get_workspace_readiness_returns_503_for_graph_storage_errors() -> None:
+    fake = _FakeSchemaService()
+    fake.saved = OntologyConfig(
+        node_types=(
+            NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
+        ),
+        edge_types=(),
+    )
+    issuer = ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=10))
+    credentials = issuer.issue_for_sticky_session(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+    )
+    app = FastAPI()
+    app.include_router(workload_routes.router, prefix="/extraction")
+    app.dependency_overrides[get_workload_schema_service] = lambda: fake
+    app.dependency_overrides[get_workload_graph_reader] = lambda: _BrokenGraphReader()
+    app.dependency_overrides[get_workload_extraction_jobs_service] = lambda: _FakeExtractionJobsService()
+    app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
+        credentials=credentials,
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+    )
+    client = TestClient(app)
+    response = client.get(
+        "/extraction/workloads/schema/readiness",
+        headers={"X-Workload-Token": credentials.token},
+    )
+    assert response.status_code == 503
+    assert "dev-repair-age-graphs" in response.json()["detail"]
 
 
 def test_workload_list_instances_by_type(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:

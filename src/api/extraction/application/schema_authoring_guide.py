@@ -35,7 +35,21 @@ Copy `_entity_scanner.example.py` to `{Label}.py` — **filename must match onto
 
 ## Prepopulation execution
 
-When `kartograph_get_workspace_readiness` shows gaps after ontology save, **execute immediately**.
+Start prepopulation immediately **only when all are true**:
+
+1. `kartograph_save_schema_ontology` succeeded.
+2. `kartograph_get_workspace_readiness` returns **200** (not 500/503).
+3. Readiness shows prepopulated gaps (`next_action` / `prepopulation_tasks` name a label).
+4. No systemic server errors on schema tools in this session.
+
+If readiness is unavailable after a successful schema save, **stop and report** — do not advance to
+the next prepopulated label.
+
+When readiness shows gaps and the checks above pass, **execute immediately** — do not ask permission.
+
+**First prepopulated entity type only:** smoke-test the pipeline with 1–2 instances before the full
+batch (`preview_instances.py --limit 2`, validate, apply, verify with
+`kartograph_list_instances_by_type`). Then run the full scanner output.
 
 **Entities** (all entity gaps before any relationship gap):
 
@@ -142,4 +156,27 @@ Relationship scanner convention: `out/{source}_{label}_{target}_instances.json` 
 - Prepopulated relationships may only reference prepopulated entity types.
 
 Call `kartograph_get_workspace_readiness` for gaps, `next_action`, `prepopulation_tasks`, and `blocking_reasons`.
+
+## Failure modes (schema tools)
+
+Classify outcomes before continuing prepopulation:
+
+| Outcome | Meaning | Action |
+|---------|---------|--------|
+| 422 + validation errors | Ontology or JSONL issue | Fix payload; retry |
+| 422 on save | Authoring issue | Fix ontology draft |
+| **500 or 503 on readiness/apply after validate passed** | **Platform / graph storage** | **Stop; report; do not continue to next label** |
+| 500 on multiple schema endpoints | Systemic infra | Stop; suggest dev repair or env restart |
+
+**Validation vs apply:** If `kartograph_validate_graph_mutations_from_file` passes and
+`kartograph_apply_graph_mutations_from_file` returns 500/503, that is a **backend bug** — not bad
+JSONL. Report validation success and apply failure together. Do not retry in a loop or skip to the
+next entity type.
+
+**`approved_at`:** Optional metadata on save. `null` is valid and does **not** block prepopulation.
+Only pass `approved_at` when the user explicitly approved a timestamp.
+
+**Do not** conflate schema design, prepopulation planning, and implementation in one turn when the
+user listed multiple deliverables — but **do** stop all implementation when graph tools return
+systemic server errors.
 """.strip()

@@ -72,6 +72,20 @@ def test_collect_instance_repository_paths_reads_config_and_source_paths() -> No
     assert "pkg/internal/foo.go" in paths
 
 
+def test_collect_instance_repository_paths_reads_config_path_directories() -> None:
+    paths = collect_instance_repository_paths(
+        (
+            ExtractionTargetInstance(
+                slug="cl_m_wrong_nest",
+                entity_type="Adapter",
+                properties={"config_path": "testdata/adapter-configs/cl-m-wrong-nest"},
+            ),
+        )
+    )
+
+    assert paths == ("testdata/adapter-configs/cl-m-wrong-nest",)
+
+
 def test_materialize_all_repository_files_writes_changeset(tmp_path: Path) -> None:
     package_id = "01JTESTPACK0000000000000000"
     _build_package(
@@ -127,3 +141,32 @@ def test_materialize_instance_repository_paths_targets_referenced_files(tmp_path
     assert (
         repo_dir / "hyperfleet-e2e" / "testdata/adapter-configs/cl-stuck/adapter-config.yaml"
     ).is_file()
+
+
+def test_materialize_instance_repository_paths_matches_directory_config_path_prefix(
+    tmp_path: Path,
+) -> None:
+    package_id = "01JTESTPACK0000000000000003"
+    _build_package(
+        tmp_path,
+        package_id,
+        "testdata/adapter-configs/cl-m-wrong-nest/adapter-config.yaml",
+        b"transport: maestro\n",
+    )
+    repo_dir = tmp_path / "repository-files"
+
+    result = materialize_instance_repository_paths(
+        repository_files_dir=repo_dir,
+        job_package_work_dir=tmp_path,
+        job_packages=(_source(package_id=package_id),),
+        paths=("testdata/adapter-configs/cl-m-wrong-nest",),
+    )
+
+    output = (
+        repo_dir
+        / "hyperfleet-e2e"
+        / "testdata/adapter-configs/cl-m-wrong-nest/adapter-config.yaml"
+    )
+    assert result.files_written == 1
+    assert result.paths_not_found == ()
+    assert output.read_text(encoding="utf-8") == "transport: maestro\n"

@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from extraction.infrastructure.extraction_job_helpers import (
+    HELPER_BUNDLE_NAMES,
     HELPER_SCRIPT_NAMES,
     HELPERS_CONTAINER_DIR,
     HELPERS_DIR,
@@ -30,12 +31,13 @@ def prepare_agentic_ci_workspace(
 
     helpers_dir = job_root / HELPERS_CONTAINER_DIR
     helpers_dir.mkdir(parents=True, exist_ok=True)
-    for name in HELPER_SCRIPT_NAMES:
+    for name in HELPER_BUNDLE_NAMES:
         source = HELPERS_DIR / name
         if source.is_file():
             target = helpers_dir / name
             shutil.copy2(source, target)
-            target.chmod(target.stat().st_mode | 0o111)
+            if name in HELPER_SCRIPT_NAMES:
+                target.chmod(target.stat().st_mode | 0o111)
 
     ensure_agent_workspace_permissions(
         job_root,

@@ -15,6 +15,7 @@ from shared_kernel.job_package.value_objects import JobPackageId
 
 _INSTANCE_PATH_PROPERTY_KEYS = (
     "config_file_path",
+    "config_path",
     "source_path",
     "file_path",
     "repository_path",
@@ -90,13 +91,17 @@ def _normalize_repository_path(path: str) -> str:
 
 
 def _path_matches(requested: str, candidate: str) -> bool:
-    normalized_requested = _normalize_repository_path(requested)
+    normalized_requested = _normalize_repository_path(requested).rstrip("/")
     normalized_candidate = _normalize_repository_path(candidate)
-    return (
-        normalized_candidate == normalized_requested
-        or normalized_candidate.endswith(f"/{normalized_requested}")
-        or normalized_requested.endswith(normalized_candidate)
-    )
+    if normalized_candidate == normalized_requested:
+        return True
+    if normalized_candidate.startswith(f"{normalized_requested}/"):
+        return True
+    if normalized_candidate.endswith(f"/{normalized_requested}"):
+        return True
+    if normalized_requested.endswith(normalized_candidate):
+        return True
+    return False
 
 
 def materialize_all_repository_files(

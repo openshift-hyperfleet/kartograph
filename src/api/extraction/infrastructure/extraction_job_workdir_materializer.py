@@ -25,6 +25,7 @@ from extraction.infrastructure.extraction_job_workdir_layout import prepare_agen
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
 from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
 from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.ports.extraction_job_target_context import IExtractionJobTargetContextEnricher
 from extraction.ports.runtime import ScopedWorkloadCredentials
 
 
@@ -38,12 +39,14 @@ class ExtractionJobWorkdirMaterializer:
         prepared_job_package_reader: SqlPreparedJobPackageReader,
         probe: ExtractionJobProbe | None = None,
         archive_hydrator: JobPackageArchiveHydrator | None = None,
+        target_context_enricher: IExtractionJobTargetContextEnricher | None = None,
     ) -> None:
         self._settings = settings
         self._prepared_job_package_reader = prepared_job_package_reader
         self._job_package_work_dir = Path(settings.job_package_work_dir)
         self._probe = probe or LoggingExtractionJobProbe()
         self._archive_hydrator = archive_hydrator
+        self._target_context_enricher = target_context_enricher
 
     async def prepare(
         self,
@@ -115,7 +118,10 @@ class ExtractionJobWorkdirMaterializer:
             "description": job.description,
             "api_base_url": self._settings.api_base_url.rstrip("/"),
             "workload_token": credentials.token,
-            "target_instances": [instance.to_dict() for instance in job.target_instances],
+            "target_instances": await self._build_target_instances_context(
+                job=job,
+                tenant_id=tenant_id,
+            ),
             "target_files": [target_file.to_dict() for target_file in job.target_files],
             "repository_files": materialization.to_dict(),
         }
@@ -124,6 +130,23 @@ class ExtractionJobWorkdirMaterializer:
             encoding="utf-8",
         )
         return job_root
+
+    async def _build_target_instances_context(
+        self,
+        *,
+        job: ExtractionJobRecord,
+        tenant_id: str,
+    ) -> list[dict]:
+        if not job.target_instances:
+            return []
+        if self._target_context_enricher is None:
+            return [instance.to_dict() for instance in job.target_instances]
+
+        return await self._target_context_enricher.enrich_target_instances(
+            tenant_id=tenant_id,
+            knowledge_graph_id=job.knowledge_graph_id,
+            instances=job.target_instances,
+        )
 
     def _materialize_repository_files(
         self,

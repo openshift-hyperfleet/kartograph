@@ -20,6 +20,7 @@ class ExtractionAgentSessionModel(Base):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     knowledge_graph_id: Mapped[str] = mapped_column(String(26), nullable=False)
     mode: Mapped[str] = mapped_column(String(64), nullable=False)
+    graph_management_ui_mode: Mapped[str | None] = mapped_column(String(64), nullable=True)
     message_history: Mapped[list[dict]] = mapped_column(
         JSONB, nullable=False, default=list
     )
@@ -46,6 +47,13 @@ class ExtractionAgentSessionModel(Base):
             "user_id",
             "knowledge_graph_id",
             "mode",
+            "archived_at",
+        ),
+        Index(
+            "idx_extract_sessions_ui_mode_active",
+            "user_id",
+            "knowledge_graph_id",
+            "graph_management_ui_mode",
             "archived_at",
         ),
         Index(

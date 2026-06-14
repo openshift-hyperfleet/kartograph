@@ -182,9 +182,17 @@ async def test_archive_session_mutations_uses_one_off_mutations_job_set() -> Non
         user_id="user-1",
         knowledge_graph_id="kg-1",
         mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+        graph_management_ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
         created_at=datetime(2026, 6, 5, tzinfo=UTC),
     )
     session.runtime_context["graph_management_ui_mode"] = GraphManagementUiMode.ONE_OFF_MUTATIONS.value
+    append_applied_jsonl_to_session(
+        session,
+        applied_jsonl=(
+            '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service",'
+            '"set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap"}}'
+        ),
+    )
     append_turn_usage_to_session(
         session,
         usage={"input_tokens": 100, "output_tokens": 50, "cost_usd": 0.02},
@@ -197,7 +205,7 @@ async def test_archive_session_mutations_uses_one_off_mutations_job_set() -> Non
 
 
 @pytest.mark.asyncio
-async def test_archive_session_mutations_token_only_session() -> None:
+async def test_archive_session_mutations_skips_token_only_session() -> None:
     session_repo = _InMemorySessionRepository()
     job_repo = _InMemoryJobRepository()
     service = GraphManagementSessionJournalService(
@@ -218,7 +226,4 @@ async def test_archive_session_mutations_token_only_session() -> None:
 
     await service.archive_session_mutations(session)
 
-    assert len(job_repo.inserted) == 1
-    job = job_repo.inserted[0]
-    assert job.input_tokens == 500
-    assert job.applied_mutations_jsonl is None
+    assert job_repo.inserted == []

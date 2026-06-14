@@ -179,7 +179,7 @@ watch(
       <template v-else>
         <div class="rounded border">
           <div class="flex items-center justify-between border-b px-3 py-2">
-            <p class="text-xs font-medium text-muted-foreground">Runs ({{ payload.archivedJobCount }})</p>
+            <p class="text-xs font-medium text-muted-foreground">Entries ({{ payload.archivedJobCount }})</p>
             <Button size="sm" variant="ghost" class="h-6 px-2 text-[10px]" @click="loadHistory">Refresh</Button>
           </div>
           <div class="max-h-80 space-y-1 overflow-auto p-2">

@@ -61,7 +61,7 @@ import {
   isGraphManagementModeUnlocked,
   parseGraphManagementModeQuery,
   resolveEffectiveGraphManagementMode,
-  resolveSharedSessionMode,
+  resolveSessionModeForGraphManagementMode,
   type GraphManagementMode,
   type GraphManagementModeGateInput,
   type GraphManagementRailItemId,
@@ -99,16 +99,6 @@ import {
   resolveSectionState,
   shouldApplyMutationResult,
 } from '@/utils/kgManageState'
-import {
-  buildMutationLogEntryPreviewUrl,
-  collectScopedMutationLogRuns,
-  hasMutationLogEntryPreviewPage,
-  MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
-  MUTATION_LOG_NO_PREVIEW_MESSAGE,
-  resolveDefaultSelectedMutationLogRunId,
-  type MutationLogEntryPreviewPage,
-  type MutationLogRunRecord,
-} from '@/utils/kgMutationLogs'
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
 import type { DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
@@ -158,10 +148,6 @@ interface DataSourceRef {
   newest_unpulled_commit?: string | null
 }
 
-interface MutationLogRunView extends MutationLogRunRecord {
-  data_source_name: string
-}
-
 interface InlineSyncRun {
   id: string
   status: string
@@ -174,6 +160,10 @@ interface ExtractionSessionResponse {
   message_history: Array<{ role?: string; content?: string; message?: string }>
   runtime_context: Record<string, unknown>
   updated_at: string
+}
+
+interface ArchivedHistorySummary {
+  archivedJobCount: number
 }
 
 const route = useRoute()
@@ -201,6 +191,7 @@ const sessionLoadError = ref<string | null>(null)
 const sessionForbidden = ref(false)
 const sessionForbiddenReason = ref<string | null>(null)
 const clearingChat = ref(false)
+const togglingSession = ref(false)
 const sendingChat = ref(false)
 const runtimeWarming = ref(false)
 const runtimeReady = ref(false)
@@ -209,15 +200,9 @@ let runtimeWarmupGeneration = 0
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
 const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
-const mutationLogLoading = ref(false)
-const mutationLogLoadError = ref<string | null>(null)
-const mutationLogRuns = ref<MutationLogRunView[]>([])
-const selectedMutationLogRunId = ref<string | null>(null)
+const archivedWriteCount = ref(0)
 const graphManagementMode = ref<GraphManagementMode>('initial-schema-design')
 const selectedRailItemId = ref<GraphManagementRailItemId | null>(null)
-const mutationLogEntryPreviewLoading = ref(false)
-const mutationLogEntryPreviewPage = ref<MutationLogEntryPreviewPage | null>(null)
-const mutationLogEntryPreviewOffset = ref(0)
 const graphManagementDataSources = ref<DataSourceRef[]>([])
 const graphManagementDataSourcesLoading = ref(false)
 const graphManagementDataSourcesError = ref<string | null>(null)
@@ -233,6 +218,30 @@ const inlineRunLogsError = ref<string | null>(null)
 const designArtifactsReloadNonce = ref(0)
 const designArtifactsRefreshing = ref(false)
 
+type ModeConversationState = {
+  session: ExtractionSessionResponse | null
+  runtimeReady: boolean
+  runtimeWarmupError: string | null
+  sessionActivityLines: string[]
+  draftMessage: string
+}
+
+function emptyModeConversationState(): ModeConversationState {
+  return {
+    session: null,
+    runtimeReady: false,
+    runtimeWarmupError: null,
+    sessionActivityLines: [],
+    draftMessage: '',
+  }
+}
+
+const modeConversationState = ref<Record<GraphManagementMode, ModeConversationState>>({
+  'initial-schema-design': emptyModeConversationState(),
+  'extraction-jobs': emptyModeConversationState(),
+  'one-off-mutations': emptyModeConversationState(),
+})
+
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
 
@@ -244,7 +253,7 @@ const workspaceOverviewInput = computed(() => ({
   kgId: kgId.value,
   dataSourceCount: dataSourceCount.value,
   maintenanceReadyCount: maintenanceReadyCount.value,
-  mutationLogRunCount: mutationLogRuns.value.length,
+  mutationLogRunCount: archivedWriteCount.value,
   workspaceStatus: statusProjection.value,
 }))
 
@@ -284,10 +293,12 @@ const stepBadgeLabel = computed(() => {
   return modeLabel.value
 })
 
-const sharedSessionMode = computed<'schema_bootstrap' | 'extraction_operations'>(() =>
-  resolveSharedSessionMode(
-    statusProjection.value?.workspace_mode ?? 'schema_bootstrap',
-  ),
+const graphManagementSessionMode = computed<'schema_bootstrap' | 'extraction_operations'>(() =>
+  resolveSessionModeForGraphManagementMode(graphManagementMode.value),
+)
+
+const graphManagementSessionActive = computed(
+  () => Boolean(extractionSession.value?.id && !extractionSession.value.archived_at),
 )
 
 const graphManagementModeLabel = computed(
@@ -322,6 +333,8 @@ const sessionStatusLabel = computed(() => {
   }
   if (sessionLoading.value) return 'Loading session'
   if (clearingChat.value) return 'Resetting chat'
+  if (togglingSession.value) return 'Updating session'
+  if (!graphManagementSessionActive.value) return 'No active session'
   if (extractionSession.value?.id) {
     return `Active · ${extractionSession.value.id.slice(0, 8)}`
   }
@@ -339,11 +352,18 @@ const conversationPanelLoading = computed(
 )
 
 const chatInputDisabled = computed(
-  () => workspaceForbidden.value || runtimeWarming.value || !runtimeReady.value,
+  () =>
+    workspaceForbidden.value
+    || !graphManagementSessionActive.value
+    || runtimeWarming.value
+    || !runtimeReady.value,
 )
 
 const chatInputDisabledReason = computed(() => {
   if (workspaceForbidden.value) return workspaceForbiddenReason.value
+  if (!graphManagementSessionActive.value) {
+    return 'Start a session to chat with the Graph Management Assistant.'
+  }
   if (runtimeWarming.value) return 'Starting Graph Management Assistant…'
   if (!runtimeReady.value) {
     return runtimeWarmupError.value ?? 'Assistant runtime is not ready yet.'
@@ -410,20 +430,6 @@ const workspaceOverviewState = computed(() =>
   }),
 )
 
-const mutationLogsSectionState = computed(() =>
-  resolveSectionState({
-    section: 'mutation-logs',
-    loading: mutationLogLoading.value,
-    error: mutationLogLoadError.value,
-    forbidden: workspaceForbidden.value,
-    forbiddenReason: workspaceForbiddenReason.value,
-    empty: !mutationLogLoading.value
-      && !mutationLogLoadError.value
-      && mutationLogRuns.value.length === 0,
-    emptyActionLabel: 'Refresh runs',
-  }),
-)
-
 const graphManagementSectionState = computed(() =>
   resolveSectionState({
     section: 'graph-management',
@@ -432,10 +438,6 @@ const graphManagementSectionState = computed(() =>
     forbidden: sessionForbidden.value,
     forbiddenReason: sessionForbiddenReason.value,
   }),
-)
-
-const selectedMutationLogRun = computed(() =>
-  mutationLogRuns.value.find((run) => run.id === selectedMutationLogRunId.value) ?? null,
 )
 
 const selectedOpsDataSource = computed(() =>
@@ -773,96 +775,63 @@ async function loadWorkspaceStatus() {
   }
 }
 
-async function loadMutationLogRuns() {
+async function loadArchivedWriteCount() {
   if (!hasTenant.value || !kgId.value) return
-  mutationLogLoading.value = true
-  mutationLogLoadError.value = null
   try {
-    const dataSources = await apiFetch<DataSourceRef[]>(
-      `/management/knowledge-graphs/${kgId.value}/data-sources`,
+    const payload = await apiFetch<ArchivedHistorySummary>(
+      `/management/knowledge-graphs/${kgId.value}/extraction-jobs/archived-history`,
     )
-
-    const runsByDataSourceId: Record<string, MutationLogRunRecord[]> = {}
-    for (const ds of dataSources) {
-      try {
-        runsByDataSourceId[ds.id] = await apiFetch<MutationLogRunRecord[]>(
-          `/management/data-sources/${ds.id}/sync-runs`,
-        )
-      } catch {
-        runsByDataSourceId[ds.id] = []
-      }
-    }
-
-    const collected = collectScopedMutationLogRuns(
-      kgId.value,
-      dataSources,
-      runsByDataSourceId,
-    ) as MutationLogRunView[]
-
-    mutationLogRuns.value = collected
-    selectedMutationLogRunId.value = resolveDefaultSelectedMutationLogRunId(
-      collected,
-      selectedMutationLogRunId.value,
-    )
-  } catch (err) {
-    if (isForbiddenHttpError(err)) {
-      mutationLogLoadError.value = resolveForbiddenReason(
-        err,
-        'You do not have permission to view graph writes history for this graph.',
-      )
-    } else {
-      mutationLogLoadError.value = extractErrorMessage(err)
-      toast.error('Failed to load archived write history', {
-        description: mutationLogLoadError.value,
-      })
-    }
-    mutationLogRuns.value = []
-    selectedMutationLogRunId.value = null
-    mutationLogEntryPreviewPage.value = null
-  } finally {
-    mutationLogLoading.value = false
+    archivedWriteCount.value = payload.archivedJobCount
+  } catch {
+    archivedWriteCount.value = 0
   }
 }
 
-async function loadMutationLogEntryPreviews(offset = 0) {
-  const run = selectedMutationLogRun.value
-  if (!run) {
-    mutationLogEntryPreviewPage.value = null
-    mutationLogEntryPreviewOffset.value = 0
-    return
-  }
-
-  mutationLogEntryPreviewLoading.value = true
+async function clearChat() {
+  if (!kgId.value || sessionForbidden.value) return
+  clearingChat.value = true
+  runtimeWarmupGeneration += 1
+  runtimeWarming.value = false
+  runtimeReady.value = false
   try {
-    mutationLogEntryPreviewPage.value = await apiFetch<MutationLogEntryPreviewPage>(
-      buildMutationLogEntryPreviewUrl(
-        run.data_source_id,
-        run.id,
-        offset,
-        MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
-      ),
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${graphManagementSessionMode.value}/clear-chat`,
+      {
+        method: 'POST',
+        body: { graph_management_ui_mode: graphManagementMode.value },
+      },
     )
-    mutationLogEntryPreviewOffset.value = offset
+    snapshotCurrentModeConversation()
+    await warmupAssistantRuntime()
+    toast.success('Extraction chat cleared')
+    void loadArchivedWriteCount()
   } catch (err) {
-    mutationLogEntryPreviewPage.value = {
-      entries: [],
-      total: 0,
-      offset,
-      limit: MUTATION_LOG_ENTRY_PREVIEW_PAGE_SIZE,
-      preview_available: false,
-    }
-    mutationLogEntryPreviewOffset.value = offset
-    toast.error('Failed to load graph write entry previews', {
+    toast.error('Failed to clear chat', {
       description: extractErrorMessage(err),
     })
   } finally {
-    mutationLogEntryPreviewLoading.value = false
+    clearingChat.value = false
   }
 }
 
-async function refreshGraphManagementSession() {
-  await loadExtractionSession()
-  await warmupAssistantRuntime()
+function snapshotCurrentModeConversation() {
+  const mode = graphManagementMode.value
+  modeConversationState.value[mode] = {
+    session: extractionSession.value,
+    runtimeReady: runtimeReady.value,
+    runtimeWarmupError: runtimeWarmupError.value,
+    sessionActivityLines: [...sessionActivityLines.value],
+    draftMessage: draftMessage.value,
+  }
+}
+
+function restoreModeConversation(mode: GraphManagementMode) {
+  const cached = modeConversationState.value[mode] ?? emptyModeConversationState()
+  extractionSession.value = cached.session
+  runtimeReady.value = cached.runtimeReady
+  runtimeWarmupError.value = cached.runtimeWarmupError
+  sessionActivityLines.value = [...cached.sessionActivityLines]
+  draftMessage.value = cached.draftMessage
 }
 
 async function loadExtractionSession() {
@@ -871,7 +840,8 @@ async function loadExtractionSession() {
   sessionLoadError.value = null
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/active`,
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${graphManagementSessionMode.value}/active`
+        + `?graph_management_ui_mode=${encodeURIComponent(graphManagementMode.value)}`,
     )
     syncActivityLinesFromSession()
     const stickyPhase = extractionSession.value?.runtime_context?.sticky_runtime
@@ -887,12 +857,17 @@ async function loadExtractionSession() {
     sessionForbiddenReason.value = null
   } catch (err) {
     extractionSession.value = null
+    runtimeReady.value = false
     if (isForbiddenHttpError(err)) {
       sessionForbidden.value = true
       sessionForbiddenReason.value = resolveForbiddenReason(
         err,
         'You do not have permission to manage this knowledge graph.',
       )
+    } else if (extractErrorMessage(err).includes('404') || extractErrorMessage(err).toLowerCase().includes('not found')) {
+      sessionForbidden.value = false
+      sessionForbiddenReason.value = null
+      sessionLoadError.value = null
     } else {
       sessionForbidden.value = false
       sessionForbiddenReason.value = null
@@ -903,26 +878,68 @@ async function loadExtractionSession() {
     }
   } finally {
     sessionLoading.value = false
+    snapshotCurrentModeConversation()
   }
 }
 
-async function clearChat() {
-  // Clear chat resets the active extraction session for this knowledge graph.
+async function startGraphManagementSession() {
   if (!kgId.value || sessionForbidden.value) return
-  clearingChat.value = true
+  togglingSession.value = true
   try {
     extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/clear-chat`,
-      { method: 'POST' },
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${graphManagementSessionMode.value}/start-session`,
+      {
+        method: 'POST',
+        body: { graph_management_ui_mode: graphManagementMode.value },
+      },
     )
-    toast.success('Extraction chat cleared')
+    snapshotCurrentModeConversation()
+    await warmupAssistantRuntime()
+    toast.success('Graph Management Assistant session started')
   } catch (err) {
-    toast.error('Failed to clear chat', {
+    toast.error('Failed to start session', {
       description: extractErrorMessage(err),
     })
   } finally {
-    clearingChat.value = false
+    togglingSession.value = false
   }
+}
+
+async function endGraphManagementSession() {
+  if (!kgId.value || sessionForbidden.value || !graphManagementSessionActive.value) return
+  togglingSession.value = true
+  runtimeWarmupGeneration += 1
+  runtimeWarming.value = false
+  runtimeReady.value = false
+  try {
+    await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${graphManagementSessionMode.value}/end-session`,
+      {
+        method: 'POST',
+        body: { graph_management_ui_mode: graphManagementMode.value },
+      },
+    )
+    extractionSession.value = null
+    runtimeWarmupError.value = null
+    sessionActivityLines.value = []
+    snapshotCurrentModeConversation()
+    void loadArchivedWriteCount()
+    toast.success('Graph Management Assistant session ended')
+  } catch (err) {
+    toast.error('Failed to end session', {
+      description: extractErrorMessage(err),
+    })
+  } finally {
+    togglingSession.value = false
+  }
+}
+
+async function toggleGraphManagementSession() {
+  if (graphManagementSessionActive.value) {
+    await endGraphManagementSession()
+    return
+  }
+  await startGraphManagementSession()
 }
 
 function syncGraphManagementState() {
@@ -949,13 +966,16 @@ function setGraphManagementMode(mode: GraphManagementMode) {
     toast.message('Mode locked', { description: reason ?? 'Finish schema design first.' })
     return
   }
+  snapshotCurrentModeConversation()
   graphManagementMode.value = mode
+  restoreModeConversation(mode)
   selectedRailItemId.value = resolveSchemaRailSelection(
     selectedRailItemId.value,
     mode,
     graphManagementRailItems.value,
   )
   navigateTo(buildGraphManagementStepUrl(kgId.value, mode), { replace: true })
+  void loadExtractionSession()
 }
 
 function selectSchemaRailItem(itemId: GraphManagementRailItemId) {
@@ -974,14 +994,6 @@ function onSchemaRailKeydown(event: KeyboardEvent, itemId: GraphManagementRailIt
 
 function onModeSwitchKeydown(event: KeyboardEvent, mode: GraphManagementMode) {
   handleActivatableKeydown(event, () => setGraphManagementMode(mode))
-}
-
-function selectMutationLogRun(runId: string) {
-  selectedMutationLogRunId.value = runId
-}
-
-function onMutationRunKeydown(event: KeyboardEvent, runId: string) {
-  handleActivatableKeydown(event, () => selectMutationLogRun(runId))
 }
 
 function applySessionThinkingRecent(recent: string[]) {
@@ -1023,7 +1035,7 @@ async function warmupAssistantRuntime() {
       accessToken: accessToken.value,
       tenantId: currentTenantId.value,
       kgId: kgId.value,
-      sessionMode: sharedSessionMode.value,
+      sessionMode: graphManagementSessionMode.value,
       uiMode: graphManagementMode.value,
     })) {
       if (generation !== runtimeWarmupGeneration) return
@@ -1061,6 +1073,7 @@ async function warmupAssistantRuntime() {
   } finally {
     if (generation === runtimeWarmupGeneration) {
       runtimeWarming.value = false
+      snapshotCurrentModeConversation()
     }
   }
 }
@@ -1099,7 +1112,7 @@ async function sendChatMessage(message: string) {
       accessToken: accessToken.value,
       tenantId: currentTenantId.value,
       kgId: kgId.value,
-      sessionMode: sharedSessionMode.value,
+      sessionMode: graphManagementSessionMode.value,
       uiMode: graphManagementMode.value,
       message: trimmed,
     })) {
@@ -1208,7 +1221,7 @@ onMounted(() => {
   loadKgIdentity()
   loadWorkspaceStatus()
   loadOverviewMetrics()
-  loadMutationLogRuns()
+  loadArchivedWriteCount()
 })
 
 watch(tenantVersion, () => {
@@ -1221,17 +1234,17 @@ watch(tenantVersion, () => {
   overviewSourceRows.value = []
   entityTypeLabels.value = []
   relationshipTypeLabels.value = []
+  archivedWriteCount.value = 0
   workspaceLoadError.value = null
   workspaceForbidden.value = false
   workspaceForbiddenReason.value = null
-  mutationLogLoadError.value = null
   sessionLoadError.value = null
   sessionForbidden.value = false
   sessionForbiddenReason.value = null
   loadKgIdentity()
   loadWorkspaceStatus()
   loadOverviewMetrics()
-  loadMutationLogRuns()
+  loadArchivedWriteCount()
 })
 
 watch(
@@ -1245,17 +1258,18 @@ watch(
 )
 
 watch(
-  () => [activeStep.value, route.query.gm_mode, sharedSessionMode.value] as const,
-  async () => {
-    if (activeStep.value === 'graph-management') {
+  () => [activeStep.value, route.query.gm_mode] as const,
+  async ([step]) => {
+    if (step === 'graph-management') {
       syncGraphManagementState()
+      restoreModeConversation(graphManagementMode.value)
       await Promise.all([
         loadExtractionSession(),
         loadGraphManagementDataSources(),
         refreshDesignArtifacts({ silent: true }),
       ])
-      await warmupAssistantRuntime()
     } else {
+      snapshotCurrentModeConversation()
       runtimeWarmupGeneration += 1
       runtimeWarming.value = false
       runtimeReady.value = false
@@ -1263,10 +1277,6 @@ watch(
     }
   },
 )
-
-watch(selectedMutationLogRunId, () => {
-  loadMutationLogEntryPreviews(0)
-})
 
 watch(selectedOpsDataSourceId, () => {
   inlineRunLogs.value = []
@@ -1548,7 +1558,7 @@ watch(
                 <FileText class="size-4 text-muted-foreground" />
               </div>
               <div>
-                <div class="text-2xl font-bold">{{ mutationLogRuns.length }}</div>
+                <div class="text-2xl font-bold">{{ archivedWriteCount }}</div>
                 <p class="text-xs text-muted-foreground">Archived writes</p>
               </div>
             </CardContent>
@@ -1674,8 +1684,10 @@ watch(
           :input-placeholder="graphManagementInputPlaceholder"
           :session-status-label="sessionStatusLabel"
           :session="conversationSessionForPanel"
+          :session-active="graphManagementSessionActive"
           :loading="conversationPanelLoading"
           :clearing="clearingChat"
+          :toggling-session="togglingSession"
           :sending="sendingChat"
           :preparing-runtime="runtimeWarming"
           :activity-lines="sessionActivityLines"
@@ -1683,7 +1695,7 @@ watch(
           :forbidden-reason="sessionForbiddenReason"
           :input-disabled="chatInputDisabled"
           :input-disabled-reason="chatInputDisabledReason"
-          @refresh="refreshGraphManagementSession"
+          @toggle-session="toggleGraphManagementSession"
           @clear-chat="clearChat"
           @send-message="sendChatMessage"
         />

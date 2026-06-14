@@ -6,7 +6,7 @@ from typing import Protocol
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.extraction_job import ExtractionJobRecord
-from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric
+from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric, GraphManagementUiMode
 
 
 class IExtractionAgentSessionRepository(Protocol):
@@ -22,6 +22,19 @@ class IExtractionAgentSessionRepository(Protocol):
         knowledge_graph_id: str,
         mode: ExtractionSessionMode,
     ) -> ExtractionAgentSession | None: ...
+
+    async def find_active_by_ui_mode(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None: ...
+
+    async def list_active_by_user_and_kg(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+    ) -> list[ExtractionAgentSession]: ...
 
     async def list_by_scope(
         self,

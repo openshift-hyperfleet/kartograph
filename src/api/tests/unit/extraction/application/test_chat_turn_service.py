@@ -47,6 +47,35 @@ class _InMemoryAgentSessionRepository:
                 return replace(session)
         return None
 
+    async def find_active_by_ui_mode(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        for session in self._sessions.values():
+            if (
+                session.user_id == user_id
+                and session.knowledge_graph_id == knowledge_graph_id
+                and session.graph_management_ui_mode == ui_mode
+                and session.archived_at is None
+            ):
+                return replace(session)
+        return None
+
+    async def list_active_by_user_and_kg(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+    ) -> list[ExtractionAgentSession]:
+        return [
+            replace(session)
+            for session in self._sessions.values()
+            if session.user_id == user_id
+            and session.knowledge_graph_id == knowledge_graph_id
+            and session.archived_at is None
+        ]
+
     async def list_by_scope(
         self,
         user_id: str,
@@ -119,6 +148,18 @@ def _build_chat_turn_service(
     return service, repo
 
 
+async def _start_session(
+    session_service: ExtractionAgentSessionService,
+    *,
+    ui_mode: GraphManagementUiMode,
+) -> None:
+    await session_service.start_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        ui_mode=ui_mode,
+    )
+
+
 class _UsageEmittingChatAgent:
     async def stream_turn(self, **kwargs):
         yield {
@@ -155,6 +196,7 @@ async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> 
         runtime_service=runtime_service,
         chat_agent=_UsageEmittingChatAgent(),
     )
+    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
 
     events = [
         event
@@ -169,7 +211,9 @@ async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> 
     ]
 
     assert events[-1]["ok"] is True
-    active = await repo.find_active_by_scope("user-1", "kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)
+    active = await repo.find_active_by_ui_mode(
+        "user-1", "kg-1", GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
     assert active is not None
     journal = active.runtime_context["mutation_journal"]
     assert journal["input_tokens"] == 800
@@ -180,6 +224,10 @@ async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> 
 @pytest.mark.asyncio
 async def test_stream_chat_turn_persists_assistant_reply() -> None:
     service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))
+    await _start_session(
+        service._session_service,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    )
 
     events = [
         event
@@ -195,7 +243,9 @@ async def test_stream_chat_turn_persists_assistant_reply() -> None:
 
     assert events[-1]["type"] == "done"
     assert events[-1]["ok"] is True
-    active = await repo.find_active_by_scope("user-1", "kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)
+    active = await repo.find_active_by_ui_mode(
+        "user-1", "kg-1", GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
     assert active is not None
     assert active.message_history[-2]["role"] == "user"
     assert active.message_history[-1]["role"] == "assistant"
@@ -234,6 +284,7 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
         chat_agent=chat_agent,
         credential_issuer=ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=5)),
     )
+    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
 
     events = [
         event
@@ -254,6 +305,7 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
 @pytest.mark.asyncio
 async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
     service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(2, 0))
+    await _start_session(service._session_service, ui_mode=GraphManagementUiMode.EXTRACTION_JOBS)
 
     events = [
         event
@@ -271,8 +323,8 @@ async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
     done = events[-1]
     assert done["ok"] is True
     assert done.get("wait") is True
-    active = await repo.find_active_by_scope(
-        "user-1", "kg-1", ExtractionSessionMode.EXTRACTION_OPERATIONS
+    active = await repo.find_active_by_ui_mode(
+        "user-1", "kg-1", GraphManagementUiMode.EXTRACTION_JOBS
     )
     assert active is not None
     assert active.runtime_context["job_package"]["phase"] == "awaiting_job_package"
@@ -281,6 +333,10 @@ async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
 @pytest.mark.asyncio
 async def test_stream_runtime_warmup_marks_memory_backend_ready() -> None:
     service, _repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))
+    await _start_session(
+        service._session_service,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    )
 
     events = [
         event
@@ -336,6 +392,7 @@ async def test_stream_chat_turn_emits_error_when_agent_stream_incomplete() -> No
         runtime_service=runtime_service,
         chat_agent=_IncompleteChatAgent(),
     )
+    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
 
     events = [
         event
@@ -377,6 +434,7 @@ async def test_stream_chat_turn_persists_user_message_when_agent_fails() -> None
         runtime_service=runtime_service,
         chat_agent=_FailingChatAgent(),
     )
+    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
 
     events = [
         event
@@ -391,6 +449,8 @@ async def test_stream_chat_turn_persists_user_message_when_agent_fails() -> None
     ]
 
     assert events[-1]["ok"] is False
-    active = await repo.find_active_by_scope("user-1", "kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)
+    active = await repo.find_active_by_ui_mode(
+        "user-1", "kg-1", GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
     assert active is not None
     assert active.message_history[-1] == {"role": "user", "content": "Hello!"}

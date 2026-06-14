@@ -50,6 +50,8 @@ def _journal_token_total(journal: dict[str, object]) -> int:
 
 
 def _job_set_name_for_session(session: ExtractionAgentSession) -> str:
+    if session.graph_management_ui_mode is not None:
+        return _JOB_SET_BY_UI_MODE[session.graph_management_ui_mode.value]
     ui_mode = str(session.runtime_context.get("graph_management_ui_mode") or "")
     if ui_mode in _JOB_SET_BY_UI_MODE:
         return _JOB_SET_BY_UI_MODE[ui_mode]
@@ -121,8 +123,7 @@ class GraphManagementSessionJournalService:
         jsonl = str(journal.get("jsonl") or "").strip()
         metrics = metrics_from_mutation_jsonl(jsonl) if jsonl else {}
         write_ops = int(metrics.get("write_ops") or 0)
-        token_total = _journal_token_total(journal)
-        if write_ops <= 0 and token_total <= 0:
+        if write_ops <= 0:
             return
 
         now = datetime.now(UTC)

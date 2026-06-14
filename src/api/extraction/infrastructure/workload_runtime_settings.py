@@ -50,7 +50,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     worker_command: tuple[str, ...] = Field(default=("sleep", "3600"))
     sticky_service_port: int = Field(default=8787, ge=1024, le=65535)
     container_work_mount: str = Field(default="/workspace")
-    session_ttl_minutes: int = Field(default=30, ge=1, le=24 * 60)
+    session_ttl_minutes: int = Field(default=60, ge=1, le=24 * 60)
     job_package_work_dir: str = Field(default="/tmp/kartograph/job_packages")
     api_base_url: str = Field(default="http://api:8000")
     workload_token_signing_key: str = Field(

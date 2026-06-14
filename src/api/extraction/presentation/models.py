@@ -50,6 +50,7 @@ class ExtractionSessionResponse(BaseModel):
     user_id: str
     knowledge_graph_id: str
     mode: ExtractionSessionMode
+    graph_management_ui_mode: GraphManagementUiMode | None = None
     message_history: list[dict[str, Any]] = Field(default_factory=list)
     runtime_context: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
@@ -63,6 +64,7 @@ class ExtractionSessionResponse(BaseModel):
             user_id=session.user_id,
             knowledge_graph_id=session.knowledge_graph_id,
             mode=session.mode,
+            graph_management_ui_mode=session.graph_management_ui_mode,
             message_history=session.message_history,
             runtime_context=session.runtime_context,
             created_at=session.created_at,
@@ -130,6 +132,12 @@ class BootstrapIntakePathSelectionRequest(BaseModel):
         default=None,
         description="Optional user summary of capabilities and schema goals",
     )
+
+
+class GraphManagementSessionRequest(BaseModel):
+    """Request model for graph-management session lifecycle actions."""
+
+    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
 
 
 class ExtractionChatTurnRequest(BaseModel):

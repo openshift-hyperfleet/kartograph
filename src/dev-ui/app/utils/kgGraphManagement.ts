@@ -71,6 +71,12 @@ export function resolveDefaultGraphManagementMode(
   return workspaceMode === 'extraction_operations' ? 'extraction-jobs' : 'initial-schema-design'
 }
 
+export function resolveSessionModeForGraphManagementMode(
+  mode: GraphManagementMode,
+): 'schema_bootstrap' | 'extraction_operations' {
+  return mode === 'initial-schema-design' ? 'schema_bootstrap' : 'extraction_operations'
+}
+
 export function resolveSharedSessionMode(
   workspaceMode: 'schema_bootstrap' | 'extraction_operations',
 ): 'schema_bootstrap' | 'extraction_operations' {

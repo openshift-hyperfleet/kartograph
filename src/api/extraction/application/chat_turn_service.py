@@ -74,11 +74,21 @@ class ExtractionChatTurnService:
             }
             return
 
-        session = await self._session_service.get_or_create_active_session(
+        session = await self._session_service.get_active_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
+            ui_mode=ui_mode,
         )
+        if session is None:
+            yield {
+                "type": "done",
+                "ok": False,
+                "error": {
+                    "code": "SESSION_NOT_STARTED",
+                    "message": "Start a Graph Management Assistant session before chatting.",
+                },
+            }
+            return
 
         async for event in self._runtime_service.ensure_runtime_for_chat(
             tenant_id=tenant_id,

@@ -7,7 +7,7 @@ import {
 } from '@/composables/useScrollPositionPreserve'
 import DOMPurify from 'isomorphic-dompurify'
 import { marked } from 'marked'
-import { Bot, Loader2, RefreshCw, RotateCcw, Send, Sparkles, User } from 'lucide-vue-next'
+import { Bot, Loader2, PlayCircle, RotateCcw, Send, Sparkles, Square, User } from 'lucide-vue-next'
 import {
   normalizeThinkingActivityLines,
   THINKING_DISPLAY_LINE_COUNT,
@@ -41,6 +41,8 @@ const props = withDefaults(defineProps<{
   session: ConversationSession | null
   loading?: boolean
   clearing?: boolean
+  togglingSession?: boolean
+  sessionActive?: boolean
   sending?: boolean
   preparingRuntime?: boolean
   draftMessage?: string
@@ -57,6 +59,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   loading: false,
   clearing: false,
+  togglingSession: false,
+  sessionActive: false,
   sending: false,
   preparingRuntime: false,
   draftMessage: '',
@@ -75,7 +79,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  refresh: []
+  toggleSession: []
   clearChat: []
   sendMessage: [message: string]
   'update:draftMessage': [value: string]
@@ -101,7 +105,7 @@ const showConversationRefreshIndicator = computed(
 )
 
 const composerBlocked = computed(
-  () => props.loading || props.clearing || props.inputDisabled || props.forbidden,
+  () => props.loading || props.clearing || props.togglingSession || props.inputDisabled || props.forbidden,
 )
 
 const chatSendDisabled = computed(
@@ -300,20 +304,22 @@ onMounted(() => {
           <Button
             type="button"
             size="sm"
-            variant="outline"
+            :variant="sessionActive ? 'destructive' : 'default'"
             class="gap-1.5"
-            :disabled="loading"
-            @click="emit('refresh')"
+            :disabled="loading || togglingSession || forbidden"
+            @click="emit('toggleSession')"
           >
-            <RefreshCw class="size-4" />
-            Resume session
+            <Loader2 v-if="togglingSession" class="size-4 animate-spin" />
+            <Square v-else-if="sessionActive" class="size-4" />
+            <PlayCircle v-else class="size-4" />
+            {{ sessionActive ? 'End session' : 'Start session' }}
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
             class="gap-1.5"
-            :disabled="clearing || loading || forbidden"
+            :disabled="clearing || loading || togglingSession || forbidden"
             @click="clearConfirmOpen = true"
           >
             <Loader2 v-if="clearing" class="size-4 animate-spin" />
@@ -482,7 +488,8 @@ onMounted(() => {
       <AlertDialogHeader>
         <AlertDialogTitle>Clear conversation?</AlertDialogTitle>
         <AlertDialogDescription>
-          This starts a fresh server-side session timeline while keeping the selected graph management mode.
+          This ends the current session, archives any graph writes to history, and starts a fresh
+          conversation with a new assistant container for this mode.
         </AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>

@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
+from extraction.application.graph_management_session_journal import (
+    GraphManagementSessionJournalService,
+    append_applied_jsonl_to_session,
+)
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode
+from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.value_objects import (
+    BootstrapIntakePath,
+    ExtractionSessionMode,
+    GraphManagementUiMode,
+)
+from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
 
 
 class _InMemoryAgentSessionRepository:
@@ -39,6 +49,35 @@ class _InMemoryAgentSessionRepository:
                 return replace(session)
         return None
 
+    async def find_active_by_ui_mode(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        for session in self._by_id.values():
+            if (
+                session.user_id == user_id
+                and session.knowledge_graph_id == knowledge_graph_id
+                and session.graph_management_ui_mode == ui_mode
+                and session.archived_at is None
+            ):
+                return replace(session)
+        return None
+
+    async def list_active_by_user_and_kg(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+    ) -> list[ExtractionAgentSession]:
+        return [
+            replace(session)
+            for session in self._by_id.values()
+            if session.user_id == user_id
+            and session.knowledge_graph_id == knowledge_graph_id
+            and session.archived_at is None
+        ]
+
     async def list_by_scope(
         self,
         user_id: str,
@@ -55,16 +94,26 @@ class _InMemoryAgentSessionRepository:
         return sorted(sessions, key=lambda s: s.updated_at, reverse=True)
 
 
+class _InMemoryJobRepository:
+    def __init__(self) -> None:
+        self.inserted = []
+
+    async def insert_archived_session_job(self, job) -> None:
+        self.inserted.append(job)
+
+
 class _StaticSkillResolutionService:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, ExtractionSessionMode]] = []
+        self.calls: list[tuple[str, ExtractionSessionMode, GraphManagementUiMode]] = []
 
-    async def resolve_for_session(
+    async def resolve_for_graph_management_turn(
         self,
+        *,
         knowledge_graph_id: str,
         mode: ExtractionSessionMode,
+        ui_mode: GraphManagementUiMode,
     ):
-        self.calls.append((knowledge_graph_id, mode))
+        self.calls.append((knowledge_graph_id, mode, ui_mode))
         if mode == ExtractionSessionMode.SCHEMA_BOOTSTRAP:
             return type(
                 "_Resolved",
@@ -90,19 +139,19 @@ class _StaticSkillResolutionService:
 
 @pytest.mark.asyncio
 class TestExtractionAgentSessionService:
-    async def test_reuses_active_session_for_same_scope(self):
+    async def test_start_session_reuses_active_for_same_ui_mode(self):
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
 
-        first = await service.get_or_create_active_session(
+        first = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
-        second = await service.get_or_create_active_session(
+        second = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
 
         assert first.id == second.id
@@ -111,44 +160,68 @@ class TestExtractionAgentSessionService:
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
 
-        first = await service.get_or_create_active_session(
+        first = await service.start_session(
             user_id="alice",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
-        second = await service.get_or_create_active_session(
+        second = await service.start_session(
             user_id="bob",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
 
         assert first.id != second.id
 
-    async def test_scope_isolated_by_mode(self):
+    async def test_scope_isolated_by_ui_mode(self):
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
 
-        bootstrap = await service.get_or_create_active_session(
+        bootstrap = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
-        operations = await service.get_or_create_active_session(
+        extraction_jobs = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+        one_off = await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
         )
 
-        assert bootstrap.id != operations.id
+        assert len({bootstrap.id, extraction_jobs.id, one_off.id}) == 3
+        assert bootstrap.mode == ExtractionSessionMode.SCHEMA_BOOTSTRAP
+        assert extraction_jobs.mode == ExtractionSessionMode.EXTRACTION_OPERATIONS
+        assert one_off.mode == ExtractionSessionMode.EXTRACTION_OPERATIONS
+
+    async def test_get_active_session_returns_none_when_not_started(self):
+        repo = _InMemoryAgentSessionRepository()
+        service = ExtractionAgentSessionService(repository=repo)
+
+        active = await service.get_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
+        )
+
+        assert active is None
 
     async def test_clear_chat_archives_old_session_and_creates_new_one(self):
         repo = _InMemoryAgentSessionRepository()
-        service = ExtractionAgentSessionService(repository=repo)
+        sticky = InMemoryStickySessionRuntimeManager()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            sticky_runtime_manager=sticky,
+        )
 
-        old_session = await service.get_or_create_active_session(
+        old_session = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
         old_session.message_history = [{"role": "user", "content": "hello"}]
         old_session.runtime_context = {"draft": "x"}
@@ -158,7 +231,7 @@ class TestExtractionAgentSessionService:
         new_session = await service.clear_chat(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
 
         archived = await repo.get_by_id(old_session.id)
@@ -166,21 +239,114 @@ class TestExtractionAgentSessionService:
         assert archived.archived_at is not None
         assert new_session.id != old_session.id
         assert new_session.message_history == []
-        assert new_session.runtime_context == {}
+        assert new_session.runtime_context.get("graph_management_ui_mode") == (
+            GraphManagementUiMode.EXTRACTION_JOBS.value
+        )
+
+    async def test_end_session_archives_writes_to_graph_history(self):
+        repo = _InMemoryAgentSessionRepository()
+        job_repo = _InMemoryJobRepository()
+        journal = GraphManagementSessionJournalService(
+            session_repository=repo,
+            extraction_job_repository=job_repo,
+        )
+        sticky = InMemoryStickySessionRuntimeManager()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            sticky_runtime_manager=sticky,
+            session_journal_service=journal,
+        )
+
+        session = await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
+        )
+        append_applied_jsonl_to_session(
+            session,
+            applied_jsonl=(
+                '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service",'
+                '"set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap"}}'
+            ),
+        )
+        await repo.save(session)
+
+        ended = await service.end_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
+        )
+
+        assert ended is not None
+        assert ended.archived_at is not None
+        assert len(job_repo.inserted) == 1
+
+    async def test_end_session_skips_graph_history_when_no_writes(self):
+        repo = _InMemoryAgentSessionRepository()
+        job_repo = _InMemoryJobRepository()
+        journal = GraphManagementSessionJournalService(
+            session_repository=repo,
+            extraction_job_repository=job_repo,
+        )
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            session_journal_service=journal,
+        )
+
+        await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+        await service.end_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+
+        assert job_repo.inserted == []
+
+    async def test_idle_sessions_auto_end_after_one_hour(self):
+        repo = _InMemoryAgentSessionRepository()
+        sticky = InMemoryStickySessionRuntimeManager()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            sticky_runtime_manager=sticky,
+            idle_session_ttl=timedelta(hours=1),
+        )
+
+        session = await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+        session.updated_at = datetime.now(UTC) - timedelta(hours=2)
+        await repo.save(session)
+
+        active = await service.get_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+
+        assert active is None
+        archived = await repo.get_by_id(session.id)
+        assert archived is not None
+        assert archived.archived_at is not None
 
     async def test_list_sessions_includes_archived_history(self):
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
 
-        first = await service.get_or_create_active_session(
+        first = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
         await service.clear_chat(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
 
         sessions = await service.list_sessions(
@@ -200,26 +366,28 @@ class TestExtractionAgentSessionService:
             skill_resolution_service=skill_resolution,
         )
 
-        session = await service.get_or_create_active_session(
+        session = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
 
         assert "agent_configuration" in session.runtime_context
         config = session.runtime_context["agent_configuration"]
         assert config["system_prompt"] == "Bootstrap system prompt"
         assert config["skills"]["schema_modeling"] == "bootstrap schema guidance"
-        assert skill_resolution.calls == [("kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)]
+        assert skill_resolution.calls == [
+            ("kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP, GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+        ]
 
     async def test_bootstrap_session_seeds_capabilities_intake_prompt_state(self):
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
 
-        session = await service.get_or_create_active_session(
+        session = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
 
         assert session.message_history
@@ -232,10 +400,10 @@ class TestExtractionAgentSessionService:
     async def test_select_bootstrap_intake_path_persists_choice_for_continuity(self):
         repo = _InMemoryAgentSessionRepository()
         service = ExtractionAgentSessionService(repository=repo)
-        session = await service.get_or_create_active_session(
+        session = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
 
         updated = await service.set_bootstrap_intake_path_for_active_session(
@@ -250,3 +418,15 @@ class TestExtractionAgentSessionService:
         assert intake["status"] == "path_selected"
         assert intake["capabilities_goals"] == "I can provide domain terms but need guidance."
         assert updated.id == session.id
+
+
+def test_resolve_backend_session_mode_maps_ui_modes() -> None:
+    assert resolve_backend_session_mode(GraphManagementUiMode.INITIAL_SCHEMA_DESIGN) == (
+        ExtractionSessionMode.SCHEMA_BOOTSTRAP
+    )
+    assert resolve_backend_session_mode(GraphManagementUiMode.EXTRACTION_JOBS) == (
+        ExtractionSessionMode.EXTRACTION_OPERATIONS
+    )
+    assert resolve_backend_session_mode(GraphManagementUiMode.ONE_OFF_MUTATIONS) == (
+        ExtractionSessionMode.EXTRACTION_OPERATIONS
+    )

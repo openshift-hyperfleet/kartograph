@@ -148,7 +148,7 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
       key: 'mutation-logs',
       title: 'Graph Writes History',
       subtitle: input.mutationLogRunCount > 0
-        ? `${input.mutationLogRunCount} archived run${input.mutationLogRunCount === 1 ? '' : 's'} recorded`
+        ? `${input.mutationLogRunCount} archived write entr${input.mutationLogRunCount === 1 ? 'y' : 'ies'} recorded`
         : 'Review GMA sessions and extraction job writes',
       to: resolveStepDestination(input.kgId, 'mutation-logs'),
       enabled: input.dataSourceCount > 0,

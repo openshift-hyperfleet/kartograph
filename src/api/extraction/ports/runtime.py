@@ -98,6 +98,17 @@ class IStickySessionRuntimeManager(Protocol):
         """Terminate existing runtime for session and start a clean one."""
         ...
 
+    def terminate_runtime(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: str,
+    ) -> None:
+        """Terminate sticky runtime for session without starting a replacement."""
+        ...
+
     def cleanup_expired(self, *, now: datetime) -> list[str]:
         """Terminate and remove expired sticky runtimes; return container IDs."""
         ...

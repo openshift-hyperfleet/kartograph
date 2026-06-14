@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.infrastructure.repositories import (
     ExtractionAgentSessionRepository,
     ExtractionSessionRunMetricsReader,
@@ -121,10 +121,10 @@ async def test_archived_session_history_retains_linked_run_metadata(
         run_metrics_reader=metrics_reader,
     )
 
-    active = await session_service.get_or_create_active_session(
+    active = await session_service.start_session(
         user_id=user_id,
         knowledge_graph_id=knowledge_graph.id.value,
-        mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+        ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
     )
     session_id = active.id
 
@@ -163,7 +163,7 @@ async def test_archived_session_history_retains_linked_run_metadata(
     archived_session = await session_service.clear_chat(
         user_id=user_id,
         knowledge_graph_id=knowledge_graph.id.value,
-        mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+        ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
     )
     assert archived_session.id != session_id
 

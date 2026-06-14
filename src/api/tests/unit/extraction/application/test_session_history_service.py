@@ -9,7 +9,7 @@ import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric
+from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric, GraphManagementUiMode
 from extraction.domain.value_objects import ExtractionSessionMode as Mode
 
 
@@ -39,6 +39,35 @@ class _InMemoryAgentSessionRepository:
             ):
                 return replace(session)
         return None
+
+    async def find_active_by_ui_mode(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        for session in self._by_id.values():
+            if (
+                session.user_id == user_id
+                and session.knowledge_graph_id == knowledge_graph_id
+                and session.graph_management_ui_mode == ui_mode
+                and session.archived_at is None
+            ):
+                return replace(session)
+        return None
+
+    async def list_active_by_user_and_kg(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+    ) -> list[ExtractionAgentSession]:
+        return [
+            replace(session)
+            for session in self._by_id.values()
+            if session.user_id == user_id
+            and session.knowledge_graph_id == knowledge_graph_id
+            and session.archived_at is None
+        ]
 
     async def list_by_scope(
         self,
@@ -86,10 +115,10 @@ class TestExtractionSessionHistoryService:
             run_metrics_reader=metrics_reader,
         )
 
-        archived = await service.get_or_create_active_session(
+        archived = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=Mode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
         archived.message_history = [{"role": "user", "content": "hello"}]
         archived.updated_at = datetime(2026, 5, 20, 12, 0, tzinfo=UTC)
@@ -111,7 +140,7 @@ class TestExtractionSessionHistoryService:
         await service.clear_chat(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=Mode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
 
         history = await service.list_session_history(
@@ -137,20 +166,20 @@ class TestExtractionSessionHistoryService:
             run_metrics_reader=metrics_reader,
         )
 
-        first = await service.get_or_create_active_session(
+        first = await service.start_session(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=Mode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
         await service.clear_chat(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=Mode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
         await service.clear_chat(
             user_id="user-1",
             knowledge_graph_id="kg-1",
-            mode=Mode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
         )
 
         history = await service.list_session_history(

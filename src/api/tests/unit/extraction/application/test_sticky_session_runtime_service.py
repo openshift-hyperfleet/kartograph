@@ -45,6 +45,30 @@ class _InMemoryAgentSessionRepository:
                 return replace(session)
         return None
 
+    async def find_active_by_ui_mode(self, user_id: str, knowledge_graph_id: str, ui_mode):
+        for session in self._sessions.values():
+            if (
+                session.user_id == user_id
+                and session.knowledge_graph_id == knowledge_graph_id
+                and session.graph_management_ui_mode == ui_mode
+                and session.archived_at is None
+            ):
+                from dataclasses import replace
+
+                return replace(session)
+        return None
+
+    async def list_active_by_user_and_kg(self, user_id: str, knowledge_graph_id: str):
+        from dataclasses import replace
+
+        return [
+            replace(session)
+            for session in self._sessions.values()
+            if session.user_id == user_id
+            and session.knowledge_graph_id == knowledge_graph_id
+            and session.archived_at is None
+        ]
+
     async def list_by_scope(self, user_id: str, knowledge_graph_id: str, mode=None):
         return []
 
@@ -129,6 +153,11 @@ class _FailingStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
 async def test_stream_runtime_warmup_surfaces_container_start_failure() -> None:
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
+    await session_service.start_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    )
     service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
@@ -185,10 +214,10 @@ async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inac
         runtime_backend="memory",
         sticky_health_timeout_seconds=5.0,
     )
-    session = await session_service.get_or_create_active_session(
+    session = await session_service.start_session(
         user_id="user-1",
         knowledge_graph_id="kg-1",
-        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
     )
     session.runtime_context["sticky_runtime"] = {
         "container_id": "dead-container",
@@ -230,10 +259,10 @@ async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization
         runtime_backend="container",
         sticky_health_timeout_seconds=5.0,
     )
-    session = await session_service.get_or_create_active_session(
+    session = await session_service.start_session(
         user_id="user-1",
         knowledge_graph_id="kg-1",
-        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
     )
     sticky.get_or_start_runtime(
         session_id=session.id,
@@ -283,10 +312,10 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
         runtime_backend="container",
         sticky_health_timeout_seconds=5.0,
     )
-    session = await session_service.get_or_create_active_session(
+    session = await session_service.start_session(
         user_id="user-1",
         knowledge_graph_id="kg-1",
-        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
     )
     sticky.get_or_start_runtime(
         session_id=session.id,
@@ -329,10 +358,10 @@ async def test_ensure_runtime_for_chat_restarts_when_persisted_container_is_unhe
         runtime_backend="memory",
         sticky_health_timeout_seconds=5.0,
     )
-    session = await session_service.get_or_create_active_session(
+    session = await session_service.start_session(
         user_id="user-1",
         knowledge_graph_id="kg-1",
-        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
     )
     sticky.get_or_start_runtime(
         session_id=session.id,

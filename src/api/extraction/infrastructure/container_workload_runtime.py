@@ -147,6 +147,18 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             bootstrap=bootstrap,
         )
 
+    def terminate_runtime(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: str,
+    ) -> None:
+        existing = self._leases.pop(session_id, None)
+        if existing is not None:
+            self._terminate_container(existing.container_id)
+
     def cleanup_expired(self, *, now: datetime) -> list[str]:
         expired_sessions = [
             session_id

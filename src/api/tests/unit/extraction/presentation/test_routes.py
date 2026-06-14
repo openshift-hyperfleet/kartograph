@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+
 import pytest
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import BootstrapIntakePath
+from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode, GraphManagementUiMode
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 
@@ -40,6 +41,35 @@ class _InMemoryAgentSessionRepository:
             ):
                 return replace(session)
         return None
+
+    async def find_active_by_ui_mode(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        for session in self._sessions.values():
+            if (
+                session.user_id == user_id
+                and session.knowledge_graph_id == knowledge_graph_id
+                and session.graph_management_ui_mode == ui_mode
+                and session.archived_at is None
+            ):
+                return replace(session)
+        return None
+
+    async def list_active_by_user_and_kg(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+    ) -> list[ExtractionAgentSession]:
+        return [
+            replace(session)
+            for session in self._sessions.values()
+            if session.user_id == user_id
+            and session.knowledge_graph_id == knowledge_graph_id
+            and session.archived_at is None
+        ]
 
     async def list_by_scope(
         self,
@@ -146,20 +176,24 @@ class TestExtractionSessionRoutes:
         self, extraction_client
     ):
         client, _ = extraction_client
-        active = client.get(
-            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/active"
+        started = client.post(
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/start-session",
+            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
         )
-        assert active.status_code == status.HTTP_200_OK
-        old_id = active.json()["id"]
+        assert started.status_code == status.HTTP_200_OK
+        old_id = started.json()["id"]
 
         response = client.post(
-            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat"
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat",
+            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
         )
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
         assert payload["id"] != old_id
         assert payload["message_history"] == []
-        assert payload["runtime_context"] == {}
+        assert payload["runtime_context"]["graph_management_ui_mode"] == (
+            GraphManagementUiMode.EXTRACTION_JOBS.value
+        )
 
         history_resp = client.get(
             "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations"
@@ -169,15 +203,25 @@ class TestExtractionSessionRoutes:
         assert len(history) == 2
         assert any(row["id"] == old_id and row["archived_at"] is not None for row in history)
 
-    def test_active_session_endpoint_returns_existing_active_session(
+    def test_active_session_endpoint_returns_404_when_not_started(
         self, extraction_client
     ):
         client, _ = extraction_client
-        first = client.get(
-            "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/active"
+        response = client.get(
+            "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/active",
+            params={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
         )
-        second = client.get(
-            "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/active"
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_start_session_is_idempotent_for_same_ui_mode(self, extraction_client):
+        client, _ = extraction_client
+        first = client.post(
+            "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/start-session",
+            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
+        )
+        second = client.post(
+            "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/start-session",
+            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
         )
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
@@ -185,10 +229,11 @@ class TestExtractionSessionRoutes:
 
     def test_select_bootstrap_intake_path_persists_choice(self, extraction_client):
         client, _ = extraction_client
-        active = client.get(
-            "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/active"
+        started = client.post(
+            "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/start-session",
+            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
         )
-        assert active.status_code == status.HTTP_200_OK
+        assert started.status_code == status.HTTP_200_OK
 
         response = client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/active/intake-path",
@@ -207,14 +252,16 @@ class TestExtractionSessionRoutes:
         self, extraction_client
     ):
         client, _ = extraction_client
-        active = client.get(
-            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/active"
+        started = client.post(
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/start-session",
+            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
         )
-        assert active.status_code == status.HTTP_200_OK
-        archived_id = active.json()["id"]
+        assert started.status_code == status.HTTP_200_OK
+        archived_id = started.json()["id"]
 
         client.post(
-            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat"
+            "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat",
+            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
         )
 
         response = client.get(
@@ -229,4 +276,3 @@ class TestExtractionSessionRoutes:
         assert archived["archived_at"] is not None
         assert archived["updated_at"] is not None
         assert archived["run_metrics"] == []
-

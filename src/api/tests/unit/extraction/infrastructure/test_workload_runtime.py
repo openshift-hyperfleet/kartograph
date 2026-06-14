@@ -57,6 +57,31 @@ class TestInMemoryStickySessionRuntimeManager:
         assert rotated.container_id != original.container_id
         assert rotated.status == "active"
 
+    def test_terminate_runtime_removes_active_lease(self) -> None:
+        manager = InMemoryStickySessionRuntimeManager(session_ttl=timedelta(minutes=30))
+        lease = manager.get_or_start_runtime(
+            session_id="session-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode="schema_bootstrap",
+        )
+
+        manager.terminate_runtime(
+            session_id="session-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode="schema_bootstrap",
+        )
+
+        assert manager.is_runtime_active(session_id="session-1") is False
+        replacement = manager.get_or_start_runtime(
+            session_id="session-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode="schema_bootstrap",
+        )
+        assert replacement.container_id != lease.container_id
+
     def test_cleanup_terminates_expired_sessions(self) -> None:
         manager = InMemoryStickySessionRuntimeManager(session_ttl=timedelta(minutes=5))
         lease = manager.get_or_start_runtime(

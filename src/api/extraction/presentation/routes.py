@@ -16,7 +16,8 @@ from extraction.dependencies import (
     get_extraction_agent_session_service_with_runtime,
     get_extraction_chat_turn_service,
 )
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.presentation.models import (
     BootstrapIntakePathSelectionRequest,
     ExtractionChatTurnRequest,
@@ -24,6 +25,7 @@ from extraction.presentation.models import (
     ExtractionSessionHistoryResponse,
     ExtractionSessionListResponse,
     ExtractionSessionResponse,
+    GraphManagementSessionRequest,
     StickyRuntimeWarmupRequest,
 )
 from iam.application.value_objects import CurrentUser
@@ -44,6 +46,17 @@ NDJSON_STREAM_HEADERS = {
     "Connection": "keep-alive",
     "X-Accel-Buffering": "no",
 }
+
+
+def _validate_graph_management_session_mode(
+    mode: ExtractionSessionMode,
+    ui_mode: GraphManagementUiMode,
+) -> None:
+    if resolve_backend_session_mode(ui_mode) != mode:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="graph_management_ui_mode does not match session mode path",
+        )
 
 
 async def _assert_kg_edit_permission(
@@ -69,6 +82,7 @@ async def _assert_kg_edit_permission(
 async def get_active_session(
     knowledge_graph_id: str,
     mode: ExtractionSessionMode,
+    graph_management_ui_mode: GraphManagementUiMode,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
         ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
@@ -80,11 +94,79 @@ async def get_active_session(
         current_user=current_user,
         knowledge_graph_id=knowledge_graph_id,
     )
-    session = await service.get_or_create_active_session(
+    _validate_graph_management_session_mode(mode, graph_management_ui_mode)
+    session = await service.get_active_session(
         user_id=current_user.user_id.value,
         knowledge_graph_id=knowledge_graph_id,
-        mode=mode,
+        ui_mode=graph_management_ui_mode,
     )
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active Graph Management Assistant session for this mode",
+        )
+    return ExtractionSessionResponse.from_domain(session)
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/start-session",
+    response_model=ExtractionSessionResponse,
+)
+async def start_session(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    request: GraphManagementSessionRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    _validate_graph_management_session_mode(mode, request.graph_management_ui_mode)
+    session = await service.start_session(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        ui_mode=request.graph_management_ui_mode,
+    )
+    return ExtractionSessionResponse.from_domain(session)
+
+
+@router.post(
+    "/knowledge-graphs/{knowledge_graph_id}/sessions/{mode}/end-session",
+    response_model=ExtractionSessionResponse,
+)
+async def end_session(
+    knowledge_graph_id: str,
+    mode: ExtractionSessionMode,
+    request: GraphManagementSessionRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        ExtractionAgentSessionService,
+        Depends(get_extraction_agent_session_service_with_runtime),
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+) -> ExtractionSessionResponse:
+    await _assert_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=knowledge_graph_id,
+    )
+    _validate_graph_management_session_mode(mode, request.graph_management_ui_mode)
+    session = await service.end_session(
+        user_id=current_user.user_id.value,
+        knowledge_graph_id=knowledge_graph_id,
+        ui_mode=request.graph_management_ui_mode,
+    )
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active Graph Management Assistant session for this mode",
+        )
     return ExtractionSessionResponse.from_domain(session)
 
 
@@ -152,6 +234,7 @@ async def list_session_history(
 async def clear_chat(
     knowledge_graph_id: str,
     mode: ExtractionSessionMode,
+    request: GraphManagementSessionRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
         ExtractionAgentSessionService,
@@ -164,10 +247,11 @@ async def clear_chat(
         current_user=current_user,
         knowledge_graph_id=knowledge_graph_id,
     )
+    _validate_graph_management_session_mode(mode, request.graph_management_ui_mode)
     session = await service.clear_chat(
         user_id=current_user.user_id.value,
         knowledge_graph_id=knowledge_graph_id,
-        mode=mode,
+        ui_mode=request.graph_management_ui_mode,
     )
     return ExtractionSessionResponse.from_domain(session)
 
@@ -188,6 +272,7 @@ async def stream_runtime_warmup(
         current_user=current_user,
         knowledge_graph_id=knowledge_graph_id,
     )
+    _validate_graph_management_session_mode(mode, request.graph_management_ui_mode)
 
     async def event_stream():
         async for event in service.stream_runtime_warmup(
@@ -223,6 +308,7 @@ async def stream_chat_turn(
         current_user=current_user,
         knowledge_graph_id=knowledge_graph_id,
     )
+    _validate_graph_management_session_mode(mode, request.graph_management_ui_mode)
 
     async def event_stream():
         async for event in service.stream_chat_turn(

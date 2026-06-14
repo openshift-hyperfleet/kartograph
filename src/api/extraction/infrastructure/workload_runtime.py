@@ -78,6 +78,16 @@ class InMemoryStickySessionRuntimeManager(IStickySessionRuntimeManager):
             mode=mode,
         )
 
+    def terminate_runtime(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: str,
+    ) -> None:
+        self._leases.pop(session_id, None)
+
     def cleanup_expired(self, *, now: datetime) -> list[str]:
         expired_sessions = [
             session_id

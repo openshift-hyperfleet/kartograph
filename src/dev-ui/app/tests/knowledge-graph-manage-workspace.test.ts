@@ -195,6 +195,8 @@ describe('KG-MANAGE-002 - workspace hub tile set', () => {
     expect(manageWorkspaceVue).toContain('More Detail')
     expect(manageWorkspaceVue).toContain('dataSourcesDetailUrl')
     expect(manageWorkspaceVue).toContain('Archived writes')
+    expect(manageWorkspaceVue).toContain('archivedWriteCount')
+    expect(manageWorkspaceVue).toContain('/extraction-jobs/archived-history')
     expect(manageWorkspaceHubTs).toContain('Data sources')
     expect(manageWorkspaceHubTs).toContain('Graph Management')
     expect(manageWorkspaceHubTs).toContain('Graph Writes History')
@@ -353,9 +355,10 @@ describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
 })
 
 describe('Shared conversation panel - extraction UX contract', () => {
-  it('renders phase-2 style conversational intelligence header and resume action', () => {
+  it('renders phase-2 style conversational intelligence header and session toggle', () => {
     expect(sharedConversationPanelVue).toContain('Graph Management Assistant')
-    expect(sharedConversationPanelVue).toContain('Resume session')
+    expect(sharedConversationPanelVue).toContain('Start session')
+    expect(sharedConversationPanelVue).toContain('End session')
     expect(sharedConversationPanelVue).toContain('Sparkles')
   })
 
@@ -395,10 +398,11 @@ describe('KG-MANAGE-006 - graph management conversation-first layout', () => {
     expect(manageWorkspaceVue).toContain('mx-auto max-w-7xl')
   })
 
-  it('uses one shared session endpoint across UI mode changes', () => {
-    expect(manageWorkspaceVue).toContain('sharedSessionMode')
-    expect(manageWorkspaceVue).toContain('/sessions/${sharedSessionMode.value}/active')
-    expect(manageWorkspaceVue).not.toContain('watch(graphManagementMode')
+  it('uses per-mode session endpoints and cached conversation state', () => {
+    expect(manageWorkspaceVue).toContain('graphManagementSessionMode')
+    expect(manageWorkspaceVue).toContain('graph_management_ui_mode')
+    expect(manageWorkspaceVue).toContain('modeConversationState')
+    expect(manageWorkspaceVue).toContain('restoreModeConversation')
   })
 })
 
@@ -517,9 +521,10 @@ describe('KG-MANAGE-010 - schema design parity behavior', () => {
 })
 
 describe('KG-MANAGE-011 - session reset behavior', () => {
-  it('supports explicit clear chat reset on the shared session', () => {
+  it('supports explicit clear chat reset on the per-mode session', () => {
     expect(manageWorkspaceVue).toContain('clearChat')
-    expect(manageWorkspaceVue).toContain('/sessions/${sharedSessionMode.value}/clear-chat')
+    expect(manageWorkspaceVue).toContain('/sessions/${graphManagementSessionMode.value}/clear-chat')
+    expect(manageWorkspaceVue).toContain('graph_management_ui_mode')
     expect(sharedConversationPanelVue).toContain('Clear chat')
   })
 
@@ -528,7 +533,7 @@ describe('KG-MANAGE-011 - session reset behavior', () => {
       /async function clearChat\(\) \{[\s\S]*?\n\}/,
     )?.[0] ?? ''
     expect(clearChatBlock).toContain('clearChat')
-    expect(clearChatBlock).not.toContain('graphManagementMode')
+    expect(clearChatBlock).not.toContain('graphManagementMode.value =')
   })
 })
 
@@ -538,7 +543,8 @@ describe('KG-MANAGE-016 - graph management top controls', () => {
     expect(manageWorkspaceVue).toContain('graphManagementModeLabel')
     expect(manageWorkspaceVue).toContain('sessionStatusLabel')
     expect(manageWorkspaceVue).toContain('validateWorkspace')
-    expect(manageWorkspaceVue).toContain('Clear chat')
+    expect(manageWorkspaceVue).toContain('toggleGraphManagementSession')
+    expect(sharedConversationPanelVue).toContain('Clear chat')
   })
 
   it('maps shared session mode from workspace lifecycle without UI mode coupling', () => {

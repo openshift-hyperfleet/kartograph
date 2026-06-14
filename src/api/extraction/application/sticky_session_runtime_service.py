@@ -65,11 +65,21 @@ class StickySessionRuntimeService:
         mode: ExtractionSessionMode,
         ui_mode: GraphManagementUiMode,
     ) -> AsyncIterator[dict[str, Any]]:
-        session = await self._session_service.get_or_create_active_session(
+        session = await self._session_service.get_active_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
+            ui_mode=ui_mode,
         )
+        if session is None:
+            yield {
+                "type": "done",
+                "ok": False,
+                "error": {
+                    "code": "SESSION_NOT_STARTED",
+                    "message": "Start a Graph Management Assistant session before warming runtime.",
+                },
+            }
+            return
         async for event in self._stream_prepare_runtime(
             tenant_id=tenant_id,
             user_id=user_id,

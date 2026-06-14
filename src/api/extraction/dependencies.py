@@ -36,6 +36,8 @@ from extraction.infrastructure.workload_runtime_factory import (
     create_sticky_session_runtime_manager,
     get_workload_credential_issuer,
 )
+from datetime import timedelta
+
 from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
 from extraction.ports.runtime import (
     IEphemeralExtractionWorkerLauncher,
@@ -61,6 +63,7 @@ def _build_extraction_agent_session_service(
     *,
     sticky_runtime_manager: IStickySessionRuntimeManager | None = None,
 ) -> ExtractionAgentSessionService:
+    runtime_settings = get_extraction_workload_runtime_settings()
     skill_resolution_service = ExtractionSkillResolutionService(
         override_repository=ExtractionSkillOverrideRepository()
     )
@@ -73,6 +76,7 @@ def _build_extraction_agent_session_service(
             session_repository=ExtractionAgentSessionRepository(session=session),
             extraction_job_repository=ExtractionJobRepository(session=session),
         ),
+        idle_session_ttl=timedelta(minutes=runtime_settings.session_ttl_minutes),
     )
 
 

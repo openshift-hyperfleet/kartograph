@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
@@ -14,8 +14,13 @@ from extraction.application.skill_resolution_service import (
     ExtractionSkillResolutionService,
 )
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode
-from extraction.domain.value_objects import ExtractionSessionRunMetric
+from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.value_objects import (
+    BootstrapIntakePath,
+    ExtractionSessionMode,
+    ExtractionSessionRunMetric,
+    GraphManagementUiMode,
+)
 from extraction.ports.repositories import (
     IExtractionAgentSessionRepository,
     IExtractionSessionRunMetricsReader,
@@ -41,12 +46,14 @@ class ExtractionAgentSessionService:
         run_metrics_reader: IExtractionSessionRunMetricsReader | None = None,
         sticky_runtime_manager: IStickySessionRuntimeManager | None = None,
         session_journal_service: GraphManagementSessionJournalService | None = None,
+        idle_session_ttl: timedelta = timedelta(hours=1),
     ) -> None:
         self._repository = repository
         self._skill_resolution_service = skill_resolution_service
         self._run_metrics_reader = run_metrics_reader
         self._sticky_runtime_manager = sticky_runtime_manager
         self._session_journal_service = session_journal_service
+        self._idle_session_ttl = idle_session_ttl
 
     @staticmethod
     def _build_bootstrap_intake_prompt() -> str:
@@ -57,30 +64,59 @@ class ExtractionAgentSessionService:
             "(2) guided question-by-question co-design."
         )
 
-    async def get_or_create_active_session(
-        self,
-        user_id: str,
-        knowledge_graph_id: str,
-        mode: ExtractionSessionMode,
-    ) -> ExtractionAgentSession:
-        existing = await self._repository.find_active_by_scope(
+    async def _expire_idle_sessions(self, user_id: str, knowledge_graph_id: str) -> None:
+        now = datetime.now(UTC)
+        if self._sticky_runtime_manager is not None:
+            self._sticky_runtime_manager.cleanup_expired(now=now)
+
+        active_sessions = await self._repository.list_active_by_user_and_kg(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
         )
-        if existing is not None:
-            return existing
+        for session in active_sessions:
+            if session.updated_at + self._idle_session_ttl <= now:
+                await self._end_session_record(session)
 
+    async def _terminate_sticky_runtime(self, session: ExtractionAgentSession) -> None:
+        if self._sticky_runtime_manager is None:
+            return
+        self._sticky_runtime_manager.terminate_runtime(
+            session_id=session.id,
+            user_id=session.user_id,
+            knowledge_graph_id=session.knowledge_graph_id,
+            mode=session.mode.value,
+        )
+
+    async def _end_session_record(self, session: ExtractionAgentSession) -> None:
+        if not session.is_active:
+            return
+        await self._terminate_sticky_runtime(session)
+        if self._session_journal_service is not None:
+            await self._session_journal_service.archive_session_mutations(session)
+        session.archive()
+        await self._repository.save(session)
+
+    async def _create_session(
+        self,
+        *,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession:
+        mode = resolve_backend_session_mode(ui_mode)
         session = ExtractionAgentSession(
             id=str(ULID()),
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
             mode=mode,
+            graph_management_ui_mode=ui_mode,
         )
+        session.runtime_context["graph_management_ui_mode"] = ui_mode.value
         if self._skill_resolution_service is not None:
-            resolved = await self._skill_resolution_service.resolve_for_session(
+            resolved = await self._skill_resolution_service.resolve_for_graph_management_turn(
                 knowledge_graph_id=knowledge_graph_id,
                 mode=mode,
+                ui_mode=ui_mode,
             )
             session.runtime_context["agent_configuration"] = {
                 "system_prompt": resolved.system_prompt,
@@ -104,6 +140,84 @@ class ExtractionAgentSessionService:
         await self._repository.save(session)
         return session
 
+    async def get_active_session(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        await self._expire_idle_sessions(user_id, knowledge_graph_id)
+        return await self._repository.find_active_by_ui_mode(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=ui_mode,
+        )
+
+    async def start_session(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession:
+        await self._expire_idle_sessions(user_id, knowledge_graph_id)
+        existing = await self._repository.find_active_by_ui_mode(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=ui_mode,
+        )
+        if existing is not None:
+            return existing
+        return await self._create_session(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=ui_mode,
+        )
+
+    async def end_session(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        ui_mode: GraphManagementUiMode,
+    ) -> ExtractionAgentSession | None:
+        await self._expire_idle_sessions(user_id, knowledge_graph_id)
+        active = await self._repository.find_active_by_ui_mode(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=ui_mode,
+        )
+        if active is None:
+            return None
+        await self._end_session_record(active)
+        return active
+
+    async def get_or_create_active_session(
+        self,
+        user_id: str,
+        knowledge_graph_id: str,
+        mode: ExtractionSessionMode,
+        ui_mode: GraphManagementUiMode | None = None,
+    ) -> ExtractionAgentSession:
+        """Return active session for UI mode or create one (legacy chat auto-start)."""
+        resolved_ui_mode = ui_mode or (
+            GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+            if mode == ExtractionSessionMode.SCHEMA_BOOTSTRAP
+            else GraphManagementUiMode.EXTRACTION_JOBS
+        )
+        if resolve_backend_session_mode(resolved_ui_mode) != mode:
+            raise ValueError("graph_management_ui_mode does not match session mode")
+        existing = await self.get_active_session(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=resolved_ui_mode,
+        )
+        if existing is not None:
+            return existing
+        return await self.start_session(
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            ui_mode=resolved_ui_mode,
+        )
+
     async def save_session(self, session: ExtractionAgentSession) -> ExtractionAgentSession:
         """Persist session mutations after a chat turn."""
         session.updated_at = datetime.now(UTC)
@@ -114,30 +228,17 @@ class ExtractionAgentSessionService:
         self,
         user_id: str,
         knowledge_graph_id: str,
-        mode: ExtractionSessionMode,
+        ui_mode: GraphManagementUiMode,
     ) -> ExtractionAgentSession:
-        active = await self._repository.find_active_by_scope(
+        await self.end_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
+            ui_mode=ui_mode,
         )
-        if active is not None:
-            if self._sticky_runtime_manager is not None:
-                self._sticky_runtime_manager.reset_runtime(
-                    session_id=active.id,
-                    user_id=user_id,
-                    knowledge_graph_id=knowledge_graph_id,
-                    mode=mode.value,
-                )
-            if self._session_journal_service is not None:
-                await self._session_journal_service.archive_session_mutations(active)
-            active.archive()
-            await self._repository.save(active)
-
-        return await self.get_or_create_active_session(
+        return await self.start_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
+            ui_mode=ui_mode,
         )
 
     async def list_sessions(
@@ -186,8 +287,7 @@ class ExtractionAgentSessionService:
         if session is None:
             return None
         if session.is_active:
-            session.archive()
-            await self._repository.save(session)
+            await self._end_session_record(session)
         return session
 
     async def set_bootstrap_intake_path_for_active_session(
@@ -198,11 +298,13 @@ class ExtractionAgentSessionService:
         capabilities_goals: str | None,
     ) -> ExtractionAgentSession:
         """Persist bootstrap path selection for session continuity."""
-        session = await self.get_or_create_active_session(
+        session = await self.get_active_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
-            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
         )
+        if session is None:
+            raise ValueError("No active initial schema design session")
         intake = dict(session.runtime_context.get("bootstrap_intake", {}))
         intake["status"] = "path_selected"
         intake["selected_path"] = selected_path.value

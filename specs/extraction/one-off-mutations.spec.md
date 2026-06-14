@@ -23,6 +23,13 @@ The system SHALL implement requested schema and instance changes via Kartograph 
 - THEN it validates and applies UPDATE JSONL mutations
 - AND reports write operation counts
 
+#### Scenario: Bulk instance cleanup
+- GIVEN an operator asks to delete many instances and keep or create a specific set
+- WHEN the assistant completes the turn
+- THEN it lists instances by type (not per-slug search loops)
+- AND generates JSONL in batch to a workspace file or script
+- AND validates once and applies once via file-based mutation tools
+
 #### Scenario: Schema type change
 - GIVEN an operator asks to add an optional property to an entity type
 - WHEN the assistant completes the turn

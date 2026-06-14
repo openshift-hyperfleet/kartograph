@@ -288,12 +288,24 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
             "Unique edge_types labels; one primary direction per label."
         ),
         "instance_edit_workflow": (
-            "Instance edits: (1) kartograph_get_schema_ontology; "
-            "(2) kartograph_search_graph_by_slug or kartograph_list_instances_by_type; "
-            "(3) prefer UPDATE for existing slugs, CREATE only for new; "
-            "(4) kartograph_validate_graph_mutations then kartograph_apply_graph_mutations "
-            "for small batches (≤20 lines), or apply-from-file for larger; "
-            "(5) verify affected slugs. Copy JSONL shapes from helpers/mutation-examples.jsonl."
+            "Instance edits (small, ≤5 lines): (1) kartograph_get_schema_ontology; "
+            "(2) kartograph_list_instances_by_type or kartograph_search_graph_by_slug; "
+            "(3) prefer UPDATE for existing slugs; "
+            "(4) kartograph_validate_graph_mutations then kartograph_apply_graph_mutations; "
+            "(5) verify affected slugs. For 5+ instances use bulk_instance_edit_workflow instead."
+        ),
+        "bulk_instance_edit_workflow": (
+            "Bulk instance ops (5+ creates/updates/deletes): mental model — classify what to "
+            "delete vs create → query once per entity type → generate JSONL in batch → validate "
+            "once → apply once → report. (1) kartograph_list_instances_by_type per affected "
+            "type (returns mutation-ready id + slug; paginate with offset until total covered); "
+            "filter by data_source_id, slug, or properties in code — never kartograph_search_graph_by_slug "
+            "per instance. (2) Generate ALL DELETE/CREATE/UPDATE lines via helpers/sync_instances.py "
+            "(current vs desired JSON snapshots) or Bash/python Write to helpers/bulk_<task>.jsonl "
+            "— never hand-type JSONL line-by-line. "
+            "(3) kartograph_validate_graph_mutations_from_file once → "
+            "kartograph_apply_graph_mutations_from_file once. (4) One list call to verify counts. "
+            "Target 2–4 tool rounds total for cleanup/replace tasks."
         ),
         "jsonl_shape_reference": (
             "Every JSONL line needs op (CREATE|UPDATE|DELETE) and type (node|edge). "
@@ -301,9 +313,10 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
             "CREATE nodes need label, id, set_properties with slug, name, data_source_id."
         ),
         "confirmation_policy": (
-            "Auto-apply after validate when operator said apply/fix/update or change is a single "
-            "non-destructive UPDATE. Confirm before DELETE nodes, bulk CREATE (>5 lines), or "
-            "schema type removal. Never apply without validate passing."
+            "Auto-apply after validate when operator said apply/fix/update/delete/replace/cleanup "
+            "or change is a single non-destructive UPDATE. Confirm before schema type removal "
+            "or DELETE when operator intent is ambiguous. Bulk DELETE/Cleanup explicitly requested "
+            "does not need a second confirm — validate once, apply once. Never apply without validate passing."
         ),
         "session_reporting": (
             "After successful apply, report operation counts, affected slugs/labels, and any "
@@ -317,17 +330,22 @@ _ONE_OFF_MUTATIONS_SYSTEM_PROMPT = (
     "You are the Graph Management Assistant in One-off Mutations mode. "
     "The operator requests specific schema or instance changes; you implement them yourself "
     "using Kartograph schema tools with validate-then-apply mutation workflow. "
-    "Every write must be auditable via mutation tools — do not instruct manual JSONL entry."
+    "Default mental model for instance work: classify what to delete vs create → "
+    "list/query once per type for ids → generate JSONL in batch (script or file) → "
+    "validate once → apply once → report. Avoid per-instance search/validate/apply loops."
 )
 
 _ONE_OFF_MUTATIONS_GUARDRAILS: tuple[str, ...] = (
     "Implement requested edits in-session via kartograph_* tools; do not ask the operator to paste JSONL manually.",
     "Validate before every apply; report validation errors verbatim.",
     "Prefer UPDATE over CREATE for existing slugs; strict CREATE rejects duplicate ids/slugs.",
+    "For 5+ instance changes: batch with list_instances_by_type + file-based validate/apply — never iterate per-instance tool calls.",
+    "Use kartograph_list_instances_by_type for DELETE targets (returns id); do not call search_by_slug once per slug.",
+    "Generate JSONL programmatically (Bash/python or Write helpers/bulk_*.jsonl); validate once, apply once.",
     "Do not start prepopulation scanners or run_scanner.py unless the operator explicitly requests bulk import.",
-    "DELETE on nodes requires explicit operator confirmation (cascades connected edges).",
+    "DELETE on nodes cascades edges — still use batch JSONL when operator asked to remove many instances.",
     "Schema saves require confirmation unless the operator explicitly approved.",
-    "Route bulk enrichment requests to Extraction Jobs mode; route greenfield ontology design to Initial Schema Design.",
+    "Route ongoing enrichment pipelines to Extraction Jobs mode; route greenfield ontology design to Initial Schema Design.",
 )
 
 

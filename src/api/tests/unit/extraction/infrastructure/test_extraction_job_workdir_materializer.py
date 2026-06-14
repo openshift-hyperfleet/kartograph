@@ -134,6 +134,7 @@ async def test_prepare_materializes_instance_referenced_paths_and_workspace_layo
     assert (job_root / "mutations").is_dir()
     assert (job_root / "helpers" / "workload-mutations.sh").is_file()
     assert (job_root / "helpers" / "mutation-examples.jsonl").is_file()
+    assert (job_root / "helpers" / "sync_instances.py").is_file()
     context = json.loads((job_root / "job-context.json").read_text(encoding="utf-8"))
     assert context["repository_files"]["files_written"] == 1
     assert probe.observations[0].files_written == 1
@@ -204,3 +205,4 @@ async def test_prepare_enriches_target_instances_with_graph_id_and_missing_prope
     assert target["graph_id"] == "adapter:abc123def4567890"
     assert target["properties_missing"] == ["resource_types", "transport"]
     assert (job_root / "helpers" / "mutation-examples.jsonl").is_file()
+    assert (job_root / "helpers" / "sync_instances.py").is_file()

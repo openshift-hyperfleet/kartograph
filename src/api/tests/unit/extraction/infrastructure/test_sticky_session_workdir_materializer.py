@@ -197,3 +197,4 @@ def test_materializer_copies_mutation_helper_examples(tmp_path: Path) -> None:
 
     assert (session_root / "helpers" / "mutation-examples.jsonl").is_file()
     assert (session_root / "helpers" / "workload-mutations.sh").is_file()
+    assert (session_root / "helpers" / "sync_instances.py").is_file()

@@ -135,6 +135,9 @@ class TestExtractionSkillResolutionService:
 
         assert "One-off Mutations mode" in resolved.system_prompt
         assert "instance_edit_workflow" in resolved.skills
+        assert "bulk_instance_edit_workflow" in resolved.skills
         assert "schema_edit_workflow" in resolved.skills
         assert "confirmation_policy" in resolved.skills
-        assert any("DELETE on nodes" in item for item in resolved.guardrails)
+        assert any("5+ instance changes" in item for item in resolved.guardrails)
+        assert "validate once" in resolved.skills["bulk_instance_edit_workflow"]
+        assert "sync_instances.py" in resolved.skills["bulk_instance_edit_workflow"]

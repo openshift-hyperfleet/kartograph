@@ -247,14 +247,27 @@ Bundled at `helpers/mutation-examples.jsonl` in the workspace. Canonical shapes:
 
 Rules: both `op` and `type` on every line; `set_properties` not `properties`; UPDATE/DELETE need top-level `id`.
 
-### Workflow
+### Workflow (small edits, ≤5 lines)
 
 1. `kartograph_get_schema_ontology` — always before edits
-2. Resolve targets: `kartograph_search_graph_by_slug`, `kartograph_list_instances_by_type`
-3. `kartograph_validate_graph_mutations` → `kartograph_apply_graph_mutations` (≤20 lines) or apply-from-file
+2. Resolve targets: one `kartograph_list_instances_by_type` or `kartograph_search_graph_by_slug`
+3. `kartograph_validate_graph_mutations` → `kartograph_apply_graph_mutations`
 4. Verify with list/search; report write op counts
 
-Confirm before DELETE nodes or schema removals. Do not use prepopulation scanners unless the operator explicitly requests bulk import.
+### Bulk instance operations (5+ deletes/creates/updates)
+
+Use when the operator asks to replace, prune, reconcile, or keep-only a set of instances.
+
+**Mental model:** classify delete vs create → query once per type → generate JSONL in batch → validate once → apply once → done.
+
+1. **List, don't loop search** — `kartograph_list_instances_by_type` returns `id`, `slug`, and `properties` (mutation-ready). Paginate with `offset` until you cover `total`. Filter by `data_source_id`, slug, or path in Bash/python. Do **not** call `search_by_slug` per instance.
+2. **Generate JSONL programmatically** — save list output to `helpers/current_<Label>.json`, desired slugs to `helpers/desired_<Label>.json`, then run `python3 helpers/sync_instances.py --entity-type <Label> --current ... --desired ... --out helpers/bulk_<task>.jsonl` (optional `--filter-data-source-id`, `--create-missing`). Or Write `helpers/bulk_<task>.jsonl` directly. Example DELETE shape: `{"op":"DELETE","type":"node","id":"<id from list>"}`. Never hand-type dozens of lines in chat.
+3. **Validate once, apply once** — `kartograph_validate_graph_mutations_from_file` then `kartograph_apply_graph_mutations_from_file`.
+4. **Verify** — one list call; report counts.
+
+Target **2–4 tool rounds** for bulk cleanup. Explicit delete/replace requests do not need a second confirmation after validate passes.
+
+Confirm before schema type removals. Do not use prepopulation scanners unless the operator explicitly requests bulk import via scanner workflow.
 
 ## Readiness checklist
 

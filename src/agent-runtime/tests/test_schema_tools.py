@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from kartograph_agent_runtime.schema_tools import (
     KARTOGRAPH_SCHEMA_TOOL_NAMES,
+    LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION,
     build_kartograph_schema_mcp_server,
 )
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
@@ -49,6 +50,12 @@ def test_gma_allowed_tools_include_bash() -> None:
     from kartograph_agent_runtime.schema_tools import GMA_ALLOWED_TOOL_NAMES
 
     assert "Bash" in GMA_ALLOWED_TOOL_NAMES
+
+
+def test_list_instances_by_type_tool_description_mentions_mutation_ready_ids() -> None:
+    assert "mutation-ready" in LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION
+    assert "id" in LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION
+    assert "prepopulation" not in LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION.lower()
 
 
 def test_build_kartograph_schema_mcp_server_registers_tools() -> None:

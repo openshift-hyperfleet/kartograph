@@ -26,7 +26,7 @@ _TOOLS_QUICK_REFERENCE = """
 | `kartograph_apply_graph_mutations` | Apply JSONL CREATE/UPDATE/DELETE (small batches) |
 | `kartograph_validate_graph_mutations_from_file` | Dry-run a workspace `.jsonl` file |
 | `kartograph_apply_graph_mutations_from_file` | Apply a workspace `.jsonl` file in one call |
-| `kartograph_list_instances_by_type` | List/count entity instances for one type (verify prepopulation) |
+| `kartograph_list_instances_by_type` | List instances with mutation-ready `id`, `slug`, `properties` (paginate for bulk) |
 | `kartograph_list_relationship_instances` | List relationship edges with source/target slugs and node IDs |
 | `kartograph_search_graph_by_slug` | Find existing nodes by slug to avoid duplicates |
 | `kartograph_check_graph_slugs` | Batch check which slugs already exist for one entity type |
@@ -123,28 +123,35 @@ _ONE_OFF_MUTATIONS_TOOLS_REFERENCE = """
 
 | Tool | Purpose |
 |------|---------|
-| `kartograph_get_schema_authoring_guide` | JSONL shapes, schema rules, one-off workflow |
+| `kartograph_get_schema_authoring_guide` | JSONL shapes, schema rules, one-off + bulk workflow |
 | `kartograph_get_schema_ontology` | **Always read before edits** |
 | `kartograph_save_schema_ontology` | Schema type/property changes (read → merge → save) |
-| `kartograph_search_graph_by_slug` | Resolve existing node id for UPDATE/DELETE |
+| `kartograph_search_graph_by_slug` | Resolve **one** slug when ambiguous (avoid in bulk loops) |
 | `kartograph_check_graph_slugs` | Batch slug existence before CREATE |
-| `kartograph_list_instances_by_type` | Browse instances when picking targets |
-| `kartograph_list_relationship_instances` | Inspect edges before create/update/delete |
-| `kartograph_validate_graph_mutations` | Dry-run inline JSONL (primary for ≤20 lines) |
-| `kartograph_apply_graph_mutations` | Apply inline JSONL after validate passes |
-| `kartograph_validate_graph_mutations_from_file` | Dry-run workspace `.jsonl` file |
+| `kartograph_list_instances_by_type` | **Primary bulk tool** — returns `id`, `slug`, `properties`; paginate with offset |
+| `kartograph_list_relationship_instances` | Inspect edges before batch delete/create |
+| `kartograph_validate_graph_mutations` | Dry-run inline JSONL (≤5 lines only) |
+| `kartograph_apply_graph_mutations` | Apply inline JSONL after validate (small batches) |
+| `kartograph_validate_graph_mutations_from_file` | Dry-run workspace `.jsonl` (**bulk default**) |
 | `kartograph_apply_graph_mutations_from_file` | Apply larger batches from workspace file |
 
-Copy JSONL field names from `helpers/mutation-examples.jsonl` in the workspace.
+Copy JSONL field names from `helpers/mutation-examples.jsonl`. For bulk work, Write to `helpers/bulk_<task>.jsonl`.
 
-### Workflow
+### Small edits (≤5 lines)
 
-1. Classify request: schema edit, instance edit, mixed, or read-only
-2. Read ontology; search/list targets
-3. Validate → apply → verify
-4. Report write op counts and affected slugs
+1. Classify: schema vs instance vs read-only
+2. List/search targets once
+3. Validate inline → apply inline → verify
 
-Confirm before DELETE nodes or schema removals. Route bulk enrichment to Extraction Jobs mode.
+### Bulk edits (5+ instances or delete-and-recreate)
+
+1. **Classify** — what to delete vs create (operator intent in plain language)
+2. **Query once per type** — `kartograph_list_instances_by_type` (includes mutation-ready `id`); paginate until `total` covered; filter in Bash/python — **no per-slug search**
+3. **Generate JSONL in batch** — `helpers/sync_instances.py` (current vs desired JSON) or `helpers/bulk_<task>.jsonl`; never hand-type one line per instance
+4. **Validate once → apply once** — `*_from_file` tools
+5. **Verify** — one list call; report delete/create counts
+
+Target **2–4 tool rounds** for bulk cleanup. Confirm before schema removals only.
 """.strip()
 
 _TOOLS_COMPACT_REFERENCE = (
@@ -240,6 +247,7 @@ _EXTRACTION_JOBS_COMPACT_SKILL_KEYS = ("per_instance_description_authoring", "jo
 
 _ONE_OFF_MUTATIONS_COMPACT_SKILL_KEYS = (
     "instance_edit_workflow",
+    "bulk_instance_edit_workflow",
     "schema_edit_workflow",
     "confirmation_policy",
     "jsonl_shape_reference",

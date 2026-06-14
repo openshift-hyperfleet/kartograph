@@ -155,4 +155,5 @@ def test_build_agent_system_prompt_one_off_mutations_includes_tools_reference() 
 
     assert "One-off mutation tools" in prompt
     assert "mutation-examples.jsonl" in prompt
-    assert "kartograph_validate_graph_mutations" in prompt
+    assert "Bulk edits" in prompt
+    assert "kartograph_list_instances_by_type" in prompt

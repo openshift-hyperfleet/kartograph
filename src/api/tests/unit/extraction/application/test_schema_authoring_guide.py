@@ -20,6 +20,9 @@ def test_authoring_guide_documents_bootstrap_and_modeling_guidance() -> None:
     assert "smoke-test" in SCHEMA_AUTHORING_GUIDE.lower() or "smoke test" in SCHEMA_AUTHORING_GUIDE.lower()
     assert "## One-off mutations" in SCHEMA_AUTHORING_GUIDE
     assert "mutation-examples.jsonl" in SCHEMA_AUTHORING_GUIDE
+    assert "Bulk instance operations" in SCHEMA_AUTHORING_GUIDE
+    assert "sync_instances.py" in SCHEMA_AUTHORING_GUIDE
+    assert "validate once" in SCHEMA_AUTHORING_GUIDE.lower()
     assert "next_action" in SCHEMA_AUTHORING_GUIDE
     assert "## Relationship types" in SCHEMA_AUTHORING_GUIDE
     assert "one row per primary relationship label" in SCHEMA_AUTHORING_GUIDE

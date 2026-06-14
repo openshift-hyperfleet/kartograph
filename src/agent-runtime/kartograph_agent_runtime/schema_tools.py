@@ -14,6 +14,12 @@ from kartograph_agent_runtime.tools import RuntimeTooling
 
 WORKSPACE_FILE_TOOL_NAMES = ("Read", "Write", "Edit", "Grep", "Glob", "Bash")
 
+LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION = (
+    "List entity instances for one type with pagination. Returns mutation-ready "
+    "`id`, `slug`, and `properties` per node — paginate with offset until total. "
+    "Primary bulk query tool for DELETE JSONL; avoid per-slug search loops."
+)
+
 KARTOGRAPH_SCHEMA_TOOL_NAMES = (
     "kartograph_get_schema_authoring_guide",
     "kartograph_get_workspace_readiness",
@@ -208,7 +214,7 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
 
     @tool(
         "kartograph_list_instances_by_type",
-        "List entity instances for one type with pagination (use to verify prepopulation).",
+        LIST_INSTANCES_BY_TYPE_TOOL_DESCRIPTION,
         {"entity_type": str, "limit": int, "offset": int},
     )
     async def list_instances_by_type(args: dict[str, Any]) -> dict[str, Any]:

@@ -49,6 +49,7 @@ import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDe
 import GraphExtractionJobsWorkspace from '@/components/graph-management/GraphExtractionJobsWorkspace.vue'
 import GraphExtractionArchivedHistory from '@/components/graph-management/GraphExtractionArchivedHistory.vue'
 import GraphManagementMutationAuthoringPanel from '@/components/graph-management/GraphManagementMutationAuthoringPanel.vue'
+import GraphSchemaExplorer from '@/components/graph-management/GraphSchemaExplorer.vue'
 import {
   GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
   GRAPH_MANAGEMENT_MODE_LABELS,
@@ -73,6 +74,7 @@ import {
   resolveSchemaRailSelection,
 } from '@/utils/kgGraphManagementArtifacts'
 import {
+  buildDataSourcesStepUrl,
   buildManageStepUrl,
   parseManageStepQuery,
 } from '@/utils/kgManageWorkspace'
@@ -233,6 +235,10 @@ const designArtifactsRefreshing = ref(false)
 
 const activeStep = computed(() => parseManageStepQuery(route.query.step))
 const showOverview = computed(() => activeStep.value === null)
+
+const dataSourcesDetailUrl = computed(() =>
+  buildDataSourcesStepUrl(kgId.value, dataSourceCount.value),
+)
 
 const workspaceOverviewInput = computed(() => ({
   kgId: kgId.value,
@@ -1550,9 +1556,17 @@ watch(
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle class="text-base">Data Sources</CardTitle>
-            <CardDescription>Configured repositories for this knowledge graph</CardDescription>
+          <CardHeader class="flex flex-row items-start justify-between gap-3 space-y-0">
+            <div class="space-y-1">
+              <CardTitle class="text-base">Data Sources</CardTitle>
+              <CardDescription>Configured repositories for this knowledge graph</CardDescription>
+            </div>
+            <Button as-child variant="outline" size="sm" class="shrink-0">
+              <NuxtLink :to="dataSourcesDetailUrl" class="inline-flex items-center">
+                More Detail
+                <ArrowRight class="ml-1.5 size-3.5" />
+              </NuxtLink>
+            </Button>
           </CardHeader>
           <CardContent>
             <div v-if="overviewSourceRows.length === 0" class="text-sm text-muted-foreground">
@@ -1577,40 +1591,7 @@ watch(
           </CardContent>
         </Card>
 
-        <div class="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-base">Entity Types</CardTitle>
-              <CardDescription>Node types in the knowledge graph ontology</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div v-if="entityTypeLabels.length === 0" class="text-sm text-muted-foreground">
-                No entity types defined yet.
-              </div>
-              <div v-else class="flex flex-wrap gap-2">
-                <Badge v-for="label in entityTypeLabels" :key="label" variant="outline">
-                  {{ label }}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle class="text-base">Relationship Types</CardTitle>
-              <CardDescription>Edge types connecting entities</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div v-if="relationshipTypeLabels.length === 0" class="text-sm text-muted-foreground">
-                No relationship types defined yet.
-              </div>
-              <div v-else class="flex flex-wrap gap-2">
-                <Badge v-for="label in relationshipTypeLabels" :key="label" variant="outline">
-                  {{ label }}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        <GraphSchemaExplorer :kg-id="kgId" :reload-nonce="designArtifactsReloadNonce" />
       </section>
 
       <section v-else-if="activeStep === 'mutation-logs'" class="space-y-4">

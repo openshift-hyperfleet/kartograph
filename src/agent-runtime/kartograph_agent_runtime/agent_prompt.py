@@ -49,11 +49,11 @@ See `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered prepopulati
 1. `kartograph_get_schema_authoring_guide`
 2. `kartograph_get_workspace_readiness`
 3. `kartograph_get_schema_ontology`
-4. Prepopulation: `{Label}.py` (case-sensitive) → `out/{Label}_instances.json` → `preview_instances.py` → `entities_to_jsonl.py` → apply-from-file
+4. Prepopulation: `run_scanner.py {Label} --entity` → apply-from-file (or manual JSONL pipeline)
 5. Model types → `kartograph_save_schema_ontology`
-6. Apply CREATE mutations → `kartograph_apply_graph_mutations` (small fixes inline; bulk via generator output)
+6. Apply CREATE mutations → `kartograph_apply_graph_mutations_from_file` (apply returns `next_action`)
 7. Create relationship edges after entity IDs are known
-8. Verify with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness`
+8. Verify with `kartograph_list_instances_by_type` and readiness when needed
 
 ### Failure modes (stop prepopulation on infra errors)
 

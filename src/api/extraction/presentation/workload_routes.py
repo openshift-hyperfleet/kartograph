@@ -86,6 +86,9 @@ class WorkloadMutationApplyResponse(BaseModel):
     applied: bool
     errors: list[str] = Field(default_factory=list)
     operations_applied: int = 0
+    next_action: str = ""
+    remaining_entity_gaps: list[str] = Field(default_factory=list)
+    remaining_relationship_gaps: list[str] = Field(default_factory=list)
 
 
 class WorkloadMutationValidateResponse(BaseModel):
@@ -252,6 +255,7 @@ async def workload_apply_mutations(
     request: WorkloadMutationApplyRequest,
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadMutationApplyResponse:
     _require_chat_scope(auth)
     try:
@@ -262,10 +266,40 @@ async def workload_apply_mutations(
         )
     except Exception as exc:
         raise_graph_storage_http_error(exc)
+
+    next_action = ""
+    remaining_entity_gaps: list[str] = []
+    remaining_relationship_gaps: list[str] = []
+    if result.get("applied"):
+        from infrastructure.extraction_workload.workspace_readiness import (
+            build_workload_readiness_snapshot,
+        )
+
+        ontology = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
+        try:
+            snapshot = await build_workload_readiness_snapshot(
+                ontology=ontology,
+                knowledge_graph_id=auth.knowledge_graph_id,
+                tenant_id=auth.tenant_id,
+                graph_reader=reader,
+            )
+        except Exception as exc:
+            raise_graph_storage_http_error(exc)
+        next_action = str(snapshot.get("next_action") or "")
+        remaining_entity_gaps = list(
+            snapshot.get("prepopulated_entity_types_without_instances_live") or []
+        )
+        remaining_relationship_gaps = list(
+            snapshot.get("prepopulated_relationship_types_without_instances_live") or []
+        )
+
     return WorkloadMutationApplyResponse(
         applied=bool(result.get("applied")),
         errors=[str(item) for item in result.get("errors", [])],
         operations_applied=int(result.get("operations_applied", 0)),
+        next_action=next_action,
+        remaining_entity_gaps=remaining_entity_gaps,
+        remaining_relationship_gaps=remaining_relationship_gaps,
     )
 
 

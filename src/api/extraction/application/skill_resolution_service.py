@@ -60,10 +60,11 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
             ),
             (
                 "Prepopulation (prepopulated=true types): copy _entity_scanner.example.py to "
-                "instance_generators/{Label}.py (case-sensitive — must match ontology label exactly) → "
-                "out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py → "
-                "validate/apply instance_generators/out/{Label}_instances.jsonl in one batch. "
-                "Never /tmp (not persisted, invalid for apply-from-file). All entity gaps before relationship gaps."
+                "instance_generators/{Label}.py (case-sensitive) → "
+                "`python3 instance_generators/run_scanner.py {Label} --entity` (or manual JSONL pipeline) "
+                "→ kartograph_apply_graph_mutations_from_file with printed jsonl_path. Apply pre-validates; "
+                "validate is optional dry run. Use apply response next_action to chain labels. "
+                "Never /tmp. All entity gaps before relationship gaps."
             ),
             (
                 "Single prepopulation deliverable (one entity or relationship type): execute the full "
@@ -141,12 +142,13 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
             "Read/save ontology via kartograph_get_schema_ontology and kartograph_save_schema_ontology."
         ),
         "prepopulation": (
-            "Follow instance_generators/PREPOPULATION_WORKFLOW.md. Per gap: {Label}.py (case-sensitive filename) "
-            "→ out/{Label}_instances.json → preview_instances.py (optional) → entities_to_jsonl.py or "
-            "relationships_to_jsonl.py → validate/apply-from-file. Use scanner_common.generate_slug() and "
-            "dedupe_instances(). Entities before relationships. Primary relationship direction only. "
-            "For the first prepopulated entity type after schema save, smoke-test with 1–2 instances "
-            "before the full batch. Stop and report if readiness/apply return 500/503 after validate passed."
+            "Follow instance_generators/PREPOPULATION_WORKFLOW.md. Per gap: {Label}.py (case-sensitive) "
+            "→ `run_scanner.py {Label} --entity` (preferred) or manual entities_to_jsonl.py → "
+            "apply-from-file. Relationships: run_scanner.py --relationship --source --rel --target. "
+            "Readiness prepopulation_tasks include order, blocking_types, run_command, and underscore "
+            "output paths. Apply response includes next_action and remaining gaps. "
+            "preview_instances.py: use for smoke test or 50–500 instance spot-checks. "
+            "Entities before relationships. Stop on 500/503 after validate passed."
         ),
         "readiness_reporting": (
             "After schema or prepopulation work, call kartograph_get_workspace_readiness and cite "

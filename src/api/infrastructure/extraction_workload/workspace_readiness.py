@@ -22,8 +22,23 @@ def _entity_scanner_path(label: str) -> str:
     return f"instance_generators/{label}.py"
 
 
+def _entity_output_paths(label: str) -> tuple[str, str]:
+    return (
+        f"instance_generators/out/{label}_instances.json",
+        f"instance_generators/out/{label}_instances.jsonl",
+    )
+
+
 def _relationship_scanner_path(*, source: str, relationship: str, target: str) -> str:
     return f"instance_generators/{source}_{relationship}_{target}.py"
+
+
+def _relationship_output_paths(*, source: str, relationship: str, target: str) -> tuple[str, str]:
+    stem = f"{source}_{relationship}_{target}"
+    return (
+        f"instance_generators/out/{stem}_instances.json",
+        f"instance_generators/out/{stem}_instances.jsonl",
+    )
 
 
 def _build_prepopulation_tasks(
@@ -41,19 +56,27 @@ def _build_prepopulation_tasks(
     for label in live_entity_gaps:
         node_type = next((nt for nt in ontology.node_types if nt.label == label), None)
         live_count = entity_instance_counts.get(label, 0)
+        output_json, output_jsonl = _entity_output_paths(label)
         tasks.append(
             {
                 "kind": "entity",
+                "order": 1,
+                "blocking_types": [],
                 "label": label,
                 "live_instance_count": live_count,
                 "scanner_path": _entity_scanner_path(label),
-                "output_json": f"instance_generators/out/{label}_instances.json",
-                "output_jsonl": f"instance_generators/out/{label}_instances.jsonl",
+                "output_json": output_json,
+                "output_jsonl": output_jsonl,
+                "run_command": (
+                    f"python3 instance_generators/run_scanner.py {label} --entity"
+                ),
                 "required_properties": list(node_type.required_properties) if node_type else [],
                 "optional_properties": list(node_type.optional_properties) if node_type else [],
                 "action": (
                     f"Copy _entity_scanner.example.py to {_entity_scanner_path(label)} "
-                    f"(filename must match label exactly), run PREPOPULATION_WORKFLOW.md steps 2–6."
+                    f"(filename must match label exactly), then "
+                    f"`python3 instance_generators/run_scanner.py {label} --entity` "
+                    "and apply the printed jsonl_path."
                 ),
             }
         )
@@ -71,20 +94,39 @@ def _build_prepopulation_tasks(
             if source and target and rel
             else f"instance_generators/{key}.py"
         )
+        output_json, output_jsonl = (
+            _relationship_output_paths(source=source, relationship=rel, target=target)
+            if source and target and rel
+            else (
+                f"instance_generators/out/{key}_instances.json",
+                f"instance_generators/out/{key}_instances.jsonl",
+            )
+        )
+        run_command = (
+            "python3 instance_generators/run_scanner.py "
+            f"--relationship --source {source} --rel {rel} --target {target}"
+            if source and target and rel
+            else None
+        )
         tasks.append(
             {
                 "kind": "relationship",
+                "order": 2,
+                "blocking_types": [source, target] if source and target else [],
                 "key": key,
                 "relationship_type": rel,
                 "source_entity_type": source,
                 "target_entity_type": target,
                 "live_instance_count": relationship_instance_counts.get(key, 0),
                 "scanner_path": scanner,
-                "output_json": f"instance_generators/out/{key}_instances.json",
-                "output_jsonl": f"instance_generators/out/{key}_instances.jsonl",
+                "output_json": output_json,
+                "output_jsonl": output_jsonl,
+                "run_command": run_command,
                 "action": (
-                    f"Copy _relationship_scanner.example.py to {scanner}, then run "
-                    "relationship steps in PREPOPULATION_WORKFLOW.md."
+                    f"Copy _relationship_scanner.example.py to {scanner}, then "
+                    f"`{run_command}` and apply the printed jsonl_path."
+                    if run_command
+                    else "Run relationship steps in PREPOPULATION_WORKFLOW.md."
                 ),
             }
         )
@@ -102,14 +144,16 @@ def _build_next_action(
         label = live_entity_gaps[0]
         return (
             f"Run entity prepopulation for `{label}`: create {_entity_scanner_path(label)} "
-            "from _entity_scanner.example.py (case-sensitive filename), then follow "
-            "PREPOPULATION_WORKFLOW.md steps 2–6."
+            "from _entity_scanner.example.py (case-sensitive filename), then "
+            f"`python3 instance_generators/run_scanner.py {label} --entity` and apply the "
+            "printed jsonl_path."
         )
     if live_relationship_gaps:
         key = live_relationship_gaps[0]
         return (
             f"Run relationship prepopulation for `{key}` using "
-            "_relationship_scanner.example.py and PREPOPULATION_WORKFLOW.md."
+            "_relationship_scanner.example.py, run_scanner.py --relationship, and apply the "
+            "printed jsonl_path."
         )
     if transition_eligible:
         return (

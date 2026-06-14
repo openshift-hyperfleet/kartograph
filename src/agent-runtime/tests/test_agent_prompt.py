@@ -32,6 +32,7 @@ def test_build_agent_system_prompt_includes_skills_tools_and_session_scope() -> 
     assert "kartograph_get_schema_ontology" in prompt
     assert "Quick workflow" in prompt
     assert "Failure modes" in prompt
+    assert "run_scanner.py" in prompt
     assert "Bash" in prompt
     assert "instance_generators" in prompt
     assert "kg-123" in prompt

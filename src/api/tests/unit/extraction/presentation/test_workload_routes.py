@@ -363,14 +363,24 @@ def test_workload_validate_graph_mutations(workload_client: tuple[TestClient, _F
 
 def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
     client, fake, token = workload_client
+    fake.saved = OntologyConfig(
+        node_types=(
+            NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
+            NodeTypeDefinition(label="folder", prepopulated=True),
+        ),
+        edge_types=(),
+    )
     response = client.post(
         "/extraction/workloads/mutations/apply",
         headers={"X-Workload-Token": token},
         json={"jsonl": '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service","set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap","source_path":"assistant"}}'},
     )
     assert response.status_code == 200
-    assert response.json()["applied"] is True
+    payload = response.json()
+    assert payload["applied"] is True
     assert fake.applied_jsonl is not None
+    assert payload["next_action"]
+    assert "folder" in payload["remaining_entity_gaps"]
 
 
 def test_workload_get_extraction_jobs_config(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:

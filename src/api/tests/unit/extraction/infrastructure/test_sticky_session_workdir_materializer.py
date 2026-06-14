@@ -173,6 +173,7 @@ def test_materializer_copies_instance_generator_templates(tmp_path: Path) -> Non
         "entities_to_jsonl.py",
         "relationships_to_jsonl.py",
         "preview_instances.py",
+        "run_scanner.py",
         "scanner_common.py",
         "README.md",
         "PREPOPULATION_WORKFLOW.md",

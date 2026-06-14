@@ -20,7 +20,7 @@ Read `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered six-step e
 relationship workflow, slug rules, batch sizes, and verification checklist.
 
 Bundled platform scripts (do not edit): `entities_to_jsonl.py`, `relationships_to_jsonl.py`,
-`preview_instances.py`, `scanner_common.py`.
+`preview_instances.py`, `run_scanner.py`, `scanner_common.py`.
 Copy `_entity_scanner.example.py` to `{Label}.py` — **filename must match ontology label exactly**
 (case-sensitive: `E2ETest.py`, not `e2etest.py`). Domain references: `instance_generators/examples/`.
 
@@ -51,7 +51,14 @@ When readiness shows gaps and the checks above pass, **execute immediately** —
 batch (`preview_instances.py --limit 2`, validate, apply, verify with
 `kartograph_list_instances_by_type`). Then run the full scanner output.
 
-**Entities** (all entity gaps before any relationship gap):
+**Entities** (all entity gaps before any relationship gap). Prefer `run_scanner.py`:
+
+```bash
+python3 instance_generators/run_scanner.py E2ETest --entity
+# kartograph_apply_graph_mutations_from_file path=<printed jsonl_path>
+```
+
+Manual pipeline:
 
 ```bash
 python3 instance_generators/E2ETest.py repository-files > instance_generators/out/E2ETest_instances.json
@@ -59,17 +66,18 @@ python3 instance_generators/preview_instances.py E2ETest --limit 5
 python3 instance_generators/entities_to_jsonl.py E2ETest \\
   --data-source-id schema-bootstrap \\
   instance_generators/out/E2ETest_instances.json > instance_generators/out/E2ETest_instances.jsonl
-# validate-from-file → apply-from-file path=instance_generators/out/E2ETest_instances.jsonl
+# apply-from-file path=instance_generators/out/E2ETest_instances.jsonl
 ```
 
-**Relationships** (after entity slugs exist; name files `{source}_{rel}_{target}_instances.*`):
+Apply pre-validates internally; validate-from-file is an optional dry run. Apply responses include
+`next_action` and remaining prepopulation gaps — use those instead of polling readiness after
+every batch when chaining scanners.
+
+**Relationships** (after entity slugs exist; files use `{source}_{rel}_{target}_instances.*`):
 
 ```bash
-python3 instance_generators/repository_defines_test.py repository-files \\
-  > instance_generators/out/repository_defines_test_instances.json
-python3 instance_generators/relationships_to_jsonl.py defines repository test \\
-  instance_generators/out/repository_defines_test_instances.json \\
-  > instance_generators/out/repository_defines_test_instances.jsonl
+python3 instance_generators/run_scanner.py \\
+  --relationship --source ComponentTest --rel tests --target APIEndpoint
 ```
 
 Scanner stdout contract:
@@ -98,8 +106,8 @@ Scanner stdout contract:
 1. `kartograph_get_schema_authoring_guide` · `kartograph_get_workspace_readiness` · `kartograph_get_schema_ontology`
 2. `kartograph_save_schema_ontology` when schema is confirmed
 3. Prepopulation pipeline above per gap
-4. `kartograph_validate_graph_mutations_from_file` → `kartograph_apply_graph_mutations_from_file`
-5. Verify with `kartograph_list_instances_by_type` and readiness
+4. `kartograph_apply_graph_mutations_from_file` (apply pre-validates; validate is optional dry run)
+5. Verify with `kartograph_list_instances_by_type` and readiness when apply does not return next_action
 
 ## Entity type shape
 
@@ -155,7 +163,8 @@ Relationship scanner convention: `out/{source}_{label}_{target}_instances.json` 
 - Every `prepopulated=true` relationship type needs ≥1 live edge.
 - Prepopulated relationships may only reference prepopulated entity types.
 
-Call `kartograph_get_workspace_readiness` for gaps, `next_action`, `prepopulation_tasks`, and `blocking_reasons`.
+Call `kartograph_get_workspace_readiness` for gaps, `next_action`, `prepopulation_tasks`
+(with `order`, `blocking_types`, and `run_command`), and `blocking_reasons`.
 
 ## Failure modes (schema tools)
 

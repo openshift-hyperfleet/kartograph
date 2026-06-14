@@ -53,6 +53,11 @@ async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps(
     assert snapshot["prepopulation_tasks"]
     assert snapshot["prepopulation_tasks"][0]["kind"] == "entity"
     assert snapshot["prepopulation_tasks"][0]["scanner_path"] == "instance_generators/folder.py"
+    assert snapshot["prepopulation_tasks"][0]["order"] == 1
+    assert snapshot["prepopulation_tasks"][0]["run_command"] == (
+        "python3 instance_generators/run_scanner.py folder --entity"
+    )
+    assert "|" not in snapshot["prepopulation_tasks"][0]["output_jsonl"]
     assert "required_properties" in snapshot["prepopulated_entity_types"][0]
 
 

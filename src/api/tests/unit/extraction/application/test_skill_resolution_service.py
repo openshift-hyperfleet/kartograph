@@ -44,14 +44,16 @@ class TestExtractionSkillResolutionService:
             "failure_modes",
         }
         assert "entities_to_jsonl.py" in resolved.skills["prepopulation"]
-        assert "_instances.json" in resolved.skills["prepopulation"]
+        assert "run_scanner.py" in resolved.skills["prepopulation"]
+        assert "PREPOPULATION_WORKFLOW.md" in resolved.skills["prepopulation"]
         assert "Entities before relationships" in resolved.skills["prepopulation"]
         guardrails_text = " ".join(resolved.guardrails)
-        assert "entities_to_jsonl.py" in guardrails_text
+        assert "run_scanner.py" in guardrails_text
         assert "never /tmp" in guardrails_text or "Never /tmp" in guardrails_text
         assert "do not ask" in guardrails_text
         assert "500/503" in guardrails_text
         assert "approved_at" in guardrails_text
+        assert "next_action" in guardrails_text or "next_action" in resolved.skills["prepopulation"]
         assert "kartograph_save_schema_ontology" in guardrails_text
         assert len(resolved.prompt_hierarchy) > 0
 

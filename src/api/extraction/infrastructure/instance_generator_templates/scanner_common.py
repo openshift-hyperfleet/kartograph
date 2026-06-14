@@ -39,6 +39,24 @@ def dedupe_instances(
     return unique, skipped
 
 
+def relationship_scanner_stem(*, source: str, relationship: str, target: str) -> str:
+    """Filesystem-safe stem for relationship scanner and output files."""
+    return f"{source}_{relationship}_{target}"
+
+
+def relationship_output_paths(*, source: str, relationship: str, target: str) -> tuple[str, str]:
+    """Return workspace-relative JSON and JSONL output paths for one relationship type."""
+    stem = relationship_scanner_stem(
+        source=source,
+        relationship=relationship,
+        target=target,
+    )
+    return (
+        f"instance_generators/out/{stem}_instances.json",
+        f"instance_generators/out/{stem}_instances.jsonl",
+    )
+
+
 def dedupe_relationships(
     relationships: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int]:

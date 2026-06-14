@@ -7,12 +7,28 @@ Use this checklist for every `prepopulated: true` type after the ontology is sav
 After the ontology is saved, for the **first** prepopulated entity label only:
 
 1. Run the scanner but limit output (e.g. `preview_instances.py {Label} --limit 2` or a tiny hand-trimmed JSON).
-2. Convert to JSONL, `kartograph_validate_graph_mutations_from_file`, then `kartograph_apply_graph_mutations_from_file`.
+2. Convert to JSONL, optionally `kartograph_validate_graph_mutations_from_file`, then `kartograph_apply_graph_mutations_from_file`.
 3. Confirm with `kartograph_list_instances_by_type` and `kartograph_get_workspace_readiness` (must return **200**).
 4. If validate passes but apply or readiness returns **500/503**, **stop** — report a platform issue; do not run the full batch or advance to the next label.
-5. When the smoke test succeeds, run the full scanner → JSONL → apply pipeline for that label.
+5. When the smoke test succeeds, run the full pipeline for that label (see **Combined run** below).
 
-## Entity prepopulation (six steps)
+## Combined run (recommended)
+
+After the scanner exists, one command runs scan → JSON → JSONL:
+
+```bash
+python3 instance_generators/run_scanner.py Resource --entity
+python3 instance_generators/run_scanner.py \
+  --relationship --source ComponentTest --rel tests --target APIEndpoint
+```
+
+The script prints a JSON summary with `jsonl_path` and `next_step`. Apply pre-validates
+internally — call `kartograph_apply_graph_mutations_from_file` with the printed path
+(optional `kartograph_validate_graph_mutations_from_file` first for dry run).
+
+Use `--validate-only` to stop after JSONL conversion without suggesting apply.
+
+## Entity prepopulation (manual steps)
 
 ### Step 1 — Create scanner
 
@@ -33,7 +49,10 @@ python3 instance_generators/{Label}.py repository-files \
 
 Stdout contract: `[{"slug": "kebab-or-snake-case", "properties": {...}}, ...]`
 
-### Step 3 — Preview (optional, recommended)
+### Step 3 — Preview (optional)
+
+Use when spot-checking **50–500** instances, or during the first-entity smoke test.
+Skip for very small batches (≤10) and very large ones (>500) where terminal preview is not useful.
 
 ```bash
 python3 instance_generators/preview_instances.py {Label} --limit 5
@@ -53,7 +72,9 @@ python3 instance_generators/entities_to_jsonl.py {Label} \
 The CLI `{Label}` must match the ontology entity type **exactly** (case-sensitive).
 `entities_to_jsonl.py` preserves that casing in CREATE `label` lines.
 
-### Step 5 — Validate (dry run)
+### Step 5 — Validate (optional dry run)
+
+Apply pre-validates the same checks. Use validate only when you want a dry run without writes.
 
 `kartograph_validate_graph_mutations_from_file` with path `instance_generators/out/{Label}_instances.jsonl`.
 
@@ -63,7 +84,7 @@ CREATE is strict — duplicates fail here, not at apply time.
 
 `kartograph_apply_graph_mutations_from_file` with the same path, then:
 
-1. Confirm apply result reports created count.
+1. Confirm apply result reports created count and `next_action` / remaining gaps.
 2. `kartograph_get_workspace_readiness()` — live count should increase; label leaves entity gaps.
 3. `kartograph_list_instances_by_type(entity_type="{label}")` — spot-check slugs.
 

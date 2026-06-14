@@ -6,6 +6,8 @@ from extraction.infrastructure.instance_generator_templates.scanner_common impor
     dedupe_instances,
     dedupe_relationships,
     generate_slug,
+    relationship_output_paths,
+    relationship_scanner_stem,
 )
 
 
@@ -34,3 +36,19 @@ def test_dedupe_relationships_keeps_first_pair() -> None:
     unique, skipped = dedupe_relationships(rows)
     assert len(unique) == 2
     assert skipped == 1
+
+
+def test_relationship_paths_use_underscore_stem() -> None:
+    assert relationship_scanner_stem(
+        source="ComponentTest",
+        relationship="tests",
+        target="APIEndpoint",
+    ) == "ComponentTest_tests_APIEndpoint"
+    json_path, jsonl_path = relationship_output_paths(
+        source="ComponentTest",
+        relationship="tests",
+        target="APIEndpoint",
+    )
+    assert json_path == "instance_generators/out/ComponentTest_tests_APIEndpoint_instances.json"
+    assert jsonl_path == "instance_generators/out/ComponentTest_tests_APIEndpoint_instances.jsonl"
+    assert "|" not in json_path

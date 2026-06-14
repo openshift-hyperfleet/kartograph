@@ -11,6 +11,7 @@ TEMPLATE_SCRIPT_NAMES = (
     "entities_to_jsonl.py",
     "relationships_to_jsonl.py",
     "preview_instances.py",
+    "run_scanner.py",
     "scanner_common.py",
     "README.md",
     "PREPOPULATION_WORKFLOW.md",

@@ -5,6 +5,7 @@ Prepopulation for `prepopulated: true` types uses **three kinds of files**:
 | File | Who writes it | Purpose |
 |------|---------------|---------|
 | `{Label}.py` | Agent | Scans `repository-files/` → JSON array on stdout |
+| `run_scanner.py` | Platform | One command: scan → JSON → JSONL |
 | `entities_to_jsonl.py` | Platform | `{label}_instances.json` → `{label}_instances.jsonl` |
 | `relationships_to_jsonl.py` | Platform | `{key}_instances.json` → `{key}_instances.jsonl` |
 
@@ -24,6 +25,15 @@ Copy `_entity_scanner.example.py` to `{Label}.py` or start from `examples/` for 
 
 ## Entity prepopulation (one type per turn)
 
+Preferred — combined run:
+
+```bash
+python3 instance_generators/run_scanner.py E2ETest --entity
+# apply the printed jsonl_path with kartograph_apply_graph_mutations_from_file
+```
+
+Manual steps:
+
 ```bash
 python3 instance_generators/E2ETest.py repository-files \
   > instance_generators/out/E2ETest_instances.json
@@ -36,9 +46,8 @@ python3 instance_generators/entities_to_jsonl.py E2ETest \
   > instance_generators/out/E2ETest_instances.jsonl
 ```
 
-Then `kartograph_validate_graph_mutations_from_file` and
-`kartograph_apply_graph_mutations_from_file` with path
-`instance_generators/out/E2ETest_instances.jsonl`.
+Then `kartograph_apply_graph_mutations_from_file` with path
+`instance_generators/out/E2ETest_instances.jsonl` (apply pre-validates; validate first is optional).
 
 ## Relationship prepopulation (after all entity gaps)
 

@@ -30,8 +30,11 @@ from management.presentation.knowledge_graphs.models import (
     OntologyConfigRequest,
     OntologyConfigResponse,
     DesignArtifactsResponse,
+    DesignArtifactInstanceListResponse,
+    DesignArtifactRelationshipInstanceListResponse,
     UpdateKnowledgeGraphRequest,
 )
+from management.application.design_artifacts import DEFAULT_INSTANCES_PER_TYPE
 from infrastructure.management.design_artifacts_service import DesignArtifactsService
 from management.dependencies.design_artifacts import get_design_artifacts_service
 from shared_kernel.authorization.types import Permission
@@ -612,7 +615,7 @@ async def get_knowledge_graph_design_artifacts(
     kg_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
-    limit: Annotated[int, Query(ge=1, le=3000)] = 500,
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
 ) -> DesignArtifactsResponse:
     """Get merged ontology and graph instance artifacts for one knowledge graph."""
     payload = await service.get_design_artifacts(
@@ -626,6 +629,76 @@ async def get_knowledge_graph_design_artifacts(
             detail=f"Knowledge graph {kg_id} not found or not accessible",
         )
     return DesignArtifactsResponse.model_validate(payload)
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts/entity-instances",
+    response_model=DesignArtifactInstanceListResponse,
+    summary="List entity instances for one type",
+)
+async def list_design_artifact_entity_instances(
+    kg_id: str,
+    entity_type: Annotated[str, Query(min_length=1)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    property_name: Annotated[str | None, Query(min_length=1)] = None,
+    property_value: Annotated[str | None, Query()] = None,
+) -> DesignArtifactInstanceListResponse:
+    """Paginated entity instance browsing with optional property search."""
+    payload = await service.list_entity_instances(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        entity_type=entity_type,
+        limit=limit,
+        offset=offset,
+        property_name=property_name,
+        property_value=property_value,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactInstanceListResponse.model_validate(payload)
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts/relationship-instances",
+    response_model=DesignArtifactRelationshipInstanceListResponse,
+    summary="List relationship instances for one type",
+)
+async def list_design_artifact_relationship_instances(
+    kg_id: str,
+    relationship_type: Annotated[str, Query(min_length=1)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    source_entity_type: Annotated[str | None, Query(min_length=1)] = None,
+    target_entity_type: Annotated[str | None, Query(min_length=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    property_name: Annotated[str | None, Query(min_length=1)] = None,
+    property_value: Annotated[str | None, Query()] = None,
+) -> DesignArtifactRelationshipInstanceListResponse:
+    """Paginated relationship instance browsing with optional property search."""
+    payload = await service.list_relationship_instances(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        relationship_type=relationship_type,
+        source_entity_type=source_entity_type,
+        target_entity_type=target_entity_type,
+        limit=limit,
+        offset=offset,
+        property_name=property_name,
+        property_value=property_value,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactRelationshipInstanceListResponse.model_validate(payload)
 
 
 @router.get(

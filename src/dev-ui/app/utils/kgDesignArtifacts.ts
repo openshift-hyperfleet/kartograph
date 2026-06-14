@@ -82,6 +82,7 @@ export interface DesignArtifactsResponse {
   }
   limits: {
     requested: number
+    instances_per_type?: number
     entity_instances_returned: number
     relationship_instances_returned: number
     entity_instances_truncated: boolean
@@ -90,6 +91,8 @@ export interface DesignArtifactsResponse {
 }
 
 export const DESIGN_ARTIFACTS_PAGE_SIZE = 20
+export const DESIGN_ARTIFACT_INSTANCE_PAGE_SIZE = 100
+export const DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE = 100
 
 export interface OntologyEdgeTypeRef {
   label: string
@@ -108,6 +111,22 @@ export function primaryRelationshipTypeLabels(edgeTypes: OntologyEdgeTypeRef[]):
 
 export function primaryRelationshipTypeCount(edgeTypes: OntologyEdgeTypeRef[]): number {
   return primaryRelationshipTypeLabels(edgeTypes).length
+}
+
+export function searchableEntityProperties(row: DesignArtifactEntityType): string[] {
+  const keys = new Set<string>(['slug', 'data_source_id'])
+  for (const key of row.required_properties ?? []) keys.add(key)
+  for (const key of row.optional_properties ?? []) keys.add(key)
+  for (const key of Object.keys(row.property_definitions ?? {})) keys.add(key)
+  return [...keys].sort()
+}
+
+export function searchableRelationshipProperties(row: DesignArtifactRelationshipType): string[] {
+  const keys = new Set<string>(['data_source_id'])
+  for (const key of row.required_parameters ?? []) keys.add(key)
+  for (const key of row.optional_parameters ?? []) keys.add(key)
+  for (const key of Object.keys(row.parameter_definitions ?? {})) keys.add(key)
+  return [...keys].sort()
 }
 
 export function pageSlice<T>(

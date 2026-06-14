@@ -11,6 +11,7 @@ import GraphDesignRelationshipTypeList from '@/components/graph-management/Graph
 import {
   type DesignArtifactEntityType,
   type DesignArtifactsResponse,
+  DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE,
 } from '@/utils/kgDesignArtifacts'
 
 const props = withDefaults(
@@ -26,8 +27,6 @@ const { apiFetch } = useApiClient()
 const loading = ref(true)
 const data = ref<DesignArtifactsResponse | null>(null)
 const activeTab = ref<'entities' | 'relationships'>('entities')
-const entityInstancePage = ref<Record<string, number>>({})
-const relationshipInstancePage = ref<Record<string, number>>({})
 
 async function fetchArtifacts(options: { preserveUiState?: boolean } = {}) {
   if (!props.kgId) {
@@ -38,13 +37,11 @@ async function fetchArtifacts(options: { preserveUiState?: boolean } = {}) {
   const preserveUiState = options.preserveUiState === true && data.value !== null
   if (!preserveUiState) {
     loading.value = true
-    entityInstancePage.value = {}
-    relationshipInstancePage.value = {}
   }
   try {
     data.value = await apiFetch<DesignArtifactsResponse>(
       `/management/knowledge-graphs/${props.kgId}/design-artifacts`,
-      { query: { limit: 500 } },
+      { query: { limit: DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } },
     )
   } catch (err: unknown) {
     toast.error('Failed to load graph schema', {
@@ -179,33 +176,31 @@ defineExpose({ refresh: fetchArtifacts })
 
         <TabsContent value="entities" class="mt-0 space-y-3 px-4 py-4">
           <GraphDesignEntityTypeList
+            :kg-id="kgId"
             :rows="entityRows"
-            :instance-page="entityInstancePage"
-            @update:instance-page="(key, page) => { entityInstancePage = { ...entityInstancePage, [key]: page } }"
+            :reload-nonce="reloadNonce"
           />
           <p
             v-if="data.limits.entity_instances_truncated"
             class="text-xs text-muted-foreground"
           >
-            Browsable entity instances capped at {{ data.limits.entity_instances_returned }} of
-            {{ data.counts.entity_instances }} total (API limit {{ data.limits.requested }}). Type
-            badges show full counts.
+            Each entity type loads the first
+            {{ data.limits.instances_per_type ?? data.limits.requested }} instances by default.
           </p>
         </TabsContent>
 
         <TabsContent value="relationships" class="mt-0 space-y-3 px-4 py-4">
           <GraphDesignRelationshipTypeList
+            :kg-id="kgId"
             :rows="relationshipRows"
-            :instance-page="relationshipInstancePage"
-            @update:instance-page="(key, page) => { relationshipInstancePage = { ...relationshipInstancePage, [key]: page } }"
+            :reload-nonce="reloadNonce"
           />
           <p
             v-if="data.limits.relationship_instances_truncated"
             class="text-xs text-muted-foreground"
           >
-            Browsable relationship instances capped at
-            {{ data.limits.relationship_instances_returned }} of
-            {{ data.counts.relationship_instances }} total (API limit {{ data.limits.requested }}).
+            Each relationship type loads the first
+            {{ data.limits.instances_per_type ?? data.limits.requested }} instances by default.
           </p>
         </TabsContent>
       </Tabs>

@@ -112,7 +112,7 @@ import {
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
 import type { DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
-import { primaryRelationshipTypeLabels } from '@/utils/kgDesignArtifacts'
+import { primaryRelationshipTypeLabels, DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } from '@/utils/kgDesignArtifacts'
 
 const runtimeConfig = useRuntimeConfig()
 const { accessToken } = useAuth()
@@ -517,7 +517,7 @@ async function refreshDesignArtifacts(options: { silent?: boolean } = {}) {
   try {
     const artifacts = await apiFetch<DesignArtifactsResponse>(
       `/management/knowledge-graphs/${kgId.value}/design-artifacts`,
-      { query: { limit: 500 } },
+      { query: { limit: DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } },
     )
     const applyArtifactRefresh = () => {
       entityTypeLabels.value = Object.keys(artifacts.entities ?? {}).sort()

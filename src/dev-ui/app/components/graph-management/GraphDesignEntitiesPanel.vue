@@ -9,6 +9,7 @@ import GraphDesignEntityTypeList from '@/components/graph-management/GraphDesign
 import {
   type DesignArtifactEntityType,
   type DesignArtifactsResponse,
+  DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE,
 } from '@/utils/kgDesignArtifacts'
 
 const props = withDefaults(
@@ -24,7 +25,6 @@ const { apiFetch } = useApiClient()
 
 const loading = ref(true)
 const data = ref<DesignArtifactsResponse | null>(null)
-const instancePage = ref<Record<string, number>>({})
 
 async function fetchEntities(options: { preserveUiState?: boolean } = {}) {
   if (!props.kgId) {
@@ -35,12 +35,11 @@ async function fetchEntities(options: { preserveUiState?: boolean } = {}) {
   const preserveUiState = options.preserveUiState === true && data.value !== null
   if (!preserveUiState) {
     loading.value = true
-    instancePage.value = {}
   }
   try {
     data.value = await apiFetch<DesignArtifactsResponse>(
       `/management/knowledge-graphs/${props.kgId}/design-artifacts`,
-      { query: { limit: 500 } },
+      { query: { limit: DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } },
     )
   } catch (err: unknown) {
     toast.error('Failed to load entity design artifacts', {
@@ -59,10 +58,6 @@ const entityRows = computed((): DesignArtifactEntityType[] => {
     ...def,
   }))
 })
-
-function setInstancePage(typeKey: string, page: number) {
-  instancePage.value = { ...instancePage.value, [typeKey]: page }
-}
 
 watch(
   () => [props.kgId, props.reloadNonce] as const,
@@ -138,19 +133,18 @@ defineExpose({ refresh: fetchEntities })
         </div>
 
         <GraphDesignEntityTypeList
+          :kg-id="kgId"
           :rows="entityRows"
-          :instance-page="instancePage"
-          @update:instance-page="setInstancePage"
+          :reload-nonce="reloadNonce"
         />
 
         <p
           v-if="data.limits.entity_instances_truncated"
           class="text-xs text-muted-foreground"
         >
-          Instance counts reflect the full graph. The browsable instance list is capped at
-          {{ data.limits.entity_instances_returned }} of {{ data.counts.entity_instances }}
-          total instances across all types (API limit {{ data.limits.requested }}). Per-type badges
-          still show true totals.
+          Each entity type loads the first
+          {{ data.limits.instances_per_type ?? data.limits.requested }} instances by default.
+          Expand a type to search or load the next batch.
         </p>
       </template>
     </template>

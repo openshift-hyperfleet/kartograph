@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import GraphDesignRelationshipTypeList from '@/components/graph-management/GraphDesignRelationshipTypeList.vue'
-import { type DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
+import { type DesignArtifactsResponse, DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } from '@/utils/kgDesignArtifacts'
 
 const props = withDefaults(
   defineProps<{
@@ -21,7 +21,6 @@ const { apiFetch } = useApiClient()
 
 const loading = ref(true)
 const data = ref<DesignArtifactsResponse | null>(null)
-const instancePage = ref<Record<string, number>>({})
 
 async function fetchRelationships(options: { preserveUiState?: boolean } = {}) {
   if (!props.kgId) {
@@ -32,12 +31,11 @@ async function fetchRelationships(options: { preserveUiState?: boolean } = {}) {
   const preserveUiState = options.preserveUiState === true && data.value !== null
   if (!preserveUiState) {
     loading.value = true
-    instancePage.value = {}
   }
   try {
     data.value = await apiFetch<DesignArtifactsResponse>(
       `/management/knowledge-graphs/${props.kgId}/design-artifacts`,
-      { query: { limit: 500 } },
+      { query: { limit: DEFAULT_DESIGN_ARTIFACTS_INSTANCES_PER_TYPE } },
     )
   } catch (err: unknown) {
     toast.error('Failed to load relationship design artifacts', {
@@ -50,10 +48,6 @@ async function fetchRelationships(options: { preserveUiState?: boolean } = {}) {
 }
 
 const relationshipRows = computed(() => data.value?.relationships ?? [])
-
-function setInstancePage(key: string, page: number) {
-  instancePage.value = { ...instancePage.value, [key]: page }
-}
 
 watch(
   () => [props.kgId, props.reloadNonce] as const,
@@ -125,19 +119,18 @@ defineExpose({ refresh: fetchRelationships })
         </div>
 
         <GraphDesignRelationshipTypeList
+          :kg-id="kgId"
           :rows="relationshipRows"
-          :instance-page="instancePage"
-          @update:instance-page="setInstancePage"
+          :reload-nonce="reloadNonce"
         />
 
         <p
           v-if="data.limits.relationship_instances_truncated"
           class="text-xs text-muted-foreground"
         >
-          Relationship counts reflect the full graph. The browsable instance list is capped at
-          {{ data.limits.relationship_instances_returned }} of
-          {{ data.counts.relationship_instances }} total instances (API limit
-          {{ data.limits.requested }}).
+          Each relationship type loads the first
+          {{ data.limits.instances_per_type ?? data.limits.requested }} instances by default.
+          Expand a type to search or load the next batch.
         </p>
       </template>
     </template>

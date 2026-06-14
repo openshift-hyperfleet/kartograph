@@ -24,12 +24,118 @@ _SYSTEM_NODE_PROPERTIES = frozenset(
     }
 )
 
+_NODE_OBSERVATION_EXCLUDED_KEYS = _SYSTEM_NODE_PROPERTIES | frozenset(
+    {"type", "label", "domainId"}
+)
+
+_EDGE_OBSERVATION_EXCLUDED_KEYS = frozenset(
+    {
+        "id",
+        "type",
+        "source",
+        "target",
+        "source_path",
+        "knowledge_graph_id",
+        "graph_id",
+        "data_source_id",
+    }
+)
+
+DEFAULT_INSTANCES_PER_TYPE = 100
+
 
 def _instance_properties(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in raw.items()
         if key not in _SYSTEM_NODE_PROPERTIES and not key.startswith("_")
+    }
+
+
+def _observed_entity_property_keys(nodes: list[dict[str, Any]]) -> set[str]:
+    observed: set[str] = set()
+    for node in nodes:
+        for key in node:
+            if key in _NODE_OBSERVATION_EXCLUDED_KEYS or key.startswith("_"):
+                continue
+            observed.add(str(key))
+    return observed
+
+
+def _observed_edge_property_keys(edges: list[dict[str, Any]]) -> set[str]:
+    observed: set[str] = set()
+    for edge in edges:
+        for key, value in edge.items():
+            if key in _EDGE_OBSERVATION_EXCLUDED_KEYS or key.startswith("_"):
+                continue
+            if isinstance(value, (dict, list)):
+                continue
+            observed.add(str(key))
+    return observed
+
+
+def _merge_entity_property_definitions(
+    *,
+    required: list[str],
+    optional: list[str],
+    observed: set[str],
+) -> tuple[list[str], list[str], dict[str, str]]:
+    required_set = set(required)
+    optional_set = set(optional)
+    for prop in observed:
+        if prop not in required_set:
+            optional_set.add(prop)
+    ordered = sorted(required_set | optional_set)
+    property_definitions = {
+        prop: prop.replace("_", " ").strip() or prop for prop in ordered
+    }
+    return sorted(required_set), sorted(optional_set), property_definitions
+
+
+def _merge_relationship_parameter_definitions(
+    *,
+    declared: list[str],
+    observed: set[str],
+) -> tuple[list[str], list[str], dict[str, str]]:
+    required = list(declared)
+    optional = sorted(prop for prop in observed if prop not in declared)
+    ordered = sorted(set(required) | set(optional))
+    parameter_definitions = {
+        prop: prop.replace("_", " ").strip() or prop for prop in ordered
+    }
+    return required, optional, parameter_definitions
+
+
+def serialize_entity_instance(node: dict[str, Any]) -> dict[str, Any]:
+    """Serialize one graph node for design artifact instance browsing."""
+    slug = str(node.get("slug") or node.get("domainId") or node.get("id") or "")
+    return {
+        "slug": slug,
+        "properties": _instance_properties(node),
+    }
+
+
+def serialize_relationship_instance(
+    *,
+    edge: dict[str, Any],
+    source_node: dict[str, Any],
+    target_node: dict[str, Any],
+) -> dict[str, Any]:
+    """Serialize one relationship instance for design artifact browsing."""
+    return {
+        "source_slug": str(
+            source_node.get("slug")
+            or source_node.get("domainId")
+            or source_node.get("id")
+            or ""
+        ),
+        "target_slug": str(
+            target_node.get("slug")
+            or target_node.get("domainId")
+            or target_node.get("id")
+            or ""
+        ),
+        "properties": _instance_properties(edge),
     }
 
 
@@ -47,8 +153,10 @@ def build_design_artifacts(
     ontology: OntologyConfig | None,
     graph_data: dict[str, Any],
     limit: int,
+    instances_per_type: int | None = None,
 ) -> dict[str, Any]:
     """Merge canonical ontology with live AGE graph instances for the Dev UI."""
+    per_type_limit = max(1, min(instances_per_type if instances_per_type is not None else limit, 500))
     nodes = [
         node
         for node in graph_data.get("nodes", [])
@@ -62,14 +170,8 @@ def build_design_artifacts(
 
     node_by_age_id = {str(node.get("id")): node for node in nodes if node.get("id")}
 
-    def _node_instance(node: dict[str, Any]) -> dict[str, Any]:
-        slug = str(node.get("slug") or node.get("domainId") or node.get("id") or "")
-        return {
-            "slug": slug,
-            "properties": _instance_properties(node),
-        }
-
     full_instances_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    raw_nodes_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for node in sorted(
         nodes,
         key=lambda item: (
@@ -78,31 +180,26 @@ def build_design_artifacts(
         ),
     ):
         entity_type = str(node.get("type") or "unknown")
-        full_instances_by_type[entity_type].append(_node_instance(node))
+        raw_nodes_by_type[entity_type].append(node)
+        full_instances_by_type[entity_type].append(serialize_entity_instance(node))
 
     instances_by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    sorted_nodes = sorted(
-        nodes,
-        key=lambda node: (
-            str(node.get("type") or ""),
-            str(node.get("slug") or node.get("domainId") or node.get("id") or ""),
-        ),
-    )
-    truncated_nodes = sorted_nodes[:limit]
-
-    for node in truncated_nodes:
-        entity_type = str(node.get("type") or "unknown")
-        instances_by_type[entity_type].append(_node_instance(node))
+    for entity_type, type_nodes in raw_nodes_by_type.items():
+        instances_by_type[entity_type] = [
+            serialize_entity_instance(node) for node in type_nodes[:per_type_limit]
+        ]
 
     entities: dict[str, dict[str, Any]] = {}
     if ontology is not None:
         for node_type in ontology.node_types:
             required = list(node_type.required_properties)
             optional = list(node_type.optional_properties)
-            property_definitions = {
-                prop: prop.replace("_", " ").strip() or prop
-                for prop in (*required, *optional)
-            }
+            observed = _observed_entity_property_keys(raw_nodes_by_type.get(node_type.label, []))
+            required, optional, property_definitions = _merge_entity_property_definitions(
+                required=required,
+                optional=optional,
+                observed=observed,
+            )
             type_instances = instances_by_type.get(node_type.label, [])
             total_instances = len(full_instances_by_type.get(node_type.label, []))
             entities[node_type.label] = {
@@ -122,12 +219,18 @@ def build_design_artifacts(
         if entity_type in entities:
             continue
         total_instances = len(full_instances_by_type.get(entity_type, []))
+        observed = _observed_entity_property_keys(raw_nodes_by_type.get(entity_type, []))
+        required, optional, property_definitions = _merge_entity_property_definitions(
+            required=[],
+            optional=[],
+            observed=observed,
+        )
         entities[entity_type] = {
             "type": entity_type,
             "description": "",
-            "required_properties": [],
-            "optional_properties": [],
-            "property_definitions": {},
+            "required_properties": required,
+            "optional_properties": optional,
+            "property_definitions": property_definitions,
             "prepopulated_instances": False,
             "instance_count": total_instances,
             "instances_returned": len(type_instances),
@@ -137,6 +240,7 @@ def build_design_artifacts(
 
     relationship_instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
     full_relationship_instances: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    raw_edges_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     def _edge_instance(edge: dict[str, Any]) -> dict[str, Any] | None:
         source_node = node_by_age_id.get(str(edge.get("source")))
@@ -149,21 +253,12 @@ def build_design_artifacts(
         composite_key = f"{source_type}|{relationship_type}|{target_type}"
         return {
             "composite_key": composite_key,
-            "instance": {
-                "source_slug": str(
-                    source_node.get("slug")
-                    or source_node.get("domainId")
-                    or source_node.get("id")
-                    or ""
-                ),
-                "target_slug": str(
-                    target_node.get("slug")
-                    or target_node.get("domainId")
-                    or target_node.get("id")
-                    or ""
-                ),
-                "properties": _instance_properties(edge),
-            },
+            "edge": edge,
+            "instance": serialize_relationship_instance(
+                edge=edge,
+                source_node=source_node,
+                target_node=target_node,
+            ),
         }
 
     sorted_edges = sorted(
@@ -179,13 +274,23 @@ def build_design_artifacts(
         if parsed is None:
             continue
         full_relationship_instances[parsed["composite_key"]].append(parsed["instance"])
+        raw_edges_by_key[parsed["composite_key"]].append(parsed["edge"])
 
-    truncated_edges = sorted_edges[:limit]
-    for edge in truncated_edges:
-        parsed = _edge_instance(edge)
-        if parsed is None:
-            continue
-        relationship_instances[parsed["composite_key"]].append(parsed["instance"])
+    for composite_key, edge_rows in raw_edges_by_key.items():
+        limited_instances: list[dict[str, Any]] = []
+        for edge in edge_rows[:per_type_limit]:
+            source_node = node_by_age_id.get(str(edge.get("source")))
+            target_node = node_by_age_id.get(str(edge.get("target")))
+            if source_node is None or target_node is None:
+                continue
+            limited_instances.append(
+                serialize_relationship_instance(
+                    edge=edge,
+                    source_node=source_node,
+                    target_node=target_node,
+                )
+            )
+        relationship_instances[composite_key] = limited_instances
 
     relationships: list[dict[str, Any]] = []
     if ontology is not None:
@@ -205,6 +310,14 @@ def build_design_artifacts(
                         break
             reverse_label = _reverse_relationship_label(edge_type)
             total_instances = len(full_relationship_instances.get(composite_key, []))
+            declared = list(edge_type.properties)
+            observed = _observed_edge_property_keys(raw_edges_by_key.get(composite_key, []))
+            required_parameters, optional_parameters, parameter_definitions = (
+                _merge_relationship_parameter_definitions(
+                    declared=declared,
+                    observed=observed,
+                )
+            )
             relationships.append(
                 {
                     "key": composite_key,
@@ -221,12 +334,9 @@ def build_design_artifacts(
                     "instances_returned": len(type_instances),
                     "instances_truncated": total_instances > len(type_instances),
                     "instances": type_instances,
-                    "required_parameters": list(edge_type.properties),
-                    "optional_parameters": [],
-                    "parameter_definitions": {
-                        prop: prop.replace("_", " ").strip() or prop
-                        for prop in edge_type.properties
-                    },
+                    "required_parameters": required_parameters,
+                    "optional_parameters": optional_parameters,
+                    "parameter_definitions": parameter_definitions,
                 }
             )
 
@@ -245,6 +355,10 @@ def build_design_artifacts(
         ):
             continue
         total_instances = len(full_relationship_instances.get(composite_key, []))
+        observed = _observed_edge_property_keys(raw_edges_by_key.get(composite_key, []))
+        required_parameters, optional_parameters, parameter_definitions = (
+            _merge_relationship_parameter_definitions(declared=[], observed=observed)
+        )
         relationships.append(
             {
                 "key": composite_key,
@@ -259,11 +373,22 @@ def build_design_artifacts(
                 "instances_returned": len(type_instances),
                 "instances_truncated": total_instances > len(type_instances),
                 "instances": type_instances,
-                "required_parameters": [],
-                "optional_parameters": [],
-                "parameter_definitions": {},
+                "required_parameters": required_parameters,
+                "optional_parameters": optional_parameters,
+                "parameter_definitions": parameter_definitions,
             }
         )
+
+    entity_instances_returned = sum(len(rows) for rows in instances_by_type.values())
+    relationship_instances_returned = sum(len(rows) for rows in relationship_instances.values())
+    entity_instances_truncated = any(
+        len(full_instances_by_type.get(entity_type, [])) > len(type_instances)
+        for entity_type, type_instances in instances_by_type.items()
+    )
+    relationship_instances_truncated = any(
+        len(full_relationship_instances.get(key, [])) > len(type_instances)
+        for key, type_instances in relationship_instances.items()
+    )
 
     return {
         "found": ontology is not None or bool(entities) or bool(relationships),
@@ -277,10 +402,11 @@ def build_design_artifacts(
             "relationship_instances": len(edges),
         },
         "limits": {
-            "requested": limit,
-            "entity_instances_returned": len(truncated_nodes),
-            "relationship_instances_returned": len(truncated_edges),
-            "entity_instances_truncated": len(nodes) > len(truncated_nodes),
-            "relationship_instances_truncated": len(edges) > len(truncated_edges),
+            "requested": per_type_limit,
+            "instances_per_type": per_type_limit,
+            "entity_instances_returned": entity_instances_returned,
+            "relationship_instances_returned": relationship_instances_returned,
+            "entity_instances_truncated": entity_instances_truncated,
+            "relationship_instances_truncated": relationship_instances_truncated,
         },
     }

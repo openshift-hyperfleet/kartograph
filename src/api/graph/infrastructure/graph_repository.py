@@ -28,6 +28,22 @@ def _escape_cypher_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _property_contains_filter(
+    alias: str,
+    *,
+    property_name: str | None,
+    property_value: str | None,
+) -> str:
+    if not property_name or property_value is None:
+        return ""
+    validate_label_name(property_name)
+    escaped_value = _escape_cypher_string(property_value)
+    return (
+        f" AND toLower(toString({alias}.{property_name})) "
+        f"CONTAINS toLower('{escaped_value}')"
+    )
+
+
 class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
     """Read-only repository for the Extraction bounded context.
 
@@ -149,8 +165,11 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         knowledge_graph_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> list[NodeRecord]:
         """List nodes of one entity type, optionally scoped to a knowledge graph."""
+        validate_label_name(node_type)
         bounded_limit = max(1, min(limit, 500))
         bounded_offset = max(0, offset)
         kg_filter = (
@@ -158,9 +177,16 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
             if knowledge_graph_id
             else ""
         )
+        prop_filter = _property_contains_filter(
+            "n",
+            property_name=property_name,
+            property_value=property_value,
+        )
         query = f"""
             MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            WHERE true{prop_filter}
             RETURN {{node: n}}
+            ORDER BY n.slug
             SKIP {bounded_offset}
             LIMIT {bounded_limit}
         """
@@ -257,15 +283,24 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         node_type: str,
         *,
         knowledge_graph_id: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> int:
         """Count nodes of one entity type within an optional knowledge graph scope."""
+        validate_label_name(node_type)
         kg_filter = (
             f", knowledge_graph_id: '{knowledge_graph_id}'"
             if knowledge_graph_id
             else ""
         )
+        prop_filter = _property_contains_filter(
+            "n",
+            property_name=property_name,
+            property_value=property_value,
+        )
         query = f"""
             MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            WHERE true{prop_filter}
             RETURN count(n) AS total
         """
         result = self._client.execute_cypher(query)
@@ -288,8 +323,15 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         target_entity_type: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> list[tuple[EdgeRecord, NodeRecord, NodeRecord]]:
         """List relationship instances with resolved source and target nodes."""
+        validate_label_name(relationship_label)
+        if source_entity_type:
+            validate_label_name(source_entity_type)
+        if target_entity_type:
+            validate_label_name(target_entity_type)
         bounded_limit = max(1, min(limit, 500))
         bounded_offset = max(0, offset)
         source_type = f":{source_entity_type}" if source_entity_type else ""
@@ -299,11 +341,18 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
             if knowledge_graph_id
             else ""
         )
+        prop_filter = _property_contains_filter(
+            "edge",
+            property_name=property_name,
+            property_value=property_value,
+        )
         query = f"""
             MATCH (source{source_type})-[edge:{relationship_label} {{
                 graph_id: '{self._graph_id}'{kg_filter}
             }}]->(target{target_type})
+            WHERE true{prop_filter}
             RETURN {{edge: edge, source: source, target: target}}
+            ORDER BY edge.id
             SKIP {bounded_offset}
             LIMIT {bounded_limit}
         """
@@ -335,8 +384,15 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         knowledge_graph_id: str | None = None,
         source_entity_type: str | None = None,
         target_entity_type: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> int:
         """Count relationship instances matching optional endpoint type filters."""
+        validate_label_name(relationship_label)
+        if source_entity_type:
+            validate_label_name(source_entity_type)
+        if target_entity_type:
+            validate_label_name(target_entity_type)
         source_type = f":{source_entity_type}" if source_entity_type else ""
         target_type = f":{target_entity_type}" if target_entity_type else ""
         kg_filter = (
@@ -344,10 +400,16 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
             if knowledge_graph_id
             else ""
         )
+        prop_filter = _property_contains_filter(
+            "edge",
+            property_name=property_name,
+            property_value=property_value,
+        )
         query = f"""
             MATCH (source{source_type})-[edge:{relationship_label} {{
                 graph_id: '{self._graph_id}'{kg_filter}
             }}]->(target{target_type})
+            WHERE true{prop_filter}
             RETURN count(edge) AS total
         """
         result = self._client.execute_cypher(query)

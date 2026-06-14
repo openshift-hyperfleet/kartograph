@@ -85,15 +85,93 @@ def test_build_design_artifacts_reports_true_instance_count_when_payload_truncat
             ),
         ),
         graph_data=graph_data,
-        limit=500,
+        limit=100,
     )
 
     service = payload["entities"]["service"]
     assert service["instance_count"] == 600
-    assert service["instances_returned"] == 500
+    assert service["instances_returned"] == 100
     assert service["instances_truncated"] is True
-    assert len(service["instances"]) == 500
+    assert len(service["instances"]) == 100
     assert payload["limits"]["entity_instances_truncated"] is True
+    assert payload["limits"]["instances_per_type"] == 100
+
+
+def test_build_design_artifacts_per_type_limit_applies_independently() -> None:
+    graph_data = {
+        "nodes": [
+            *[
+                {
+                    "id": f"adapter-{index}",
+                    "type": "Adapter",
+                    "slug": f"adapter-{index:04d}",
+                    "knowledge_graph_id": "kg-1",
+                }
+                for index in range(150)
+            ],
+            *[
+                {
+                    "id": f"endpoint-{index}",
+                    "type": "APIEndpoint",
+                    "slug": f"endpoint-{index:04d}",
+                    "knowledge_graph_id": "kg-1",
+                }
+                for index in range(150)
+            ],
+        ],
+        "edges": [],
+    }
+
+    payload = build_design_artifacts(
+        knowledge_graph_id="kg-1",
+        ontology=OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(label="Adapter", description="Adapter"),
+                NodeTypeDefinition(label="APIEndpoint", description="Endpoint"),
+            ),
+        ),
+        graph_data=graph_data,
+        limit=100,
+    )
+
+    assert len(payload["entities"]["Adapter"]["instances"]) == 100
+    assert len(payload["entities"]["APIEndpoint"]["instances"]) == 100
+    assert payload["limits"]["entity_instances_returned"] == 200
+
+
+def test_build_design_artifacts_merges_observed_entity_properties() -> None:
+    payload = build_design_artifacts(
+        knowledge_graph_id="kg-1",
+        ontology=OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(
+                    label="Adapter",
+                    description="Adapter",
+                    required_properties=("slug", "data_source_id"),
+                ),
+            ),
+        ),
+        graph_data={
+            "nodes": [
+                {
+                    "id": "age-1",
+                    "type": "Adapter",
+                    "slug": "my-adapter",
+                    "knowledge_graph_id": "kg-1",
+                    "data_source_id": "bootstrap",
+                    "transport": "maestro",
+                    "resource_types": "Cluster",
+                }
+            ],
+            "edges": [],
+        },
+        limit=100,
+    )
+
+    adapter = payload["entities"]["Adapter"]
+    assert "transport" in adapter["property_definitions"]
+    assert "resource_types" in adapter["property_definitions"]
+    assert "transport" in adapter["optional_properties"]
 
 
 def test_build_design_artifacts_filters_other_knowledge_graphs() -> None:

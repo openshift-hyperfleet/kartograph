@@ -500,10 +500,39 @@ class DesignArtifactsLimitsModel(BaseModel):
     """Truncation metadata for instance payloads."""
 
     requested: int
+    instances_per_type: int = 0
     entity_instances_returned: int
     relationship_instances_returned: int
     entity_instances_truncated: bool
     relationship_instances_truncated: bool
+
+
+class DesignArtifactInstanceListResponse(BaseModel):
+    """Paginated entity instances for one type."""
+
+    entity_type: str
+    instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
+    count: int = 0
+    total: int = 0
+    limit: int = 100
+    offset: int = 0
+    property_name: str | None = None
+    property_value: str | None = None
+
+
+class DesignArtifactRelationshipInstanceListResponse(BaseModel):
+    """Paginated relationship instances for one type triple."""
+
+    relationship_type: str
+    source_entity_type: str | None = None
+    target_entity_type: str | None = None
+    instances: list[DesignArtifactInstanceModel] = Field(default_factory=list)
+    count: int = 0
+    total: int = 0
+    limit: int = 100
+    offset: int = 0
+    property_name: str | None = None
+    property_value: str | None = None
 
 
 class DesignArtifactsResponse(BaseModel):

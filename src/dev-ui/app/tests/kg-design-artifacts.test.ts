@@ -3,6 +3,7 @@ import {
   isPrimaryRelationshipTypeForDisplay,
   primaryRelationshipTypeCount,
   primaryRelationshipTypeLabels,
+  searchableEntityProperties,
 } from '../utils/kgDesignArtifacts'
 
 describe('kgDesignArtifacts relationship type counting', () => {
@@ -30,5 +31,23 @@ describe('kgDesignArtifacts relationship type counting', () => {
         inverse_of: 'contains',
       }),
     ).toBe(false)
+  })
+})
+
+describe('searchable entity properties', () => {
+  it('includes ontology and searchable system properties', () => {
+    const props = searchableEntityProperties({
+      type: 'Adapter',
+      instance_count: 1,
+      required_properties: ['slug', 'data_source_id'],
+      optional_properties: ['transport'],
+      property_definitions: {
+        slug: 'slug',
+        data_source_id: 'data source id',
+        transport: 'transport',
+      },
+    })
+    expect(props).toContain('slug')
+    expect(props).toContain('transport')
   })
 })

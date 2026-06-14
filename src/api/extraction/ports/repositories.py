@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
+from extraction.domain.extraction_job import ExtractionJobRecord
 from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric
 
 
@@ -49,4 +50,10 @@ class IExtractionSkillOverrideRepository(Protocol):
         knowledge_graph_id: str,
         mode: ExtractionSessionMode,
     ) -> dict[str, str]: ...
+
+
+class IGraphManagementSessionArchivalRepository(Protocol):
+    """Persist archived Graph Management Assistant session write history."""
+
+    async def insert_archived_session_job(self, job: ExtractionJobRecord) -> None: ...
 

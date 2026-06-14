@@ -55,7 +55,7 @@ export function graphManagementArtifactHint(item: GraphManagementRailItem): stri
     return item.status === 'ready' ? 'Operations mode' : 'Complete schema first'
   }
   if (item.id === 'mutation-authoring') {
-    return item.status === 'ready' ? 'JSONL mutations' : 'Complete schema first'
+    return item.status === 'ready' ? 'Templates + editor' : 'Complete schema first'
   }
   return item.detailHint
 }

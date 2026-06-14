@@ -89,7 +89,7 @@ async def test_archive_session_mutations_creates_archived_job() -> None:
     assert job.job_id == "gma-session-2"
     assert job.strategy == "graph_management_session"
     assert job.applied_mutations_jsonl
-    assert "Graph Management · Schema Design" in job.job_set_name
+    assert "Graph Management · Initial Schema Design" in job.job_set_name
 
 
 def test_append_turn_usage_to_session_accumulates_tokens() -> None:
@@ -167,6 +167,33 @@ async def test_archive_session_mutations_includes_tokens_and_initial_schema_labe
     assert job.output_tokens == 400
     assert job.cost_usd == pytest.approx(0.45)
     assert job.job_set_name == "Graph Management · Initial Schema Design"
+
+
+@pytest.mark.asyncio
+async def test_archive_session_mutations_uses_one_off_mutations_job_set() -> None:
+    session_repo = _InMemorySessionRepository()
+    job_repo = _InMemoryJobRepository()
+    service = GraphManagementSessionJournalService(
+        session_repository=session_repo,
+        extraction_job_repository=job_repo,
+    )
+    session = ExtractionAgentSession(
+        id="session-6",
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+        created_at=datetime(2026, 6, 5, tzinfo=UTC),
+    )
+    session.runtime_context["graph_management_ui_mode"] = GraphManagementUiMode.ONE_OFF_MUTATIONS.value
+    append_turn_usage_to_session(
+        session,
+        usage={"input_tokens": 100, "output_tokens": 50, "cost_usd": 0.02},
+    )
+
+    await service.archive_session_mutations(session)
+
+    assert len(job_repo.inserted) == 1
+    assert job_repo.inserted[0].job_set_name == "Graph Management · One-off Mutations"
 
 
 @pytest.mark.asyncio

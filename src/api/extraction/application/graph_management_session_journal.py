@@ -9,9 +9,11 @@ from ulid import ULID
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
 from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
-from extraction.infrastructure.extraction_job_mutation_metrics import metrics_from_mutation_jsonl
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from extraction.ports.repositories import IExtractionAgentSessionRepository
+from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
+from extraction.ports.repositories import (
+    IExtractionAgentSessionRepository,
+    IGraphManagementSessionArchivalRepository,
+)
 
 GRAPH_MANAGEMENT_SESSION_STRATEGY = "graph_management_session"
 
@@ -23,9 +25,9 @@ _JOB_SET_BY_UI_MODE: dict[str, str] = {
     GraphManagementUiMode.ONE_OFF_MUTATIONS.value: "Graph Management · One-off Mutations",
 }
 
-_JOB_SET_BY_MODE: dict[ExtractionSessionMode, str] = {
-    ExtractionSessionMode.SCHEMA_BOOTSTRAP: "Graph Management · Schema Design",
-    ExtractionSessionMode.EXTRACTION_OPERATIONS: "Graph Management · Extraction Operations",
+_DEFAULT_UI_MODE_BY_SESSION_MODE: dict[ExtractionSessionMode, GraphManagementUiMode] = {
+    ExtractionSessionMode.SCHEMA_BOOTSTRAP: GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    ExtractionSessionMode.EXTRACTION_OPERATIONS: GraphManagementUiMode.EXTRACTION_JOBS,
 }
 
 _USAGE_KEYS = (
@@ -51,7 +53,10 @@ def _job_set_name_for_session(session: ExtractionAgentSession) -> str:
     ui_mode = str(session.runtime_context.get("graph_management_ui_mode") or "")
     if ui_mode in _JOB_SET_BY_UI_MODE:
         return _JOB_SET_BY_UI_MODE[ui_mode]
-    return _JOB_SET_BY_MODE.get(session.mode, "Graph Management Assistant")
+    default_ui_mode = _DEFAULT_UI_MODE_BY_SESSION_MODE.get(session.mode)
+    if default_ui_mode is not None:
+        return _JOB_SET_BY_UI_MODE[default_ui_mode.value]
+    return _JOB_SET_BY_UI_MODE[GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value]
 
 
 def append_applied_jsonl_to_session(
@@ -93,7 +98,7 @@ class GraphManagementSessionJournalService:
         self,
         *,
         session_repository: IExtractionAgentSessionRepository,
-        extraction_job_repository: ExtractionJobRepository,
+        extraction_job_repository: IGraphManagementSessionArchivalRepository,
     ) -> None:
         self._session_repository = session_repository
         self._extraction_job_repository = extraction_job_repository

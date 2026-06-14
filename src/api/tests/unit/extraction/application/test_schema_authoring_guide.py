@@ -18,7 +18,8 @@ def test_authoring_guide_documents_bootstrap_and_modeling_guidance() -> None:
     assert "approved_at" in SCHEMA_AUTHORING_GUIDE
     assert "500/503" in SCHEMA_AUTHORING_GUIDE
     assert "smoke-test" in SCHEMA_AUTHORING_GUIDE.lower() or "smoke test" in SCHEMA_AUTHORING_GUIDE.lower()
-    assert "run_scanner.py" in SCHEMA_AUTHORING_GUIDE
+    assert "## One-off mutations" in SCHEMA_AUTHORING_GUIDE
+    assert "mutation-examples.jsonl" in SCHEMA_AUTHORING_GUIDE
     assert "next_action" in SCHEMA_AUTHORING_GUIDE
     assert "## Relationship types" in SCHEMA_AUTHORING_GUIDE
     assert "one row per primary relationship label" in SCHEMA_AUTHORING_GUIDE

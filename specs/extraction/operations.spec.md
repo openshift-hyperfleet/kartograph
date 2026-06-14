@@ -37,7 +37,22 @@ The system SHALL apply graph-management UI mode overlays on top of workspace ses
 #### Scenario: One-off mutations overlay
 - GIVEN graph-management UI mode `One-off Mutations`
 - WHEN a chat turn resolves skills
-- THEN scoped JSONL mutation authoring guidance is primary
+- THEN scoped JSONL mutation authoring and schema edit guidance is primary
+- AND JobPackage readiness is not required
+
+### Requirement: Graph Writes History
+The system SHALL archive Graph Management Assistant sessions and extraction worker jobs that apply graph writes or incur assistant token cost.
+
+#### Scenario: GMA session job set names
+- GIVEN a GMA session archived from graph management
+- WHEN the job set name is recorded
+- THEN it is one of: `Graph Management · Initial Schema Design`, `Graph Management · Extraction Jobs`, or `Graph Management · One-off Mutations`
+
+#### Scenario: Unified history view
+- GIVEN archived GMA sessions and extraction jobs exist
+- WHEN the operator opens Graph Writes History in the project workspace
+- THEN both entry types appear grouped by run and job set
+- AND each entry shows write count and total cost
 
 ### Requirement: Skill Resolution Model
 The system SHALL resolve agent skills using global templates with knowledge-graph overrides.

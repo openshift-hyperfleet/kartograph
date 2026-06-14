@@ -13,9 +13,7 @@ def archived_job_write_ops(job: ExtractionJobRecord) -> int:
         job.strategy == "graph_management_session"
         and job.applied_mutations_jsonl
     ):
-        from extraction.infrastructure.extraction_job_mutation_metrics import (
-            metrics_from_mutation_jsonl,
-        )
+        from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
 
         return int(metrics_from_mutation_jsonl(job.applied_mutations_jsonl).get("write_ops") or 0)
     return job.write_ops()
@@ -28,6 +26,11 @@ def serialize_archived_job(job: ExtractionJobRecord) -> dict[str, Any]:
         "jobSet": job.job_set_name,
         "writeOps": archived_job_write_ops(job),
         "hasMutations": bool(job.applied_mutations_jsonl),
+        "inputTokens": job.input_tokens,
+        "outputTokens": job.output_tokens,
+        "costUsd": job.cost_usd,
+        "archivedAt": job.archived_at.isoformat() if job.archived_at else None,
+        "strategy": job.strategy,
     }
 
 

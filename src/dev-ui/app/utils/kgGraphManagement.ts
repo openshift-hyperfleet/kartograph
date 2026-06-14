@@ -32,7 +32,7 @@ export const GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS: Record<GraphManagementMode, st
   'extraction-jobs':
     'Ask about extraction job sets, per-instance descriptions, or running extraction workers…',
   'one-off-mutations':
-    'Author or preview one-off graph mutations scoped to this knowledge graph…',
+    'Ask for a schema or instance change — the assistant will validate and apply it…',
 }
 
 export interface GraphManagementRailItem {
@@ -94,16 +94,16 @@ export function buildGraphManagementRailItems(
       label: 'Schema: Entities',
       status: input.hasMinimumEntityTypes ? 'ready' : 'in_progress',
       lastUpdated: sessionStamp,
-      detailHint: 'Entity type definitions and coverage snapshot.',
-      modes: ['initial-schema-design'],
+      detailHint: 'Entity type definitions and instance inventory.',
+      modes: ['initial-schema-design', 'one-off-mutations'],
     },
     {
       id: 'schema-relationships',
       label: 'Schema: Relationships',
       status: input.hasMinimumRelationshipTypes ? 'ready' : 'in_progress',
       lastUpdated: sessionStamp,
-      detailHint: 'Relationship type definitions and edge coverage snapshot.',
-      modes: ['initial-schema-design'],
+      detailHint: 'Relationship type definitions and edge inventory.',
+      modes: ['initial-schema-design', 'one-off-mutations'],
     },
     {
       id: 'schema-readiness',
@@ -141,10 +141,10 @@ export function buildGraphManagementRailItems(
     },
     {
       id: 'mutation-authoring',
-      label: 'Mutation authoring',
+      label: 'Mutation Authoring',
       status: input.workspaceMode === 'extraction_operations' ? 'ready' : 'blocked',
       lastUpdated: sessionStamp,
-      detailHint: 'One-off mutation preview and submit context.',
+      detailHint: 'Manual JSONL editor with templates — independent from the assistant.',
       modes: ['one-off-mutations'],
     },
   ]

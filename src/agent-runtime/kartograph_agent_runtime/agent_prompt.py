@@ -118,6 +118,35 @@ Do **not** use theme-only sections (Implementation Analysis, Configuration Detai
 When the operator approves, save via `kartograph_save_extraction_jobs_config`.
 """.strip()
 
+_ONE_OFF_MUTATIONS_TOOLS_REFERENCE = """
+## One-off mutation tools (one-off-mutations UI mode)
+
+| Tool | Purpose |
+|------|---------|
+| `kartograph_get_schema_authoring_guide` | JSONL shapes, schema rules, one-off workflow |
+| `kartograph_get_schema_ontology` | **Always read before edits** |
+| `kartograph_save_schema_ontology` | Schema type/property changes (read → merge → save) |
+| `kartograph_search_graph_by_slug` | Resolve existing node id for UPDATE/DELETE |
+| `kartograph_check_graph_slugs` | Batch slug existence before CREATE |
+| `kartograph_list_instances_by_type` | Browse instances when picking targets |
+| `kartograph_list_relationship_instances` | Inspect edges before create/update/delete |
+| `kartograph_validate_graph_mutations` | Dry-run inline JSONL (primary for ≤20 lines) |
+| `kartograph_apply_graph_mutations` | Apply inline JSONL after validate passes |
+| `kartograph_validate_graph_mutations_from_file` | Dry-run workspace `.jsonl` file |
+| `kartograph_apply_graph_mutations_from_file` | Apply larger batches from workspace file |
+
+Copy JSONL field names from `helpers/mutation-examples.jsonl` in the workspace.
+
+### Workflow
+
+1. Classify request: schema edit, instance edit, mixed, or read-only
+2. Read ontology; search/list targets
+3. Validate → apply → verify
+4. Report write op counts and affected slugs
+
+Confirm before DELETE nodes or schema removals. Route bulk enrichment to Extraction Jobs mode.
+""".strip()
+
 _TOOLS_COMPACT_REFERENCE = (
     "Tools: kartograph_* schema MCP tools, plus Read/Write/Edit/Grep/Glob/Bash. "
     "Prepopulation: {label}.py → out/{label}_instances.json → entities_to_jsonl.py or "
@@ -209,6 +238,13 @@ def _format_workspace_readiness(readiness: dict[str, Any]) -> str:
 
 _EXTRACTION_JOBS_COMPACT_SKILL_KEYS = ("per_instance_description_authoring", "job_set_contract")
 
+_ONE_OFF_MUTATIONS_COMPACT_SKILL_KEYS = (
+    "instance_edit_workflow",
+    "schema_edit_workflow",
+    "confirmation_policy",
+    "jsonl_shape_reference",
+)
+
 
 def build_agent_system_prompt(
     agent_configuration: dict[str, Any],
@@ -243,6 +279,12 @@ def build_agent_system_prompt(
             for key, value in skills_dict.items()
             if key in _EXTRACTION_JOBS_COMPACT_SKILL_KEYS
         )
+    elif prompt_detail == "compact" and ui_mode == "one-off-mutations":
+        skill_items = sorted(
+            (key, value)
+            for key, value in skills_dict.items()
+            if key in _ONE_OFF_MUTATIONS_COMPACT_SKILL_KEYS
+        )
     elif prompt_detail == "full":
         skill_items = sorted(skills_dict.items())
     else:
@@ -260,12 +302,12 @@ def build_agent_system_prompt(
     tools_block = ""
     if include_tools_manifest and settings is not None and settings.workload_token.strip():
         if prompt_detail == "compact":
-            extraction_jobs_block = (
-                f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
-                if ui_mode == "extraction-jobs"
-                else ""
-            )
-            tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}{extraction_jobs_block}"
+            mode_block = ""
+            if ui_mode == "extraction-jobs":
+                mode_block = f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
+            elif ui_mode == "one-off-mutations":
+                mode_block = f"\n\n{_ONE_OFF_MUTATIONS_TOOLS_REFERENCE}"
+            tools_block = f"## Tools\n\n{_TOOLS_COMPACT_REFERENCE}{mode_block}"
         else:
             kartograph_tools = ", ".join(
                 f"`{name}`"
@@ -279,13 +321,13 @@ def build_agent_system_prompt(
                 )
             )
             file_tools = ", ".join(f"`{name}`" for name in WORKSPACE_FILE_TOOL_NAMES)
-            extraction_jobs_block = (
-                f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
-                if ui_mode == "extraction-jobs"
-                else ""
-            )
+            mode_block = ""
+            if ui_mode == "extraction-jobs":
+                mode_block = f"\n\n{_EXTRACTION_JOBS_TOOLS_REFERENCE}"
+            elif ui_mode == "one-off-mutations":
+                mode_block = f"\n\n{_ONE_OFF_MUTATIONS_TOOLS_REFERENCE}"
             tools_block = (
-                f"{_TOOLS_QUICK_REFERENCE}{extraction_jobs_block}\n\n"
+                f"{_TOOLS_QUICK_REFERENCE}{mode_block}\n\n"
                 f"Registered Kartograph tools: {kartograph_tools}.\n"
                 f"Registered workspace tools: {file_tools}."
             )

@@ -184,3 +184,16 @@ def test_materializer_copies_instance_generator_templates(tmp_path: Path) -> Non
     readme = (generators_dir / "README.md").read_text(encoding="utf-8")
     assert "repository-files" in readme
     assert (generators_dir / "out").is_dir()
+
+
+def test_materializer_copies_mutation_helper_examples(tmp_path: Path) -> None:
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    session_root = materializer.prepare(
+        session_id="session-helpers",
+        knowledge_graph_id="kg-1",
+        job_packages=(),
+    )
+
+    assert (session_root / "helpers" / "mutation-examples.jsonl").is_file()
+    assert (session_root / "helpers" / "workload-mutations.sh").is_file()

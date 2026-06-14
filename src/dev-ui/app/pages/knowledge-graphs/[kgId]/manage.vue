@@ -48,6 +48,7 @@ import GraphDesignEntitiesPanel from '@/components/graph-management/GraphDesignE
 import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDesignRelationshipsPanel.vue'
 import GraphExtractionJobsWorkspace from '@/components/graph-management/GraphExtractionJobsWorkspace.vue'
 import GraphExtractionArchivedHistory from '@/components/graph-management/GraphExtractionArchivedHistory.vue'
+import GraphManagementMutationAuthoringPanel from '@/components/graph-management/GraphManagementMutationAuthoringPanel.vue'
 import {
   GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS,
   GRAPH_MANAGEMENT_MODE_LABELS,
@@ -108,7 +109,6 @@ import {
 } from '@/utils/kgMutationLogs'
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
-import { useGraphApi } from '@/composables/api/useGraphApi'
 import type { DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
 
 const runtimeConfig = useRuntimeConfig()
@@ -198,7 +198,6 @@ const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
 const { apiFetch, currentTenantId } = useApiClient()
-const graphApi = useGraphApi()
 const kgId = computed(() => String(route.params.kgId ?? ''))
 const kgIdentity = ref<KnowledgeGraphIdentity | null>(null)
 const dataSourceCount = ref(0)
@@ -251,9 +250,6 @@ const selectedInlineRunId = ref<string | null>(null)
 const inlineRunLogs = ref<string[]>([])
 const inlineRunLogsLoading = ref(false)
 const inlineRunLogsError = ref<string | null>(null)
-const inlineMutationJsonl = ref('')
-const inlineMutationApplying = ref(false)
-const inlineMutationApplyError = ref<string | null>(null)
 const designArtifactsReloadNonce = ref(0)
 const designArtifactsRefreshing = ref(false)
 
@@ -403,7 +399,7 @@ const graphManagementChatDescription = computed(() => {
     return 'Define extraction job sets with per-instance descriptions, review ontology schema, and run parallel extraction workers for this knowledge graph.'
   }
   if (graphManagementMode.value === 'one-off-mutations') {
-    return 'Author and apply one-off graph mutations scoped to this knowledge graph. Use the assistant below for mutation guidance and workspace context.'
+    return 'Ask the assistant to change schema types or specific instances — it validates and applies mutations directly. Use manual JSONL below only for power-user overrides.'
   }
   return 'Design and refine schema readiness, validation, and bootstrap transition for this knowledge graph. Use the assistant below to prepare workspace artifacts.'
 })
@@ -744,26 +740,6 @@ async function loadInlineRunLogs(runId: string) {
   }
 }
 
-async function applyInlineMutations() {
-  if (!kgId.value || inlineMutationJsonl.value.trim().length === 0) {
-    inlineMutationApplyError.value = 'Add one or more JSONL mutation operations first.'
-    return
-  }
-  inlineMutationApplying.value = true
-  inlineMutationApplyError.value = null
-  try {
-    await graphApi.applyMutations(kgId.value, inlineMutationJsonl.value.trim())
-    toast.success('Mutations applied')
-    inlineMutationJsonl.value = ''
-    await loadMutationLogRuns()
-  } catch (err) {
-    inlineMutationApplyError.value = extractErrorMessage(err)
-    toast.error('Failed to apply mutations', { description: inlineMutationApplyError.value })
-  } finally {
-    inlineMutationApplying.value = false
-  }
-}
-
 function returnToWorkspaceOverview() {
   navigateTo(buildManageStepUrl(kgId.value))
 }
@@ -844,11 +820,11 @@ async function loadMutationLogRuns() {
     if (isForbiddenHttpError(err)) {
       mutationLogLoadError.value = resolveForbiddenReason(
         err,
-        'You do not have permission to view mutation logs for this graph.',
+        'You do not have permission to view graph writes history for this graph.',
       )
     } else {
       mutationLogLoadError.value = extractErrorMessage(err)
-      toast.error('Failed to load mutation log runs', {
+      toast.error('Failed to load archived write history', {
         description: mutationLogLoadError.value,
       })
     }
@@ -888,7 +864,7 @@ async function loadMutationLogEntryPreviews(offset = 0) {
       preview_available: false,
     }
     mutationLogEntryPreviewOffset.value = offset
-    toast.error('Failed to load mutation log entry previews', {
+    toast.error('Failed to load graph write entry previews', {
       description: extractErrorMessage(err),
     })
   } finally {
@@ -1605,7 +1581,7 @@ watch(
               </div>
               <div>
                 <div class="text-2xl font-bold">{{ mutationLogRuns.length }}</div>
-                <p class="text-xs text-muted-foreground">Mutation Runs</p>
+                <p class="text-xs text-muted-foreground">Archived writes</p>
               </div>
             </CardContent>
           </Card>
@@ -2096,39 +2072,11 @@ watch(
               </CardContent>
             </Card>
 
-            <Card v-else-if="selectedRailItemId === 'mutation-authoring'">
-              <CardHeader>
-                <CardTitle class="text-base flex items-center gap-2">
-                  <PencilRuler class="size-4" />
-                  Mutation authoring
-                </CardTitle>
-                <CardDescription>
-                  Author and apply one-off JSONL mutations directly in this workspace.
-                </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-3 text-sm">
-                <div class="space-y-3 rounded-lg border bg-muted/30 p-3">
-                  <p class="text-xs font-medium text-muted-foreground">Mutation payload (JSONL)</p>
-                  <textarea
-                    v-model="inlineMutationJsonl"
-                    class="min-h-44 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    placeholder='{"op":"CREATE","type":"node","label":"repo","id":"repo:example","set_properties":{"name":"example"}}'
-                  />
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button size="sm" :disabled="inlineMutationApplying" @click="applyInlineMutations">
-                      <Loader2 v-if="inlineMutationApplying" class="mr-1.5 size-3.5 animate-spin" />
-                      Apply Mutations
-                    </Button>
-                    <span class="text-xs text-muted-foreground">
-                      Applies directly to this knowledge graph without page navigation.
-                    </span>
-                  </div>
-                  <p v-if="inlineMutationApplyError" class="text-xs text-destructive">
-                    {{ inlineMutationApplyError }}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            <GraphManagementMutationAuthoringPanel
+              v-else-if="selectedRailItemId === 'mutation-authoring'"
+              :kg-id="kgId"
+              @applied="refreshDesignArtifacts"
+            />
 
             <Card v-else>
               <CardHeader>

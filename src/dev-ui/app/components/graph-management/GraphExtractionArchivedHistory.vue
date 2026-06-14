@@ -16,6 +16,7 @@ interface ArchivedJob {
   jobId: string
   jobSet: string
   status: string
+  strategy: string
   workerId: string | null
   startedAt: string | null
   completedAt: string | null
@@ -82,7 +83,7 @@ async function loadHistory() {
     selectedJobId.value = payload.value?.runs[0]?.jobSets[0]?.jobs[0]?.jobId ?? null
     await loadSelectedMutations()
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : 'Failed to load archived extraction history'
+    error.value = e instanceof Error ? e.message : 'Failed to load graph writes history'
     payload.value = null
   } finally {
     loading.value = false
@@ -128,8 +129,19 @@ function formatWhen(value: string | null | undefined): string {
   return new Date(value).toLocaleString()
 }
 
-function formatCompactNumber(value: number): string {
-  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+function formatCost(value: number | null | undefined): string {
+  const amount = Number(value ?? 0)
+  if (!Number.isFinite(amount) || amount <= 0) return '$0.00'
+  if (amount < 0.01) return `$${amount.toFixed(4)}`
+  return `$${amount.toFixed(2)}`
+}
+
+function jobKindLabel(job: ArchivedJob): string {
+  return job.strategy === 'graph_management_session' ? 'GMA session' : 'Extraction job'
+}
+
+function jobKindVariant(job: ArchivedJob): 'secondary' | 'outline' {
+  return job.strategy === 'graph_management_session' ? 'secondary' : 'outline'
 }
 
 watch(
@@ -144,23 +156,25 @@ watch(
     <CardHeader>
       <CardTitle class="flex items-center gap-2 text-base">
         <Archive class="size-4" />
-        Extraction archive
+        Graph Writes History
       </CardTitle>
       <CardDescription>
-        Permanent history of extraction jobs that applied graph writes, grouped by run and job set.
+        Permanent history of graph writes from Graph Management Assistant sessions and extraction
+        worker jobs, grouped by run and job set.
       </CardDescription>
     </CardHeader>
     <CardContent class="grid gap-4 xl:grid-cols-[260px_220px_minmax(0,1fr)]">
       <div v-if="loading" class="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 class="size-4 animate-spin" />
-        Loading archived extraction jobs...
+        Loading graph writes history...
       </div>
       <div v-else-if="error" class="col-span-full text-sm text-destructive">
         {{ error }}
         <Button class="mt-2" size="sm" variant="outline" @click="loadHistory">Retry</Button>
       </div>
       <div v-else-if="!payload?.runs.length" class="col-span-full text-sm text-muted-foreground">
-        No archived extraction jobs yet. Jobs that apply graph writes are archived automatically.
+        No archived graph writes yet. GMA sessions and extraction jobs that apply writes or incur
+        assistant cost are archived automatically when sessions end or jobs complete.
       </div>
       <template v-else>
         <div class="rounded border">
@@ -179,7 +193,7 @@ watch(
             >
               <p class="font-medium">{{ formatWhen(run.runStartedAt) }}</p>
               <p class="text-[10px] text-muted-foreground">
-                {{ run.jobCount }} jobs · {{ run.writeOps }} writes · ${{ run.costUsd.toFixed(4) }}
+                {{ run.jobCount }} entries · {{ run.writeOps }} writes · {{ formatCost(run.costUsd) }}
               </p>
             </button>
           </div>
@@ -198,8 +212,8 @@ watch(
               :class="index === selectedJobSetIndex ? 'border-primary bg-primary/5' : 'border-transparent'"
               @click="selectJobSet(index)"
             >
-              <span class="font-medium">{{ set.jobSet }}</span>
-              <ChevronRight class="size-3 text-muted-foreground" />
+              <span class="font-medium leading-snug">{{ set.jobSet }}</span>
+              <ChevronRight class="size-3 shrink-0 text-muted-foreground" />
             </button>
           </div>
         </div>
@@ -218,9 +232,14 @@ watch(
                 :class="job.jobId === selectedJobId ? 'border-primary bg-primary/5' : 'border-transparent'"
                 @click="selectJob(job.jobId)"
               >
-                <p class="font-mono">{{ job.jobId }}</p>
-                <p class="text-[10px] text-muted-foreground">
-                  {{ job.writeOps }} writes · {{ formatCompactNumber(job.inputTokens) }}/{{ formatCompactNumber(job.outputTokens) }} tokens
+                <div class="flex items-center gap-2">
+                  <Badge :variant="jobKindVariant(job)" class="text-[9px] px-1 py-0">
+                    {{ jobKindLabel(job) }}
+                  </Badge>
+                  <p class="truncate font-mono">{{ job.jobId }}</p>
+                </div>
+                <p class="mt-1 text-[10px] text-muted-foreground">
+                  {{ job.writeOps }} writes · {{ formatCost(job.costUsd) }}
                 </p>
               </button>
             </div>
@@ -229,6 +248,7 @@ watch(
           <div v-if="selectedJob" class="rounded border p-3 text-xs">
             <div class="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{{ selectedJob.status }}</Badge>
+              <Badge :variant="jobKindVariant(selectedJob)">{{ jobKindLabel(selectedJob) }}</Badge>
               <span v-if="selectedJob.workerId" class="font-mono text-muted-foreground">{{ selectedJob.workerId }}</span>
             </div>
             <Separator class="my-2" />
@@ -237,7 +257,9 @@ watch(
               <p>{{ selectedJob.entitiesModified }} entities modified</p>
               <p>{{ selectedJob.relationshipsCreated }} relationships created</p>
               <p>{{ selectedJob.relationshipsModified }} relationships modified</p>
-              <p class="font-medium text-foreground sm:col-span-2">{{ selectedJob.writeOps }} total write ops</p>
+              <p class="font-medium text-foreground sm:col-span-2">
+                {{ selectedJob.writeOps }} total write ops · {{ formatCost(selectedJob.costUsd) }}
+              </p>
             </div>
           </div>
 
@@ -254,7 +276,7 @@ watch(
               class="max-h-64 overflow-auto p-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all"
             >{{ mutationJsonl }}</pre>
             <p v-else class="px-3 py-4 text-xs text-muted-foreground">
-              No stored mutation JSONL for this job.
+              No stored mutation JSONL for this entry (token-only GMA session or no graph writes).
             </p>
           </div>
         </div>

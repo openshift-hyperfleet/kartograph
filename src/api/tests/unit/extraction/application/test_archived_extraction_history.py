@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from extraction.application.archived_extraction_history import group_archived_jobs_by_run_and_set
+from extraction.application.archived_extraction_history import (
+    group_archived_jobs_by_run_and_set,
+    serialize_archived_job,
+)
 from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
 
 
@@ -45,3 +48,28 @@ def test_group_archived_jobs_by_run_and_set() -> None:
     assert grouped[0]["jobCount"] == 2
     assert grouped[0]["jobSets"][0]["jobSet"] == "Adapter Deep Extraction"
     assert grouped[1]["jobCount"] == 1
+
+
+def test_serialize_archived_job_includes_camel_case_metrics() -> None:
+    job = ExtractionJobRecord(
+        id="01JOB",
+        knowledge_graph_id="01KG",
+        job_id="gma-session-1",
+        job_set_name="Graph Management · One-off Mutations",
+        strategy="graph_management_session",
+        status=ExtractionJobStatus.ARCHIVED,
+        order_index=0,
+        description="",
+        input_tokens=1200,
+        output_tokens=400,
+        cost_usd=0.45,
+        entities_modified=2,
+        applied_mutations_jsonl='{"op":"UPDATE","type":"node","id":"adapter:abc"}',
+    )
+
+    payload = serialize_archived_job(job)
+
+    assert payload["inputTokens"] == 1200
+    assert payload["outputTokens"] == 400
+    assert payload["costUsd"] == 0.45
+    assert payload["strategy"] == "graph_management_session"

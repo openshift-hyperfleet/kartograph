@@ -16,7 +16,7 @@ export type StepActionLabel = 'Open' | 'Revisit' | 'Run'
 export const WORKSPACE_STEP_TITLES: Record<WorkspaceStepId, string> = {
   'data-sources': 'Data Sources',
   'graph-management': 'Graph Management',
-  'mutation-logs': 'Extraction Archive',
+  'mutation-logs': 'Graph Writes History',
   maintain: 'Maintain',
 }
 
@@ -196,7 +196,7 @@ function buildMutationLogsCard(input: WorkspaceOverviewInputs): WorkspaceStepCar
       status: input.workspaceStatus?.workspace_mode === 'extraction_operations'
         ? 'needs_attention'
         : 'ready',
-      statusDetail: 'No mutation log runs recorded for this graph yet.',
+      statusDetail: 'No archived graph writes recorded for this graph yet.',
       actionLabel: 'Open',
     }
   }
@@ -205,7 +205,7 @@ function buildMutationLogsCard(input: WorkspaceOverviewInputs): WorkspaceStepCar
     id: 'mutation-logs',
     title: WORKSPACE_STEP_TITLES['mutation-logs'],
     status: 'ready',
-    statusDetail: `${input.mutationLogRunCount} mutation run${input.mutationLogRunCount === 1 ? '' : 's'} available.`,
+    statusDetail: `${input.mutationLogRunCount} archived write entr${input.mutationLogRunCount === 1 ? 'y' : 'ies'} available.`,
     actionLabel: 'Revisit',
   }
 }

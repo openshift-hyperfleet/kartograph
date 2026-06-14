@@ -119,3 +119,22 @@ class TestExtractionSkillResolutionService:
         )
 
         assert first.skills == second.skills
+
+    async def test_one_off_mutations_ui_mode_overlay(self) -> None:
+        from extraction.domain.value_objects import GraphManagementUiMode
+
+        service = ExtractionSkillResolutionService(
+            override_repository=_InMemorySkillOverrideRepository()
+        )
+
+        resolved = await service.resolve_for_graph_management_turn(
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.EXTRACTION_OPERATIONS,
+            ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
+        )
+
+        assert "One-off Mutations mode" in resolved.system_prompt
+        assert "instance_edit_workflow" in resolved.skills
+        assert "schema_edit_workflow" in resolved.skills
+        assert "confirmation_policy" in resolved.skills
+        assert any("DELETE on nodes" in item for item in resolved.guardrails)

@@ -25,6 +25,7 @@ import {
   resolveRailSelectionForMode,
   resolveSharedSessionMode,
 } from '../utils/kgGraphManagement'
+import { filterSchemaRailItems } from '../utils/kgGraphManagementArtifacts'
 
 const manageWorkspaceVue = readFileSync(
   resolve(__dirname, '../pages/knowledge-graphs/[kgId]/manage.vue'),
@@ -40,6 +41,14 @@ const dataSourcesVue = readFileSync(
 )
 const sharedConversationPanelVue = readFileSync(
   resolve(__dirname, '../components/extraction/SharedConversationPanel.vue'),
+  'utf-8',
+)
+const graphExtractionArchivedHistoryVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphExtractionArchivedHistory.vue'),
+  'utf-8',
+)
+const graphManagementMutationAuthoringVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphManagementMutationAuthoringPanel.vue'),
   'utf-8',
 )
 const manageWorkspaceHubTs = readFileSync(
@@ -85,72 +94,69 @@ describe('Knowledge Graph Manage Workspace - graph management controls', () => {
   })
 })
 
-describe('Knowledge Graph Manage Workspace - mutation log browser', () => {
-  it('renders mutation log step with scoped run listing', () => {
-    expect(manageWorkspaceVue).toContain('MutationLogs')
-    expect(manageWorkspaceVue).toContain('loadMutationLogRuns')
-    expect(manageWorkspaceVue).toContain('/management/knowledge-graphs/${kgId.value}/data-sources')
+describe('Knowledge Graph Manage Workspace - graph writes history', () => {
+  it('renders graph writes history step with archived extraction component', () => {
+    expect(manageWorkspaceVue).toContain('GraphExtractionArchivedHistory')
+    expect(manageWorkspaceVue).toContain("activeStep === 'mutation-logs'")
   })
 
-  it('loads sync runs per data source and filters to mutation-log runs', () => {
-    expect(manageWorkspaceVue).toContain('/management/data-sources/${ds.id}/sync-runs')
-    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
+  it('loads archived history from management API', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('/extraction-jobs/archived-history')
+    expect(graphExtractionArchivedHistoryVue).toContain('loadHistory')
   })
 
-  it('renders run detail summary with token and cost metrics', () => {
-    expect(manageWorkspaceVue).toContain('Token usage')
-    expect(manageWorkspaceVue).toContain('Cost (USD)')
-    expect(manageWorkspaceVue).toContain('token_usage_total')
-    expect(manageWorkspaceVue).toContain('cost_total_usd')
+  it('shows write count and cost instead of token fractions in job rows', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(job.costUsd)')
+    expect(graphExtractionArchivedHistoryVue).toContain('writeOps')
+    expect(graphExtractionArchivedHistoryVue).not.toContain('inputTokens }}/{{')
   })
 
-  it('separates operation class counts from per-entry previews', () => {
-    expect(manageWorkspaceVue).toContain('Operation class counts')
-    expect(manageWorkspaceVue).toContain('Per-entry operation previews')
-    expect(manageWorkspaceVue).toContain('Object.entries(selectedMutationLogRun.operation_counts)')
-    expect(manageWorkspaceVue).toContain('loadMutationLogEntryPreviews')
+  it('distinguishes GMA sessions from extraction worker jobs', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('graph_management_session')
+    expect(graphExtractionArchivedHistoryVue).toContain('GMA session')
+    expect(graphExtractionArchivedHistoryVue).toContain('Extraction job')
   })
 })
 
-describe('KG-MANAGE-012 - graph-scoped mutation run list', () => {
-  it('loads runs only from graph-scoped data sources with KG metadata filtering', () => {
-    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
-    expect(manageWorkspaceVue).toContain('knowledge_graph_id')
+describe('KG-MANAGE-012 - archived graph writes grouping', () => {
+  it('groups archived jobs by run and job set', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('payload.runs')
+    expect(graphExtractionArchivedHistoryVue).toContain('jobSets')
+    expect(graphExtractionArchivedHistoryVue).toContain('set.jobSet')
   })
 
-  it('defaults run list ordering to newest-first', () => {
-    expect(manageWorkspaceVue).toContain('collectScopedMutationLogRuns')
-    expect(manageWorkspaceVue).toContain('resolveDefaultSelectedMutationLogRunId')
+  it('defaults selection to first run and job set', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedRunIndex')
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedJobSetIndex')
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedJobId')
   })
 
-  it('shows status, timestamp, source, and run identifier in run list items', () => {
-    expect(manageWorkspaceVue).toContain('run.data_source_name')
-    expect(manageWorkspaceVue).toContain('run.started_at')
-    expect(manageWorkspaceVue).toContain('run.status')
-    expect(manageWorkspaceVue).toContain('run.mutation_log_id')
+  it('shows job identifier, write ops, and cost in job list items', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('job.jobId')
+    expect(graphExtractionArchivedHistoryVue).toContain('job.writeOps')
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(job.costUsd)')
   })
 })
 
-describe('KG-MANAGE-013 - run detail richness', () => {
-  it('renders run summary, session reference, token/cost metrics, and operation counts', () => {
-    expect(manageWorkspaceVue).toContain('Run summary')
-    expect(manageWorkspaceVue).toContain('Session')
-    expect(manageWorkspaceVue).toContain('Token usage')
-    expect(manageWorkspaceVue).toContain('Cost (USD)')
-    expect(manageWorkspaceVue).toContain('Operation class counts')
+describe('KG-MANAGE-013 - archived job detail richness', () => {
+  it('renders entity and relationship mutation metrics for selected job', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('entitiesCreated')
+    expect(graphExtractionArchivedHistoryVue).toContain('relationshipsModified')
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(selectedJob.costUsd)')
   })
 
-  it('loads paginated per-entry previews from mutation-log-entries API', () => {
-    expect(manageWorkspaceVue).toContain('buildMutationLogEntryPreviewUrl')
-    expect(manageWorkspaceVue).toContain('loadMutationLogEntryPreviews')
-    expect(manageWorkspaceVue).toContain('mutationLogEntryPreviewPage')
+  it('loads applied mutation JSONL for selected archived job', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('/archived-mutations')
+    expect(graphExtractionArchivedHistoryVue).toContain('loadSelectedMutations')
+    expect(graphExtractionArchivedHistoryVue).toContain('mutationJsonl')
   })
 })
 
 describe('KG-MANAGE-014 - no-preview fallback state', () => {
-  it('shows explicit fallback when entry previews are unavailable', () => {
-    expect(manageWorkspaceVue).toContain('MUTATION_LOG_NO_PREVIEW_MESSAGE')
-    expect(manageWorkspaceVue).toContain('hasMutationLogEntryPreviewPage')
+  it('shows explicit fallback when archived mutation JSONL is unavailable', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain(
+      'No stored mutation JSONL for this entry',
+    )
   })
 })
 
@@ -195,10 +201,10 @@ describe('KG-MANAGE-002 - workspace hub tile set', () => {
     expect(manageWorkspaceVue).toContain('workspaceHubTileClasses')
     expect(manageWorkspaceVue).toContain('Entity Types')
     expect(manageWorkspaceVue).toContain('Relationship Types')
-    expect(manageWorkspaceVue).toContain('Mutation Runs')
+    expect(manageWorkspaceVue).toContain('Archived writes')
     expect(manageWorkspaceHubTs).toContain('Data sources')
     expect(manageWorkspaceHubTs).toContain('Graph Management')
-    expect(manageWorkspaceHubTs).toContain('Mutation logs')
+    expect(manageWorkspaceHubTs).toContain('Graph Writes History')
     expect(manageWorkspaceHubTs).toContain('Maintain')
   })
 
@@ -214,7 +220,7 @@ describe('KG-MANAGE-002 - workspace hub tile set', () => {
     expect(cards.map((card) => card.title)).toEqual([
       'Data Sources',
       'Graph Management',
-      'MutationLogs',
+      'Graph Writes History',
       'Maintain',
     ])
   })
@@ -375,7 +381,7 @@ describe('Shared conversation panel - extraction UX contract', () => {
     expect(sharedConversationPanelVue).toContain('showInitialConversationLoading')
     expect(sharedConversationPanelVue).toContain('showConversationRefreshIndicator')
     expect(sharedConversationPanelVue).toContain('scrollToBottom')
-    expect(sharedConversationPanelVue).toContain('el.scrollTop = el.scrollHeight')
+    expect(sharedConversationPanelVue).toContain('target.scrollTop = target.scrollHeight')
   })
 
   it('accepts mode-aware input placeholder and session status props', () => {
@@ -472,6 +478,7 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
     expect(manageWorkspaceVue).toContain('GraphExtractionJobsWorkspace')
     expect(manageWorkspaceVue).toContain("graphManagementMode === 'extraction-jobs'")
     expect(manageWorkspaceVue).toContain("selectedRailItemId === 'mutation-authoring'")
+    expect(manageWorkspaceVue).toContain('GraphManagementMutationAuthoringPanel')
   })
 
   it('filters rail items to the active mode', () => {
@@ -489,9 +496,13 @@ describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
     expect(filterRailItemsForMode(items, 'extraction-jobs').map((item) => item.id)).toContain(
       'extraction-jobs-setup',
     )
-    expect(filterRailItemsForMode(items, 'one-off-mutations').map((item) => item.id)).toContain(
+    expect(
+      filterSchemaRailItems(filterRailItemsForMode(items, 'one-off-mutations')).map((item) => item.id),
+    ).toEqual([
+      'schema-entities',
+      'schema-relationships',
       'mutation-authoring',
-    )
+    ])
   })
 })
 
@@ -610,19 +621,18 @@ describe('KG-MANAGE-018 - keyboard operable step and rail actions', () => {
 })
 
 describe('KG-MANAGE-019 - section-specific loading, empty, and error states', () => {
-  it('uses section state contracts for workspace, graph management, and mutation logs', () => {
+  it('uses section state contracts for workspace and graph management', () => {
     expect(manageWorkspaceVue).toContain('resolveSectionState')
     expect(manageWorkspaceVue).toContain('workspaceOverviewState')
     expect(manageWorkspaceVue).toContain('graphManagementSectionState')
-    expect(manageWorkspaceVue).toContain('mutationLogsSectionState')
     expect(manageWorkspaceVue).toContain('Retry workspace load')
-    expect(manageWorkspaceVue).toContain('Retry mutation log load')
     expect(manageWorkspaceVue).toContain('Retry session load')
   })
 
-  it('renders actionable empty states for mutation log runs', () => {
-    expect(manageWorkspaceVue).toContain('mutationLogsSectionState.actionLabel')
-    expect(manageWorkspaceVue).toContain('Refresh runs')
+  it('renders loading and empty states inside graph writes history component', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('Loading graph writes history')
+    expect(graphExtractionArchivedHistoryVue).toContain('No archived graph writes yet')
+    expect(graphExtractionArchivedHistoryVue).toContain('@click="loadHistory"')
   })
 })
 
@@ -653,9 +663,10 @@ describe('KG-MANAGE-021 - unified in-place graph operations', () => {
   })
 
   it('applies one-off mutations directly in graph-management without mutations-console redirect', () => {
-    expect(manageWorkspaceVue).toContain('inlineMutationJsonl')
-    expect(manageWorkspaceVue).toContain('applyInlineMutations')
-    expect(manageWorkspaceVue).toContain('graphApi.applyMutations')
+    expect(manageWorkspaceVue).toContain('GraphManagementMutationAuthoringPanel')
+    expect(graphManagementMutationAuthoringVue).toContain('MutationTemplates')
+    expect(graphManagementMutationAuthoringVue).toContain('applyMutations')
+    expect(graphManagementMutationAuthoringVue).toContain('getMergedEditorContent')
     expect(manageWorkspaceVue).not.toContain('navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)')
   })
 })

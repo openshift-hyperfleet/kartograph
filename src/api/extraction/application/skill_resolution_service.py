@@ -269,10 +269,66 @@ _UI_MODE_SKILL_OVERLAYS: dict[GraphManagementUiMode, dict[str, str]] = {
     },
     GraphManagementUiMode.ONE_OFF_MUTATIONS: {
         "ui_mode_framing": (
-            "Focus on scoped one-off graph mutations with mutation-log auditability."
+            "Primary mode: scoped one-off graph edits executed by you in this chat. "
+            "Implement schema changes via kartograph_save_schema_ontology and instance changes "
+            "via validate-then-apply JSONL mutation tools. Do not defer to extraction jobs or "
+            "bulk prepopulation scanners unless the operator explicitly asks."
+        ),
+        "intake_and_classification": (
+            "Classify each request: (A) schema edit — node_types/edge_types/properties; "
+            "(B) instance edit — CREATE/UPDATE/DELETE nodes or edges; (C) mixed — schema first "
+            "then instances; (D) read-only — search/list/explain. Ask at most one clarifying "
+            "question when slug, id, or property target is ambiguous."
+        ),
+        "schema_edit_workflow": (
+            "Schema edits: (1) kartograph_get_schema_ontology — read current state; "
+            "(2) propose delta in chat; (3) confirm unless operator said apply/save; "
+            "(4) kartograph_save_schema_ontology with full merged payload; "
+            "(5) read-back verify. Never use JSONL DEFINE for ontology — save tool only. "
+            "Unique edge_types labels; one primary direction per label."
+        ),
+        "instance_edit_workflow": (
+            "Instance edits: (1) kartograph_get_schema_ontology; "
+            "(2) kartograph_search_graph_by_slug or kartograph_list_instances_by_type; "
+            "(3) prefer UPDATE for existing slugs, CREATE only for new; "
+            "(4) kartograph_validate_graph_mutations then kartograph_apply_graph_mutations "
+            "for small batches (≤20 lines), or apply-from-file for larger; "
+            "(5) verify affected slugs. Copy JSONL shapes from helpers/mutation-examples.jsonl."
+        ),
+        "jsonl_shape_reference": (
+            "Every JSONL line needs op (CREATE|UPDATE|DELETE) and type (node|edge). "
+            "Use set_properties (not properties). UPDATE/DELETE require top-level id. "
+            "CREATE nodes need label, id, set_properties with slug, name, data_source_id."
+        ),
+        "confirmation_policy": (
+            "Auto-apply after validate when operator said apply/fix/update or change is a single "
+            "non-destructive UPDATE. Confirm before DELETE nodes, bulk CREATE (>5 lines), or "
+            "schema type removal. Never apply without validate passing."
+        ),
+        "session_reporting": (
+            "After successful apply, report operation counts, affected slugs/labels, and any "
+            "follow-up needed. End with write op summary."
         ),
     },
 }
+
+
+_ONE_OFF_MUTATIONS_SYSTEM_PROMPT = (
+    "You are the Graph Management Assistant in One-off Mutations mode. "
+    "The operator requests specific schema or instance changes; you implement them yourself "
+    "using Kartograph schema tools with validate-then-apply mutation workflow. "
+    "Every write must be auditable via mutation tools — do not instruct manual JSONL entry."
+)
+
+_ONE_OFF_MUTATIONS_GUARDRAILS: tuple[str, ...] = (
+    "Implement requested edits in-session via kartograph_* tools; do not ask the operator to paste JSONL manually.",
+    "Validate before every apply; report validation errors verbatim.",
+    "Prefer UPDATE over CREATE for existing slugs; strict CREATE rejects duplicate ids/slugs.",
+    "Do not start prepopulation scanners or run_scanner.py unless the operator explicitly requests bulk import.",
+    "DELETE on nodes requires explicit operator confirmation (cascades connected edges).",
+    "Schema saves require confirmation unless the operator explicitly approved.",
+    "Route bulk enrichment requests to Extraction Jobs mode; route greenfield ontology design to Initial Schema Design.",
+)
 
 
 class ExtractionSkillResolutionService:
@@ -326,9 +382,14 @@ class ExtractionSkillResolutionService:
         overlay = dict(_UI_MODE_SKILL_OVERLAYS.get(ui_mode, {}))
         merged_skills = dict(base.skills)
         merged_skills.update(overlay)
+        guardrails = base.guardrails
+        system_prompt = base.system_prompt
+        if ui_mode == GraphManagementUiMode.ONE_OFF_MUTATIONS:
+            system_prompt = _ONE_OFF_MUTATIONS_SYSTEM_PROMPT
+            guardrails = base.guardrails + _ONE_OFF_MUTATIONS_GUARDRAILS
         return ResolvedExtractionSkillPack(
-            system_prompt=base.system_prompt,
+            system_prompt=system_prompt,
             prompt_hierarchy=base.prompt_hierarchy,
-            guardrails=base.guardrails,
+            guardrails=guardrails,
             skills=merged_skills,
         )

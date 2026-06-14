@@ -31,10 +31,10 @@ export const SECTION_STATE_MESSAGES: Record<
     forbidden: 'You do not have permission to manage this knowledge graph.',
   },
   'mutation-logs': {
-    loading: 'Loading archived extraction history…',
-    empty: 'No archived extraction jobs with graph writes yet.',
-    error: 'Could not load archived extraction history.',
-    forbidden: 'You do not have permission to view extraction archive for this graph.',
+    loading: 'Loading graph writes history…',
+    empty: 'No archived graph writes yet.',
+    error: 'Could not load graph writes history.',
+    forbidden: 'You do not have permission to view graph writes history for this graph.',
   },
   'data-sources': {
     loading: 'Loading data source readiness for this knowledge graph…',

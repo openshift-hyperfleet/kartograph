@@ -135,3 +135,24 @@ def test_build_agent_system_prompt_compact_extraction_jobs_keeps_description_aut
     assert "IGNORE lines" in prompt
     assert "relationship_authoring_by_entity_type" in prompt
     assert "entity_type_authoring_context" in prompt
+
+
+def test_build_agent_system_prompt_one_off_mutations_includes_tools_reference() -> None:
+    prompt = build_agent_system_prompt(
+        {
+            "system_prompt": "You are the Graph Management Assistant.",
+            "skills": {
+                "instance_edit_workflow": "Validate then apply.",
+                "schema_edit_workflow": "Read merge save ontology.",
+            },
+            "graph_management_ui_mode": "one-off-mutations",
+        },
+        settings=AgentRuntimeSettings(
+            KARTOGRAPH_WORKLOAD_TOKEN="token",
+            KARTOGRAPH_KNOWLEDGE_GRAPH_ID="kg-123",
+        ),
+    )
+
+    assert "One-off mutation tools" in prompt
+    assert "mutation-examples.jsonl" in prompt
+    assert "kartograph_validate_graph_mutations" in prompt

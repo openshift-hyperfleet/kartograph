@@ -223,6 +223,39 @@ Output: `out/{source}_{label}_{target}_instances.json` (primary direction only; 
 - Never hand-author bulk CREATE lines in chat; use `entities_to_jsonl.py` / `relationships_to_jsonl.py`.
 - Create all entity nodes before relationship edges unless you are correcting data with UPDATE/DELETE.
 
+## One-off mutations (Graph Management Assistant)
+
+Use this workflow when the UI mode is **one-off-mutations** — the operator asks for specific schema or instance edits and you apply them directly.
+
+### Decision tree
+
+| Request | Tool path |
+|---------|-----------|
+| Add/change entity or relationship **types** | Read ontology → propose delta → `kartograph_save_schema_ontology` |
+| Create/update/delete **instances** | Search/list targets → JSONL → validate → apply |
+| Mixed | Schema save first, then instance JSONL |
+
+### JSONL examples
+
+Bundled at `helpers/mutation-examples.jsonl` in the workspace. Canonical shapes:
+
+```json
+{"op":"UPDATE","type":"node","id":"adapter:abc123def4567890","set_properties":{"transport":"maestro"}}
+{"op":"CREATE","type":"edge","id":"edge:...","label":"tests_ct_api","start_id":"...","end_id":"...","set_properties":{"data_source_id":"manual-edit"}}
+{"op":"DELETE","type":"node","id":"adapter:deadbeefdeadbeef"}
+```
+
+Rules: both `op` and `type` on every line; `set_properties` not `properties`; UPDATE/DELETE need top-level `id`.
+
+### Workflow
+
+1. `kartograph_get_schema_ontology` — always before edits
+2. Resolve targets: `kartograph_search_graph_by_slug`, `kartograph_list_instances_by_type`
+3. `kartograph_validate_graph_mutations` → `kartograph_apply_graph_mutations` (≤20 lines) or apply-from-file
+4. Verify with list/search; report write op counts
+
+Confirm before DELETE nodes or schema removals. Do not use prepopulation scanners unless the operator explicitly requests bulk import.
+
 ## Readiness checklist
 
 - Every `prepopulated=true` entity type needs ≥1 live instance.

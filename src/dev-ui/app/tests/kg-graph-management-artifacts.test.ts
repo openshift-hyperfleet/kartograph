@@ -34,6 +34,22 @@ describe('kgGraphManagementArtifacts', () => {
     ).toBe('extraction-jobs-setup')
   })
 
+  it('defaults one-off mutations mode to schema entities', () => {
+    const operationsItems = buildGraphManagementRailItems({
+      workspaceMode: 'extraction_operations',
+      transitionEligible: true,
+      blockingReasonCount: 0,
+      prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: true,
+      hasMinimumRelationshipTypes: true,
+      sessionUpdatedAt: null,
+      hasActiveSession: true,
+    })
+    expect(
+      resolveSchemaRailSelection(null, 'one-off-mutations', operationsItems),
+    ).toBe('schema-entities')
+  })
+
   it('maps ready status to done artifact rows', () => {
     expect(graphManagementRailItemDone('ready')).toBe(true)
     expect(graphManagementArtifactRowClass(true, true)).toContain('ring-primary')

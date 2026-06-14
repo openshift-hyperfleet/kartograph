@@ -8,6 +8,10 @@ import shutil
 import zipfile
 
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+from extraction.infrastructure.extraction_job_helpers import (
+    HELPER_BUNDLE_NAMES,
+    HELPERS_DIR,
+)
 from extraction.infrastructure.instance_generator_templates import (
     EXAMPLES_DIR,
     EXAMPLE_SCANNER_NAMES,
@@ -110,6 +114,7 @@ class StickySessionWorkdirMaterializer:
         marker = session_root / "knowledge-graph-id"
         marker.write_text(knowledge_graph_id, encoding="utf-8")
         self._materialize_instance_generators(session_root)
+        self._materialize_mutation_helpers(session_root)
         self._write_workspace_index(
             session_root=session_root,
             knowledge_graph_id=knowledge_graph_id,
@@ -138,6 +143,16 @@ class StickySessionWorkdirMaterializer:
             if source.is_file():
                 shutil.copy2(source, examples_target / name)
         (target_dir / "out").mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _materialize_mutation_helpers(session_root: Path) -> None:
+        """Copy JSONL mutation examples for one-off graph edits."""
+        helpers_dir = session_root / "helpers"
+        helpers_dir.mkdir(parents=True, exist_ok=True)
+        for name in HELPER_BUNDLE_NAMES:
+            source = HELPERS_DIR / name
+            if source.is_file():
+                shutil.copy2(source, helpers_dir / name)
 
     @staticmethod
     def _extension_counts(root: Path) -> dict[str, int]:

@@ -146,10 +146,10 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
     {
       step: 3,
       key: 'mutation-logs',
-      title: 'Mutation logs',
+      title: 'Graph Writes History',
       subtitle: input.mutationLogRunCount > 0
-        ? `${input.mutationLogRunCount} run${input.mutationLogRunCount === 1 ? '' : 's'} recorded`
-        : 'Review extraction and apply runs',
+        ? `${input.mutationLogRunCount} archived run${input.mutationLogRunCount === 1 ? '' : 's'} recorded`
+        : 'Review GMA sessions and extraction job writes',
       to: resolveStepDestination(input.kgId, 'mutation-logs'),
       enabled: input.dataSourceCount > 0,
       lockedReason: input.dataSourceCount > 0 ? null : 'Connect a data source before reviewing runs.',
@@ -259,7 +259,7 @@ export function workspaceHubDescription(input: WorkspaceHubOverview): string {
   if (!designPhaseComplete(input)) {
     return 'Use Graph Management for the assistant and schema bootstrap. Green tiles use Revisit; the highlighted tile is your suggested next step.'
   }
-  return 'Continue with mutation logs or maintenance, or Revisit any completed step below.'
+  return 'Continue with graph writes history or maintenance, or Revisit any completed step below.'
 }
 
 export function buildManageOverviewUrl(kgId: string): string {

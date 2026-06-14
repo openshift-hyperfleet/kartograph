@@ -2,76 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
-from graph.domain.value_objects import EntityType, MutationOperationType
+from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
 
-
-def metrics_from_mutation_jsonl(jsonl_content: str) -> dict[str, int]:
-    """Count instance CREATE/UPDATE operations; ignore schema DEFINE operations."""
-    entities_created = 0
-    entities_modified = 0
-    entities_deleted = 0
-    relationships_created = 0
-    relationships_modified = 0
-    relationships_deleted = 0
-
-    for raw_line in jsonl_content.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(row, dict):
-            continue
-
-        op = str(row.get("op") or "").upper()
-        entity_type = str(row.get("type") or "").lower()
-        if op == MutationOperationType.DEFINE.value:
-            continue
-        if op not in {
-            MutationOperationType.CREATE.value,
-            MutationOperationType.UPDATE.value,
-            MutationOperationType.DELETE.value,
-        }:
-            continue
-
-        if entity_type == EntityType.NODE.value:
-            if op == MutationOperationType.CREATE.value:
-                entities_created += 1
-            elif op == MutationOperationType.UPDATE.value:
-                entities_modified += 1
-            else:
-                entities_deleted += 1
-        elif entity_type == EntityType.EDGE.value:
-            if op == MutationOperationType.CREATE.value:
-                relationships_created += 1
-            elif op == MutationOperationType.UPDATE.value:
-                relationships_modified += 1
-            else:
-                relationships_deleted += 1
-
-    write_ops = (
-        entities_created
-        + entities_modified
-        + entities_deleted
-        + relationships_created
-        + relationships_modified
-        + relationships_deleted
-    )
-    return {
-        "entities_created": entities_created,
-        "entities_modified": entities_modified,
-        "entities_deleted": entities_deleted,
-        "relationships_created": relationships_created,
-        "relationships_modified": relationships_modified,
-        "relationships_deleted": relationships_deleted,
-        "write_ops": write_ops,
-    }
+__all__ = [
+    "applied_mutation_jsonl_from_workdir",
+    "metrics_from_mutation_jsonl",
+    "metrics_from_mutation_workdir",
+]
 
 
 def metrics_from_mutation_workdir(job_root: Path) -> dict[str, int]:

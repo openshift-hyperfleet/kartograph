@@ -91,6 +91,25 @@ export interface DesignArtifactsResponse {
 
 export const DESIGN_ARTIFACTS_PAGE_SIZE = 20
 
+export interface OntologyEdgeTypeRef {
+  label: string
+  auto_generated?: boolean
+  inverse_of?: string | null
+}
+
+/** Match backend `is_primary_relationship_for_display` — one row per logical relationship. */
+export function isPrimaryRelationshipTypeForDisplay(edge: OntologyEdgeTypeRef): boolean {
+  return !edge.auto_generated && !edge.inverse_of
+}
+
+export function primaryRelationshipTypeLabels(edgeTypes: OntologyEdgeTypeRef[]): string[] {
+  return edgeTypes.filter(isPrimaryRelationshipTypeForDisplay).map((edge) => edge.label)
+}
+
+export function primaryRelationshipTypeCount(edgeTypes: OntologyEdgeTypeRef[]): number {
+  return primaryRelationshipTypeLabels(edgeTypes).length
+}
+
 export function pageSlice<T>(
   pageByKey: Record<string, number>,
   key: string,

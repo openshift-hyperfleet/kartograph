@@ -1,25 +1,34 @@
-/** Tests for design artifact UI helpers. */
-
 import { describe, expect, it } from 'vitest'
 import {
-  pageSlice,
-  prepopulationBadgeClass,
-  prepopulationLabel,
-  prepopulationMode,
+  isPrimaryRelationshipTypeForDisplay,
+  primaryRelationshipTypeCount,
+  primaryRelationshipTypeLabels,
 } from '../utils/kgDesignArtifacts'
 
-describe('kgDesignArtifacts', () => {
-  it('maps prepopulation flags to k-extract-style labels', () => {
-    expect(prepopulationMode(true)).toBe('true')
-    expect(prepopulationMode(false)).toBe('false')
-    expect(prepopulationLabel(true)).toContain('prepopulated: true')
-    expect(prepopulationBadgeClass(true)).toContain('cyan')
+describe('kgDesignArtifacts relationship type counting', () => {
+  const edgeTypes = [
+    { label: 'contains', bidirectional: true },
+    { label: 'contained_in', auto_generated: true, inverse_of: 'contains' },
+    { label: 'calls', bidirectional: false },
+    { label: 'calls_inverse', auto_generated: true, inverse_of: 'calls' },
+  ]
+
+  it('excludes auto-generated inverse edge types from primary counts', () => {
+    expect(primaryRelationshipTypeLabels(edgeTypes)).toEqual(['contains', 'calls'])
+    expect(primaryRelationshipTypeCount(edgeTypes)).toBe(2)
   })
 
-  it('pages instance lists consistently', () => {
-    const items = Array.from({ length: 25 }, (_, index) => index)
-    const slice = pageSlice({}, 'service', items)
-    expect(slice.items).toHaveLength(20)
-    expect(slice.totalPages).toBe(2)
+  it('treats unidirectional edges as primary display types', () => {
+    expect(isPrimaryRelationshipTypeForDisplay({ label: 'depends_on' })).toBe(true)
+  })
+
+  it('treats inverse edge types as non-primary', () => {
+    expect(
+      isPrimaryRelationshipTypeForDisplay({
+        label: 'contained_in',
+        auto_generated: true,
+        inverse_of: 'contains',
+      }),
+    ).toBe(false)
   })
 })

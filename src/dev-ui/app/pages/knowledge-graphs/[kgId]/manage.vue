@@ -110,6 +110,7 @@ import {
 import { streamExtractionChatTurn, streamRuntimeWarmup } from '@/utils/kgExtractionChat'
 import { applyThinkingRecentUpdate } from '@/utils/thinkingActivityLines'
 import type { DesignArtifactsResponse } from '@/utils/kgDesignArtifacts'
+import { primaryRelationshipTypeLabels } from '@/utils/kgDesignArtifacts'
 
 const runtimeConfig = useRuntimeConfig()
 const { accessToken } = useAuth()
@@ -605,10 +606,14 @@ async function loadOverviewMetrics() {
     try {
       const ontology = await apiFetch<{
         node_types?: Array<{ label: string }>
-        edge_types?: Array<{ label: string }>
+        edge_types?: Array<{
+          label: string
+          auto_generated?: boolean
+          inverse_of?: string | null
+        }>
       }>(`/management/knowledge-graphs/${kgId.value}/ontology`)
       entityTypeLabels.value = (ontology.node_types ?? []).map((t) => t.label)
-      relationshipTypeLabels.value = (ontology.edge_types ?? []).map((t) => t.label)
+      relationshipTypeLabels.value = primaryRelationshipTypeLabels(ontology.edge_types ?? [])
     } catch {
       entityTypeLabels.value = []
       relationshipTypeLabels.value = []

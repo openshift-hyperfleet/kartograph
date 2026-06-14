@@ -11,6 +11,7 @@ import httpx
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import GraphManagementUiMode
+from extraction.infrastructure.runtime_session_auth import RUNTIME_AUTH_HEADER
 from extraction.infrastructure.workload_runtime_settings import (
     get_extraction_workload_runtime_settings,
 )
@@ -57,11 +58,15 @@ class RemoteStickyContainerChatAgent:
         if workload_token and workload_token.strip():
             payload["workload_token"] = workload_token.strip()
         url = f"{runtime_base_url.rstrip('/')}/v1/turn"
+        runtime_auth_token = sticky_runtime.get("runtime_auth_token")
+        headers: dict[str, str] = {}
+        if isinstance(runtime_auth_token, str) and runtime_auth_token.strip():
+            headers[RUNTIME_AUTH_HEADER] = runtime_auth_token.strip()
 
         try:
             timeout = httpx.Timeout(10.0, read=self._request_timeout_seconds)
             async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", url, json=payload) as response:
+                async with client.stream("POST", url, json=payload, headers=headers) as response:
                     if response.status_code >= 400:
                         body = await response.aread()
                         detail = body.decode("utf-8", errors="replace")

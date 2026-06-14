@@ -22,8 +22,8 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
         extra="ignore",
     )
 
-    backend: Literal["memory", "container"] = Field(default="memory")
-    job_runner: Literal["stub", "agentic_ci"] | None = Field(default=None)
+    backend: Literal["memory", "container", "openshell"] = Field(default="memory")
+    job_runner: Literal["stub", "agentic_ci", "openshell"] | None = Field(default=None)
     container_engine: Literal["auto", "docker", "podman"] = Field(default="auto")
     container_network: str | None = Field(default=None)
     sticky_image: str = Field(default="kartograph-agent-runtime:dev")
@@ -70,6 +70,40 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     gcloud_config_container_path: str = Field(default="/gcloud/config")
     container_run_uid: int | None = Field(default=None)
     container_run_gid: int | None = Field(default=None)
+    container_hardening_enabled: bool = Field(default=True)
+    container_cap_drop_all: bool = Field(default=True)
+    container_read_only_rootfs: bool = Field(default=True)
+    container_no_new_privileges: bool = Field(default=True)
+    container_pids_limit: int | None = Field(default=256, ge=32, le=4096)
+    container_memory_limit: str | None = Field(default="2g")
+    container_tmpfs_mounts: tuple[str, ...] = Field(
+        default=("/tmp:rw,noexec,nosuid,size=512m",),
+    )
+    openshell_gateway_name: str = Field(default="openshell")
+    openshell_gateway_url: str = Field(
+        default="https://127.0.0.1:17670",
+        description=(
+            "OpenShell gateway endpoint for CLI registration. "
+            "Use https://host.docker.internal:17670 when the API runs inside compose."
+        ),
+    )
+    openshell_provider_name: str = Field(default="kartograph-gma")
+    openshell_runtime_host: str = Field(
+        default="host.docker.internal",
+        description=(
+            "Host reachable from the API process for OpenShell port forwards. "
+            "Use host.docker.internal in compose dev; 127.0.0.1 when API runs on host."
+        ),
+    )
+    openshell_forward_port_base: int = Field(default=18787, ge=1024, le=65000)
+    openshell_policy_dir: str = Field(
+        default="",
+        description="Directory containing OpenShell policy YAML files. Empty uses bundled defaults.",
+    )
+    openshell_policy_enforcement: Literal["soft", "hard_requirement"] = Field(
+        default="soft",
+        description="Landlock enforcement mode for OpenShell policies (hard_requirement in prod).",
+    )
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()
@@ -77,11 +111,12 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     @model_validator(mode="after")
     def _apply_vertex_env_aliases(self) -> "ExtractionWorkloadRuntimeSettings":
         if self.job_runner is None:
-            object.__setattr__(
-                self,
-                "job_runner",
-                "agentic_ci" if self.backend == "container" else "stub",
-            )
+            if self.backend == "openshell":
+                object.__setattr__(self, "job_runner", "openshell")
+            elif self.backend == "container":
+                object.__setattr__(self, "job_runner", "agentic_ci")
+            else:
+                object.__setattr__(self, "job_runner", "stub")
         if not self.vertex_project_id:
             object.__setattr__(
                 self,
@@ -121,7 +156,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
                     break
         return self
 
-    @field_validator("sticky_command", "worker_command", mode="before")
+    @field_validator("sticky_command", "worker_command", "container_tmpfs_mounts", mode="before")
     @classmethod
     def _parse_command(cls, value: object) -> tuple[str, ...]:
         if isinstance(value, tuple):

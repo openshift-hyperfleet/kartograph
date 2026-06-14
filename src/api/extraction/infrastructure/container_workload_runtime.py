@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
+from extraction.infrastructure.runtime_session_auth import issue_runtime_auth_token
 from extraction.infrastructure.sticky_session_workspace_binds import (
     build_sticky_session_workspace_binds,
 )
@@ -57,6 +58,15 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         container_run_gid: int | None = None,
         agent_turn_timeout_seconds: float = 1000.0,
         agent_max_turns: int = 500,
+        container_hardening_enabled: bool = True,
+        container_cap_drop_all: bool = True,
+        container_read_only_rootfs: bool = True,
+        container_no_new_privileges: bool = True,
+        container_pids_limit: int | None = 256,
+        container_memory_limit: str | None = "2g",
+        container_tmpfs_mounts: tuple[str, ...] = (
+            "/tmp:rw,noexec,nosuid,size=512m",
+        ),
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
@@ -74,6 +84,13 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._container_run_gid = container_run_gid
         self._agent_turn_timeout_seconds = agent_turn_timeout_seconds
         self._agent_max_turns = agent_max_turns
+        self._container_hardening_enabled = container_hardening_enabled
+        self._container_cap_drop_all = container_cap_drop_all
+        self._container_read_only_rootfs = container_read_only_rootfs
+        self._container_no_new_privileges = container_no_new_privileges
+        self._container_pids_limit = container_pids_limit
+        self._container_memory_limit = container_memory_limit
+        self._container_tmpfs_mounts = container_tmpfs_mounts
         self._leases: dict[str, StickySessionRuntimeLease] = {}
 
     def get_or_start_runtime(
@@ -269,6 +286,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             last_activity_at=now,
             expires_at=now + self._session_ttl,
             runtime_base_url=runtime_base_url,
+            runtime_auth_token=None,
         )
 
     def _start_runtime(
@@ -282,6 +300,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         bootstrap: StickySessionRuntimeBootstrap | None,
     ) -> StickySessionRuntimeLease:
         container_name = _sanitize_container_name("kartograph-sticky-", session_id)
+        runtime_auth_token = issue_runtime_auth_token()
         env: dict[str, str] = {
             "KARTOGRAPH_SESSION_ID": session_id,
             "KARTOGRAPH_KNOWLEDGE_GRAPH_ID": knowledge_graph_id,
@@ -290,6 +309,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
             "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(int(self._agent_turn_timeout_seconds)),
             "KARTOGRAPH_AGENT_MAX_TURNS": str(int(self._agent_max_turns)),
+            "KARTOGRAPH_RUNTIME_AUTH_TOKEN": runtime_auth_token,
         }
         binds: list[str] = []
         if bootstrap is not None:
@@ -304,7 +324,6 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 raise ValueError("sticky session credentials are expired")
             env.update(
                 {
-                    "KARTOGRAPH_WORKLOAD_TOKEN": bootstrap.credentials.token,
                     "KARTOGRAPH_TENANT_ID": bootstrap.tenant_id,
                     "KARTOGRAPH_API_BASE_URL": bootstrap.api_base_url,
                 }
@@ -334,6 +353,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
 
         self._remove_stale_container_name(container_name)
 
+        hardening = self._container_hardening_enabled
         launched = self._container_runtime.run(
             ContainerRunSpec(
                 image=self._sticky_image,
@@ -350,6 +370,12 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
                     "kartograph.mode": mode,
                 },
                 command=self._sticky_command,
+                cap_drop_all=hardening and self._container_cap_drop_all,
+                read_only_rootfs=hardening and self._container_read_only_rootfs,
+                no_new_privileges=hardening and self._container_no_new_privileges,
+                pids_limit=self._container_pids_limit if hardening else None,
+                memory_limit=self._container_memory_limit if hardening else None,
+                tmpfs_mounts=self._container_tmpfs_mounts if hardening else (),
             )
         )
         runtime_base_url = f"http://{container_name}:{self._sticky_service_port}"
@@ -363,6 +389,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             last_activity_at=now,
             expires_at=now + self._session_ttl,
             runtime_base_url=runtime_base_url,
+            runtime_auth_token=runtime_auth_token,
         )
 
     def _remove_stale_container_name(self, container_name: str) -> None:

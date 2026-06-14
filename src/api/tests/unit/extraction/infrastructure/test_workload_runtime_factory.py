@@ -8,6 +8,9 @@ from extraction.infrastructure.container_workload_runtime import (
     ContainerEphemeralExtractionWorkerLauncher,
     ContainerStickySessionRuntimeManager,
 )
+from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager import (
+    OpenShellStickySessionRuntimeManager,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     InMemoryStickySessionRuntimeManager,
@@ -42,6 +45,14 @@ class TestWorkloadRuntimeFactory:
 
         assert isinstance(sticky, ContainerStickySessionRuntimeManager)
         assert isinstance(worker, ContainerEphemeralExtractionWorkerLauncher)
+
+    def test_openshell_backend_returns_openshell_sticky_manager(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(backend="openshell")
+
+        sticky = create_sticky_session_runtime_manager(settings)
+
+        assert isinstance(sticky, OpenShellStickySessionRuntimeManager)
+        assert settings.job_runner == "openshell"
 
     def test_outbox_extraction_handler_uses_runtime_factory_wiring(self) -> None:
         main_source = Path(__file__).resolve().parents[4] / "main.py"

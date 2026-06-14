@@ -17,6 +17,7 @@ class IStickySessionBootstrapBuilder(Protocol):
         knowledge_graph_id: str,
         session_id: str,
         include_job_packages: bool,
+        ui_mode: str | None = None,
     ) -> StickySessionRuntimeBootstrap | None:
         """Return bootstrap payload when container runtime is enabled."""
         ...

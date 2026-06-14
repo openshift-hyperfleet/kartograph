@@ -10,12 +10,13 @@ from typing import Any
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from kartograph_agent_runtime.executor import stream_turn_events
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
+from kartograph_agent_runtime.runtime_auth import runtime_auth_matches, RUNTIME_AUTH_HEADER
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +53,26 @@ async def health():
     return {"status": "ok", "session_id": settings.session_id}
 
 
+def _require_runtime_auth(runtime_auth: str | None) -> None:
+    expected = settings.runtime_auth_token.strip()
+    if not expected:
+        return
+    if not runtime_auth_matches(expected=expected, provided=runtime_auth or ""):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "RUNTIME_AUTH_REQUIRED",
+                "message": "Missing or invalid runtime auth token.",
+            },
+        )
+
+
 @app.post("/v1/turn")
-async def stream_turn(request: TurnRequest) -> StreamingResponse:
+async def stream_turn(
+    request: TurnRequest,
+    x_kartograph_runtime_auth: str | None = Header(default=None, alias=RUNTIME_AUTH_HEADER),
+) -> StreamingResponse:
+    _require_runtime_auth(x_kartograph_runtime_auth)
     logger.info(
         "agent_runtime_turn_started session_id=%s ui_mode=%s message_len=%s",
         settings.session_id,

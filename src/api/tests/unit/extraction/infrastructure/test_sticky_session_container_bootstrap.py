@@ -54,7 +54,14 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     spec: ContainerRunSpec = runtime.run.call_args.args[0]
     assert spec.command == ()
     assert spec.network == "kartograph_kartograph"
-    assert spec.env["KARTOGRAPH_WORKLOAD_TOKEN"] == credentials.token
+    assert "KARTOGRAPH_WORKLOAD_TOKEN" not in spec.env
+    assert spec.env["KARTOGRAPH_RUNTIME_AUTH_TOKEN"]
+    assert spec.cap_drop_all is True
+    assert spec.read_only_rootfs is True
+    assert spec.no_new_privileges is True
+    assert spec.pids_limit == 256
+    assert spec.memory_limit == "2g"
+    assert "/tmp:rw,noexec,nosuid,size=512m" in spec.tmpfs_mounts
     assert "/tmp/session-work:/workspace" in spec.binds
     assert "/tmp/session-work/repository-files:/workspace/repository-files:ro" in spec.binds
     assert "/host/.config/gcloud:/gcloud/config:ro" in spec.binds
@@ -66,3 +73,4 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
     assert spec.env["KARTOGRAPH_AGENT_MAX_TURNS"] == "500"
     assert spec.user == "1000:1000"
     assert lease.runtime_base_url.startswith("http://kartograph-sticky-")
+    assert lease.runtime_auth_token == spec.env["KARTOGRAPH_RUNTIME_AUTH_TOKEN"]

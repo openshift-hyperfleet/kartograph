@@ -38,6 +38,20 @@ class CliContainerRuntime:
             command.extend(["--network", spec.network])
         if spec.user is not None:
             command.extend(["--user", spec.user])
+        if spec.cap_drop_all:
+            command.extend(["--cap-drop", "ALL"])
+        if spec.read_only_rootfs:
+            command.append("--read-only")
+        if spec.no_new_privileges:
+            command.extend(["--security-opt", "no-new-privileges"])
+        for opt in spec.security_opt:
+            command.extend(["--security-opt", opt])
+        if spec.pids_limit is not None:
+            command.extend(["--pids-limit", str(spec.pids_limit)])
+        if spec.memory_limit is not None:
+            command.extend(["--memory", spec.memory_limit])
+        for mount in spec.tmpfs_mounts:
+            command.extend(["--tmpfs", mount])
         command.append(spec.image)
         if spec.command:
             command.extend(spec.command)

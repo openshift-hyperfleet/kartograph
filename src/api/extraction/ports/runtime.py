@@ -20,6 +20,7 @@ class StickySessionRuntimeLease:
     last_activity_at: datetime
     expires_at: datetime
     runtime_base_url: str | None = None
+    runtime_auth_token: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class StickySessionRuntimeBootstrap:
     credentials: ScopedWorkloadCredentials
     host_session_work_dir: str
     api_base_url: str
+    ui_mode: str | None = None
 
 
 @dataclass(frozen=True)

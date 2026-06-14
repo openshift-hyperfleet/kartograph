@@ -1,0 +1,10 @@
+version: 1
+name: gma-one-off-mutations
+enforcement: soft
+description: Sticky session policy for one-off graph mutations mode.
+endpoints:
+  - "api:8000:read-write"
+  - "inference.local:443:read-write"
+l7_allowed_paths:
+  - "/extraction/workloads/mutations/*"
+  - "/extraction/workloads/graph/*"

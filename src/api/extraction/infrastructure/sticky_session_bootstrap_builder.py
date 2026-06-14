@@ -54,8 +54,9 @@ class StickySessionBootstrapBuilder:
         knowledge_graph_id: str,
         session_id: str,
         include_job_packages: bool,
+        ui_mode: str | None = None,
     ) -> StickySessionRuntimeBootstrap | None:
-        if self._runtime_settings.backend != "container":
+        if self._runtime_settings.backend not in {"container", "openshell"}:
             return None
 
         job_packages: tuple[PreparedJobPackageSource, ...] = ()
@@ -83,4 +84,5 @@ class StickySessionBootstrapBuilder:
             credentials=credentials,
             host_session_work_dir=str(host_session_work_dir),
             api_base_url=self._runtime_settings.api_base_url,
+            ui_mode=ui_mode,
         )

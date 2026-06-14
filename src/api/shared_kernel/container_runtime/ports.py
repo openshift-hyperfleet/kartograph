@@ -24,6 +24,13 @@ class ContainerRunSpec:
     detach: bool = True
     remove_on_exit: bool = False
     user: str | None = None
+    cap_drop_all: bool = False
+    read_only_rootfs: bool = False
+    no_new_privileges: bool = False
+    pids_limit: int | None = None
+    memory_limit: str | None = None
+    tmpfs_mounts: tuple[str, ...] = field(default_factory=tuple)
+    security_opt: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

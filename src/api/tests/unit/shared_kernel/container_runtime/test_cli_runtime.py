@@ -107,6 +107,35 @@ class TestCliContainerRuntime:
 
             assert runtime.is_running("abc123") is False
 
+    def test_run_applies_container_hardening_flags(self) -> None:
+        runtime = CliContainerRuntime(binary="docker")
+
+        with patch("shared_kernel.container_runtime.cli_runtime.subprocess.run") as run:
+            run.return_value = MagicMock(returncode=0, stdout="abc123\n", stderr="")
+
+            runtime.run(
+                ContainerRunSpec(
+                    image="busybox:1.36",
+                    cap_drop_all=True,
+                    read_only_rootfs=True,
+                    no_new_privileges=True,
+                    pids_limit=128,
+                    memory_limit="1g",
+                    tmpfs_mounts=("/tmp:rw,noexec,nosuid,size=256m",),
+                )
+            )
+
+        command = run.call_args.args[0]
+        assert "--cap-drop" in command
+        assert "ALL" in command
+        assert "--read-only" in command
+        assert "no-new-privileges" in command
+        assert "--pids-limit" in command
+        assert "128" in command
+        assert "--memory" in command
+        assert "1g" in command
+        assert "--tmpfs" in command
+
     def test_remove_by_name_force_removes_existing_container(self) -> None:
         runtime = CliContainerRuntime(binary="docker")
 

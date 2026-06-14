@@ -23,6 +23,11 @@ from extraction.ports.sticky_runtime_health import IStickyRuntimeHealthChecker
 from extraction.ports.sticky_session_bootstrap import IStickySessionBootstrapBuilder
 from shared_kernel.container_runtime.ports import ContainerRuntimeError
 
+try:
+    from extraction.infrastructure.openshell.cli import OpenShellCliError
+except ImportError:  # pragma: no cover - defensive import ordering
+    OpenShellCliError = RuntimeError  # type: ignore[misc,assignment]
+
 from extraction.application.thinking_activity import thinking_event
 
 NDJSON_STREAM_HEADERS = {
@@ -216,7 +221,7 @@ class StickySessionRuntimeService:
                 }
             return
 
-        if self._runtime_backend != "container":
+        if self._runtime_backend not in {"container", "openshell"}:
             lease = await asyncio.to_thread(
                 self._sticky_runtime_manager.get_or_start_runtime,
                 session_id=session.id,
@@ -252,6 +257,7 @@ class StickySessionRuntimeService:
             knowledge_graph_id=knowledge_graph_id,
             session_id=session.id,
             include_job_packages=include_job_packages,
+            ui_mode=ui_mode.value,
         )
         session.runtime_context["workspace_materialization"] = {
             "job_package_ids": [source.package_id for source in job_packages],
@@ -269,7 +275,7 @@ class StickySessionRuntimeService:
                 mode=mode.value,
                 bootstrap=bootstrap,
             )
-        except ContainerRuntimeError as exc:
+        except (ContainerRuntimeError, OpenShellCliError) as exc:
             session.runtime_context["sticky_runtime"] = {
                 "phase": "failed",
                 "status": "failed",
@@ -326,10 +332,13 @@ class StickySessionRuntimeService:
 
     @staticmethod
     def _lease_context(lease: StickySessionRuntimeLease, *, phase: str) -> dict[str, Any]:
-        return {
+        context: dict[str, Any] = {
             "container_id": lease.container_id,
             "status": lease.status,
             "expires_at": lease.expires_at.isoformat(),
             "runtime_base_url": lease.runtime_base_url,
             "phase": phase,
         }
+        if lease.runtime_auth_token:
+            context["runtime_auth_token"] = lease.runtime_auth_token
+        return context

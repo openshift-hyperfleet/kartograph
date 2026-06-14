@@ -1,0 +1,10 @@
+version: 1
+name: gma-initial-schema-design
+enforcement: hard_requirement
+description: Production policy for initial schema design mode.
+endpoints:
+  - "kartograph-api:8000:read-write"
+  - "inference.local:443:read-write"
+l7_allowed_paths:
+  - "/extraction/workloads/schema/*"
+  - "/extraction/workloads/graph/*"

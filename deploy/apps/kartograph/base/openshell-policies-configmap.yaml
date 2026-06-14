@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kartograph-openshell-policies
+  labels:
+    app.kubernetes.io/component: openshell
+data:
+  gma-sticky-base.yaml: |
+    version: 1
+    name: gma-sticky-base
+    enforcement: hard_requirement
+    endpoints:
+      - "kartograph-api:8000:read-write"
+      - "inference.local:443:read-write"
+    l7_allowed_paths:
+      - "/extraction/workloads/*"
+  gma-initial-schema-design.yaml: |
+    version: 1
+    name: gma-initial-schema-design
+    enforcement: hard_requirement
+    endpoints:
+      - "kartograph-api:8000:read-write"
+      - "inference.local:443:read-write"
+    l7_allowed_paths:
+      - "/extraction/workloads/schema/*"
+      - "/extraction/workloads/graph/*"
+  gma-extraction-jobs.yaml: |
+    version: 1
+    name: gma-extraction-jobs
+    enforcement: hard_requirement
+    endpoints:
+      - "kartograph-api:8000:read-write"
+      - "inference.local:443:read-write"
+    l7_allowed_paths:
+      - "/extraction/workloads/jobs/*"
+      - "/extraction/workloads/graph/*"
+  gma-one-off-mutations.yaml: |
+    version: 1
+    name: gma-one-off-mutations
+    enforcement: hard_requirement
+    endpoints:
+      - "kartograph-api:8000:read-write"
+      - "inference.local:443:read-write"
+    l7_allowed_paths:
+      - "/extraction/workloads/mutations/*"
+      - "/extraction/workloads/graph/*"
+  extraction-job.yaml: |
+    version: 1
+    name: extraction-job
+    enforcement: hard_requirement
+    endpoints:
+      - "kartograph-api:8000:read-write"
+      - "inference.local:443:read-write"
+      - "github.com:443:full"
+      - "*.github.com:443:full"
+      - "pypi.org:443:read-only"
+      - "files.pythonhosted.org:443:read-only"
+      - "aiplatform.googleapis.com:443:read-write"
+      - "*.aiplatform.googleapis.com:443:read-write"
+      - "oauth2.googleapis.com:443:read-write"
+      - "api.anthropic.com:443:read-write"
+    l7_allowed_paths:
+      - "/extraction/workloads/*"

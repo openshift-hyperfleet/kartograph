@@ -17,6 +17,7 @@ class AgentRuntimeSettings(BaseSettings):
     port: int = Field(default=8787)
     api_base_url: str = Field(default="http://api:8000", alias="KARTOGRAPH_API_BASE_URL")
     workload_token: str = Field(default="", alias="KARTOGRAPH_WORKLOAD_TOKEN")
+    runtime_auth_token: str = Field(default="", alias="KARTOGRAPH_RUNTIME_AUTH_TOKEN")
     tenant_id: str = Field(default="", alias="KARTOGRAPH_TENANT_ID")
     knowledge_graph_id: str = Field(default="", alias="KARTOGRAPH_KNOWLEDGE_GRAPH_ID")
     session_id: str = Field(default="", alias="KARTOGRAPH_SESSION_ID")

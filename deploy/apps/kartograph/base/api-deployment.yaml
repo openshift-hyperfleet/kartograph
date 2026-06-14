@@ -155,10 +155,43 @@ spec:
                 secretKeyRef:
                   name: kartograph-sso-client-swagger-docs
                   key: client_id
+            - name: KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND
+                  optional: true
+            - name: KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL
+                  optional: true
+            - name: KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED
+                  optional: true
+            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR
+                  optional: true
+            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_ENFORCEMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: kartograph-config
+                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_ENFORCEMENT
+                  optional: true
 
           volumeMounts:
             - name: spicedb-ca
               mountPath: /etc/spicedb-ca
+              readOnly: true
+            - name: openshell-policies
+              mountPath: /etc/openshell/policies
               readOnly: true
           livenessProbe:
             httpGet:
@@ -190,3 +223,6 @@ spec:
             items:
               - key: service-ca.crt
                 path: service-ca.crt
+        - name: openshell-policies
+          configMap:
+            name: kartograph-openshell-policies

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from extraction.infrastructure.agentic_ci_extraction_job_runner import AgenticCiExtractionJobRunner
+from extraction.infrastructure.openshell_extraction_job_runner import OpenShellExtractionJobRunner
 from extraction.infrastructure.extraction_job_workdir_materializer import (
     ExtractionJobWorkdirMaterializer,
 )
@@ -38,7 +39,7 @@ def create_extraction_job_runner(
     if resolved.job_runner == "stub":
         return StubExtractionJobRunner()
     if session is None:
-        raise ValueError("database session is required for agentic-ci extraction jobs")
+        raise ValueError("database session is required for extraction job runners")
     prepared_reader = SqlPreparedJobPackageReader(
         session=session,
         job_package_work_dir=Path(resolved.job_package_work_dir),
@@ -69,6 +70,11 @@ def create_extraction_job_runner(
             schema_service=schema_service,
         ),
     )
+    if resolved.job_runner == "openshell":
+        return OpenShellExtractionJobRunner(
+            settings=resolved,
+            workdir_materializer=materializer,
+        )
     return AgenticCiExtractionJobRunner(
         settings=resolved,
         workdir_materializer=materializer,

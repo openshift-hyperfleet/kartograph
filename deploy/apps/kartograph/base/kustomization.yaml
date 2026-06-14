@@ -28,6 +28,8 @@ resources:
   - configmap.yaml
   - spicedb-schema-configmap.yaml
   - spicedb-ca-configmap.yaml
+  - networkpolicy-sticky-runtime.yaml
+  - openshell-policies-configmap.yaml
 
 commonLabels:
   app.kubernetes.io/name: kartograph

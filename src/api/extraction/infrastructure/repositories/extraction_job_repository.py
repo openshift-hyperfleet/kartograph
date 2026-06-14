@@ -542,6 +542,11 @@ class ExtractionJobRepository:
                 run_started_at=job.run_started_at,
                 archived_at=job.archived_at,
                 applied_mutations_jsonl=job.applied_mutations_jsonl,
+                input_tokens=job.input_tokens,
+                output_tokens=job.output_tokens,
+                cache_read_tokens=job.cache_read_tokens,
+                cache_creation_tokens=job.cache_creation_tokens,
+                cost_usd=job.cost_usd,
             )
         )
         await self._session.flush()

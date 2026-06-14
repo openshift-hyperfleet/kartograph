@@ -64,6 +64,10 @@ See `instance_generators/PREPOPULATION_WORKFLOW.md` for the numbered prepopulati
 
 Start prepopulation only when schema save succeeded **and** readiness returns 200 with gaps.
 
+**Relationship ontology:** each `edge_types[].label` must be unique. Multiple UI rows (one per
+source→target pair) require distinct labels (e.g. `tests_ct_api`, `covered_by_us_e2e`). After save,
+read back `kartograph_get_schema_ontology` — do not claim N types until N primary labels are stored.
+
 Writes persist to the platform database for the active knowledge graph.
 """.strip()
 

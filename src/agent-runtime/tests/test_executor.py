@@ -14,6 +14,7 @@ from kartograph_agent_runtime.executor import (
     _extract_sdk_reply,
     _iter_sdk_messages_with_heartbeat,
     finalize_sdk_turn_reply,
+    metrics_from_sdk_result,
     stream_turn_events,
 )
 from kartograph_agent_runtime.settings import AgentRuntimeSettings
@@ -196,6 +197,30 @@ async def test_sdk_message_heartbeat_does_not_cancel_pending_read() -> None:
             collected.append(str(item))
 
     assert collected == ["first", "second"]
+
+
+def test_metrics_from_sdk_result_extracts_usage_and_cost() -> None:
+    class _Result:
+        usage = {
+            "input_tokens": 120,
+            "output_tokens": 45,
+            "cache_read_input_tokens": 30,
+            "cache_creation_input_tokens": 15,
+        }
+        total_cost_usd = 0.33
+
+    metrics = metrics_from_sdk_result(_Result())
+
+    assert metrics["input_tokens"] == 120
+    assert metrics["output_tokens"] == 45
+    assert metrics["cache_read_tokens"] == 30
+    assert metrics["cache_creation_tokens"] == 15
+    assert metrics["cost_usd"] == pytest.approx(0.33)
+
+
+def test_metrics_from_sdk_result_returns_empty_when_missing() -> None:
+    assert metrics_from_sdk_result(None) == {}
+    assert metrics_from_sdk_result(object()) == {}
 
 
 @pytest.mark.asyncio

@@ -212,6 +212,25 @@ def finalize_sdk_turn_reply(
     return None
 
 
+def metrics_from_sdk_result(result: Any | None) -> dict[str, Any]:
+    """Extract token usage and cost from a Claude Agent SDK ResultMessage."""
+    if result is None:
+        return {}
+    raw_usage = getattr(result, "usage", None)
+    usage = raw_usage if isinstance(raw_usage, dict) else {}
+    total_cost = getattr(result, "total_cost_usd", None)
+    cost_usd = float(total_cost) if total_cost is not None else 0.0
+    if not usage and cost_usd == 0.0:
+        return {}
+    return {
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "cache_read_tokens": int(usage.get("cache_read_input_tokens") or 0),
+        "cache_creation_tokens": int(usage.get("cache_creation_input_tokens") or 0),
+        "cost_usd": cost_usd,
+    }
+
+
 def _build_sdk_env(settings: AgentRuntimeSettings) -> dict[str, str]:
     env = build_claude_agent_env(settings)
     if settings.gcloud_config_dir.strip():
@@ -542,4 +561,8 @@ async def _stream_with_claude_sdk(
             },
         }
         return
-    yield {"type": "done", "ok": True, "reply": reply}
+    done_payload: dict[str, Any] = {"type": "done", "ok": True, "reply": reply}
+    usage_metrics = metrics_from_sdk_result(last_result)
+    if usage_metrics:
+        done_payload["usage"] = usage_metrics
+    yield done_payload

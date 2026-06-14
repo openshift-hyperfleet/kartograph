@@ -8,17 +8,50 @@ from ulid import ULID
 
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
-from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.infrastructure.extraction_job_mutation_metrics import metrics_from_mutation_jsonl
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 from extraction.ports.repositories import IExtractionAgentSessionRepository
 
 GRAPH_MANAGEMENT_SESSION_STRATEGY = "graph_management_session"
 
+_JOB_SET_BY_UI_MODE: dict[str, str] = {
+    GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value: (
+        "Graph Management · Initial Schema Design"
+    ),
+    GraphManagementUiMode.EXTRACTION_JOBS.value: "Graph Management · Extraction Jobs",
+    GraphManagementUiMode.ONE_OFF_MUTATIONS.value: "Graph Management · One-off Mutations",
+}
+
 _JOB_SET_BY_MODE: dict[ExtractionSessionMode, str] = {
     ExtractionSessionMode.SCHEMA_BOOTSTRAP: "Graph Management · Schema Design",
     ExtractionSessionMode.EXTRACTION_OPERATIONS: "Graph Management · Extraction Operations",
 }
+
+_USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+)
+
+
+def _ensure_journal(session: ExtractionAgentSession) -> dict[str, object]:
+    journal = dict(session.runtime_context.get("mutation_journal") or {})
+    if not journal.get("started_at"):
+        journal["started_at"] = session.created_at.isoformat()
+    return journal
+
+
+def _journal_token_total(journal: dict[str, object]) -> int:
+    return int(journal.get("input_tokens") or 0) + int(journal.get("output_tokens") or 0)
+
+
+def _job_set_name_for_session(session: ExtractionAgentSession) -> str:
+    ui_mode = str(session.runtime_context.get("graph_management_ui_mode") or "")
+    if ui_mode in _JOB_SET_BY_UI_MODE:
+        return _JOB_SET_BY_UI_MODE[ui_mode]
+    return _JOB_SET_BY_MODE.get(session.mode, "Graph Management Assistant")
 
 
 def append_applied_jsonl_to_session(
@@ -30,13 +63,26 @@ def append_applied_jsonl_to_session(
     chunk = applied_jsonl.strip()
     if not chunk:
         return
-    journal = dict(session.runtime_context.get("mutation_journal") or {})
+    journal = _ensure_journal(session)
     previous = str(journal.get("jsonl") or "").strip()
     combined = "\n".join(part for part in (previous, chunk) if part)
     journal["jsonl"] = combined
     journal["line_count"] = sum(1 for line in combined.splitlines() if line.strip())
-    if not journal.get("started_at"):
-        journal["started_at"] = session.created_at.isoformat()
+    session.runtime_context["mutation_journal"] = journal
+
+
+def append_turn_usage_to_session(
+    session: ExtractionAgentSession,
+    *,
+    usage: dict[str, object],
+) -> None:
+    """Accumulate token usage from one Graph Management Assistant chat turn."""
+    if not usage:
+        return
+    journal = _ensure_journal(session)
+    for key in _USAGE_KEYS:
+        journal[key] = int(journal.get(key) or 0) + int(usage.get(key) or 0)
+    journal["cost_usd"] = float(journal.get("cost_usd") or 0.0) + float(usage.get("cost_usd") or 0.0)
     session.runtime_context["mutation_journal"] = journal
 
 
@@ -65,14 +111,13 @@ class GraphManagementSessionJournalService:
         await self._session_repository.save(session)
 
     async def archive_session_mutations(self, session: ExtractionAgentSession) -> None:
-        """Write one ARCHIVED extraction job row when the session had graph writes."""
+        """Write one ARCHIVED extraction job row for the full GMA session."""
         journal = session.runtime_context.get("mutation_journal") or {}
         jsonl = str(journal.get("jsonl") or "").strip()
-        if not jsonl:
-            return
-
-        metrics = metrics_from_mutation_jsonl(jsonl)
-        if int(metrics.get("write_ops") or 0) <= 0:
+        metrics = metrics_from_mutation_jsonl(jsonl) if jsonl else {}
+        write_ops = int(metrics.get("write_ops") or 0)
+        token_total = _journal_token_total(journal)
+        if write_ops <= 0 and token_total <= 0:
             return
 
         now = datetime.now(UTC)
@@ -84,15 +129,11 @@ class GraphManagementSessionJournalService:
             except ValueError:
                 started_at = session.created_at
 
-        job_set_name = _JOB_SET_BY_MODE.get(
-            session.mode,
-            "Graph Management Assistant",
-        )
         record = ExtractionJobRecord(
             id=str(ULID()),
             knowledge_graph_id=session.knowledge_graph_id,
             job_id=f"gma-{session.id}",
-            job_set_name=job_set_name,
+            job_set_name=_job_set_name_for_session(session),
             strategy=GRAPH_MANAGEMENT_SESSION_STRATEGY,
             status=ExtractionJobStatus.ARCHIVED,
             order_index=0,
@@ -104,7 +145,12 @@ class GraphManagementSessionJournalService:
             started_at=started_at,
             completed_at=now,
             archived_at=now,
-            applied_mutations_jsonl=jsonl,
+            applied_mutations_jsonl=jsonl or None,
+            input_tokens=int(journal.get("input_tokens") or 0),
+            output_tokens=int(journal.get("output_tokens") or 0),
+            cache_read_tokens=int(journal.get("cache_read_tokens") or 0),
+            cache_creation_tokens=int(journal.get("cache_creation_tokens") or 0),
+            cost_usd=float(journal.get("cost_usd") or 0.0),
             entities_created=int(metrics.get("entities_created") or 0),
             entities_modified=int(metrics.get("entities_modified") or 0),
             relationships_created=int(metrics.get("relationships_created") or 0),

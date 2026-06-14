@@ -119,6 +119,64 @@ def _build_chat_turn_service(
     return service, repo
 
 
+class _UsageEmittingChatAgent:
+    async def stream_turn(self, **kwargs):
+        yield {
+            "type": "done",
+            "ok": True,
+            "reply": "Designed schema.",
+            "usage": {
+                "input_tokens": 800,
+                "output_tokens": 200,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "cost_usd": 0.25,
+            },
+        }
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> None:
+    repo = _InMemoryAgentSessionRepository()
+    sticky = InMemoryStickySessionRuntimeManager()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    runtime_service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(IngestionReadinessSnapshot(1, 1)),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=_UsageEmittingChatAgent(),
+    )
+
+    events = [
+        event
+        async for event in service.stream_chat_turn(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            message="Design entity types",
+        )
+    ]
+
+    assert events[-1]["ok"] is True
+    active = await repo.find_active_by_scope("user-1", "kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP)
+    assert active is not None
+    journal = active.runtime_context["mutation_journal"]
+    assert journal["input_tokens"] == 800
+    assert journal["output_tokens"] == 200
+    assert journal["cost_usd"] == 0.25
+
+
 @pytest.mark.asyncio
 async def test_stream_chat_turn_persists_assistant_reply() -> None:
     service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))

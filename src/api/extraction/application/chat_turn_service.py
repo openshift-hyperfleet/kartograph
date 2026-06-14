@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
+from extraction.application.graph_management_session_journal import append_turn_usage_to_session
 from extraction.ports.sticky_session_runtime import IStickySessionRuntimeService
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
@@ -151,6 +152,9 @@ class ExtractionChatTurnService:
                         str(line) for line in recent if str(line).strip()
                     ]
             if event.get("type") == "done":
+                usage = event.get("usage")
+                if isinstance(usage, dict) and usage:
+                    append_turn_usage_to_session(session, usage=usage)
                 if event.get("ok") is True and event.get("reply"):
                     assistant_reply = str(event["reply"])
                 elif event.get("ok") is not True:
@@ -165,6 +169,9 @@ class ExtractionChatTurnService:
             await self._session_service.save_session(session)
         elif stream_failed:
             session.message_history.append({"role": "user", "content": trimmed})
+            session.updated_at = datetime.now(UTC)
+            await self._session_service.save_session(session)
+        elif session.runtime_context.get("mutation_journal"):
             session.updated_at = datetime.now(UTC)
             await self._session_service.save_session(session)
         else:

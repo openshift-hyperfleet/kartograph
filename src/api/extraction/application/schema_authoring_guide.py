@@ -87,11 +87,70 @@ Scanner stdout contract:
 ## Schema modeling rules
 
 - **Property vs entity:** categorize → property; track instances/relationships → entity + edges.
-- **Bidirectional relationships** default on — author **one primary direction only** in `edge_types`.
-  Set optional `inverse_label` (default `{label}_inverse`). Never add a separate inverse type;
-  the platform auto-generates it and twin edge instances. Design artifacts show
-  `primary / inverse` on a single row.
 - Set `bidirectional: false` only for asymmetric edges (`depends_on`, `created_by`).
+
+## Relationship types (authoring vs UI)
+
+### Unique edge labels (required)
+
+Every `edge_types[].label` must be **unique** within the ontology. The platform stores edge types by
+label; duplicate labels are rejected or silently collapse to one definition — **never** author six
+entries all named `tests` or two named `covered_by`.
+
+**When the operator wants N rows in the Relationship ontology UI** (one row per source → target
+pair), create **N primary `edge_types` entries with N distinct labels** — one concrete
+`source_labels` + `target_labels` pair each (single element in each array). Assign a unique label
+per row (e.g. `tests_ct_api`, `tests_e2e_adapter`, `covered_by_us_ct`). Set a distinct
+`inverse_label` per entry when bidirectional (e.g. `appears_in_ct_api`, `covers_us_ct`).
+
+Example — eight UI rows for eight endpoint pairs (labels illustrative; adjust naming to taste):
+
+| UI row | `label` | `source_labels` | `target_labels` | `inverse_label` |
+|--------|---------|-----------------|-----------------|-----------------|
+| 1 | `tests_ct_api` | `["ComponentTest"]` | `["APIEndpoint"]` | `appears_in_ct_api` |
+| 2 | `tests_ct_adapter` | `["ComponentTest"]` | `["Adapter"]` | `appears_in_ct_adapter` |
+| … | … | … | … | … |
+| 8 | `covered_by_us_e2e` | `["UserStory"]` | `["E2ETest"]` | `covers_us_e2e` |
+
+After save, call `kartograph_get_schema_ontology` and confirm **eight primary** edge types exist
+(`auto_generated` / `inverse_of` entries are inverses — the UI hides them). **Never** claim “8 types
+saved” until read-back shows eight distinct primary labels.
+
+**Relationship scanners:** `--rel` must match the saved `label` for that row (e.g.
+`--rel tests_ct_api`, not `--rel tests` when the ontology label is `tests_ct_api`).
+
+### How the UI counts rows
+
+Design artifacts show **one row per primary relationship label**. Inverse types are **not**
+separate rows; each row shows `primary / inverse` badges (e.g. `tests_ct_api / appears_in_ct_api`).
+
+**Bidirectional (default):** author **one primary direction only** per label. Do **not** add the
+inverse as its own authored `edge_types` entry — the platform auto-generates it on save.
+
+### Semantic grouping vs UI rows
+
+**Count relationship types by stored label**, not by endpoint pair alone. Two patterns:
+
+1. **Few semantic types, few UI rows:** one label (e.g. `tests`) with one representative pair; other
+   endpoint combinations get relationship **instances** via extraction jobs later.
+2. **Many UI rows:** many labels (unique per pair) as in the table above — report the count from
+   read-back primary entries, not “8 combinations” while only two labels exist.
+
+**Multi-label arrays (advanced):** one entry may list multiple entity types in `source_labels` /
+`target_labels`, but the UI shows **one row** using `source_labels[0]` → `target_labels[0]` only.
+Do not promise N×M separate UI rows without N×M distinct primary labels.
+
+**After every schema save or relationship edit:** call `kartograph_get_schema_ontology` and report
+what is stored — for each **primary** edge type: `label`, `source_labels`, `target_labels`,
+`inverse_label`, `bidirectional`, `prepopulated`. Do not claim combinations or counts not in that
+payload.
+
+**User-facing summaries must match stored ontology:**
+
+- ✅ “8 relationship types in the UI: `tests_ct_api`, `tests_ct_adapter`, … (each bidirectional).”
+- ✅ “2 relationship types: `tests`, `covered_by` — one representative pair each; other pairs via extraction jobs.”
+- ❌ “Saved 8 types: ComponentTest|tests|APIEndpoint, …” when read-back shows only two labels.
+- ❌ Listing auto-generated inverses as types you authored.
 
 ## Workspace discovery patterns
 
@@ -135,20 +194,25 @@ Scanner script convention: `instance_generators/{Label}.py` → `out/{Label}_ins
 
 ## Relationship type shape
 
+One primary entry per UI row (single source/target pair; **unique `label`**):
+
 ```json
 {
-  "label": "exercises",
+  "label": "tests_ct_api",
+  "description": "ComponentTest validates APIEndpoint behavior",
   "source_labels": ["ComponentTest"],
   "target_labels": ["APIEndpoint"],
-  "prepopulated": true,
+  "prepopulated": false,
   "bidirectional": true,
-  "inverse_label": "exercises_inverse"
+  "inverse_label": "appears_in_ct_api"
 }
 ```
 
-Do **not** also add `exercises_inverse` as its own `edge_types` entry — that inverse is auto-generated on save.
+Do **not** also add `appears_in_ct_api` as its own `edge_types` entry — that inverse is auto-generated on save.
 
-Relationship scanner convention: `out/{source}_{label}_{target}_instances.json` (primary direction only).
+**Prepopulation / scanners:** one concrete triple per run; `--rel` equals the saved `label`:
+`run_scanner.py --relationship --source ComponentTest --rel tests_ct_api --target APIEndpoint`.
+Output: `out/{source}_{label}_{target}_instances.json` (primary direction only; platform adds twin inverse edges on apply).
 
 ## Instance mutations (JSONL)
 

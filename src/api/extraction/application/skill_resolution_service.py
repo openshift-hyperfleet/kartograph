@@ -89,6 +89,13 @@ _GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
                 "500/503, report both outcomes as a backend bug — do not retry blindly or continue to "
                 "the next prepopulated type."
             ),
+            (
+                "Relationship ontology UI rows require unique edge_types labels. When the user asks "
+                "for multiple source→target pairs (e.g. eight ComponentTest/E2ETest tests rows), save "
+                "one primary edge_types entry per pair with distinct labels — never reuse the same "
+                "label six times. After kartograph_save_schema_ontology, call kartograph_get_schema_ontology "
+                "and report the stored primary label count before telling the user to refresh the UI."
+            ),
         ),
     },
     ExtractionSessionMode.EXTRACTION_OPERATIONS: {
@@ -132,10 +139,17 @@ _GLOBAL_SKILL_TEMPLATES: dict[ExtractionSessionMode, dict[str, str]] = {
         "schema_modeling": (
             "Property vs entity: distinguish/categorize → property on an existing type; "
             "track which/what or needs relationships → entity type + edges. "
-            "Relationships default bidirectional — author one primary direction in edge_types with "
-            "optional inverse_label; never add a separate inverse edge type (platform auto-generates "
-            "it and twin instances). Design artifacts show primary/inverse on one row. "
-            "Set bidirectional=false only for asymmetric edges (depends_on, created_by)."
+            "Edge type labels must be UNIQUE — never duplicate `tests` or `covered_by` across rows. "
+            "When the operator wants N Relationship ontology UI rows (one per source→target pair), "
+            "author N primary edge_types with N distinct labels (e.g. tests_ct_api, covered_by_us_e2e), "
+            "each with a single source_labels/target_labels pair and distinct inverse_label when "
+            "bidirectional. Relationship scanners use --rel matching the saved label. "
+            "Relationships default bidirectional — one primary entry per unique label; never add a "
+            "separate inverse type (platform auto-generates it). UI: one row per primary label. "
+            "After save, read kartograph_get_schema_ontology and confirm primary edge type count — "
+            "never claim N types saved until read-back shows N distinct primary labels. "
+            "Set bidirectional=false only for asymmetric edges (depends_on, created_by). "
+            "Full rules: kartograph_get_schema_authoring_guide."
         ),
         "schema_workflow": (
             "Call kartograph_get_schema_authoring_guide when you need shapes, phases, or mutation rules. "

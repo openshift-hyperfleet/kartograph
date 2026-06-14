@@ -54,6 +54,19 @@ dev-backup-list:
 dev-repair-age-graphs:
 	@./scripts/dev-data-backup.sh repair
 
+.PHONY: kg-backup kg-restore kg-backup-list
+kg-backup:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-backup KG_ID=<knowledge-graph-id>" && exit 1)
+	@./scripts/kg-data-backup.sh capture "$(KG_ID)"
+
+kg-restore:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-restore KG_ID=<knowledge-graph-id> [BACKUP=latest] [YES=1] [REPLACE=1]" && exit 1)
+	@./scripts/kg-data-backup.sh restore "$(KG_ID)" $(or $(BACKUP),latest) $(if $(YES),--yes,) $(if $(REPLACE),--replace,)
+
+kg-backup-list:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-backup-list KG_ID=<knowledge-graph-id>" && exit 1)
+	@./scripts/kg-data-backup.sh list "$(KG_ID)"
+
 
 .PHONY: run
 run:

@@ -10,7 +10,6 @@ export type GraphManagementRailItemId =
   | 'schema-relationships'
   | 'schema-readiness'
   | 'validation-diagnostics'
-  | 'session-pointers'
   | 'extraction-jobs-setup'
   | 'mutation-authoring'
 
@@ -122,14 +121,6 @@ export function buildGraphManagementRailItems(
       lastUpdated: sessionStamp,
       detailHint: 'Blocking reasons and prepopulated type gaps.',
       modes: ['initial-schema-design'],
-    },
-    {
-      id: 'session-pointers',
-      label: 'Session pointers',
-      status: input.hasActiveSession ? 'ready' : 'in_progress',
-      lastUpdated: sessionStamp,
-      detailHint: 'Active bootstrap, extraction, and completed session references.',
-      modes: GRAPH_MANAGEMENT_MODE_ORDER,
     },
     {
       id: 'extraction-jobs-setup',

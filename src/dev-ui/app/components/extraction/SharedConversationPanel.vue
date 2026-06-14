@@ -71,7 +71,7 @@ const props = withDefaults(defineProps<{
   description:
     'Design and refine schema readiness, validation, and extraction operations for this knowledge graph. Use the assistant below to drive workspace changes.',
   footerHint:
-    'Use Schema & artifacts and Session pointers below to inspect workspace state; send notes or questions here.',
+    'Use Design Artifacts below to inspect schema and instances; send notes or questions here.',
 })
 
 const emit = defineEmits<{

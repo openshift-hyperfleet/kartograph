@@ -84,14 +84,6 @@ describe('Knowledge Graph Manage Workspace - graph management controls', () => {
     expect(manageWorkspaceVue).toContain('/workspace/transition-to-extraction')
     expect(manageWorkspaceVue).toContain('Go to Extraction/Mutations')
   })
-
-  it('loads scoped session history with run metrics after clear chat', () => {
-    expect(manageWorkspaceVue).toContain('loadSessionHistory')
-    expect(manageWorkspaceVue).toContain('/sessions/${sharedSessionMode.value}/history')
-    expect(manageWorkspaceVue).toContain('sessionHistory')
-    expect(manageWorkspaceVue).toContain('run_metrics')
-    expect(manageWorkspaceVue).toContain('Session history')
-  })
 })
 
 describe('Knowledge Graph Manage Workspace - graph writes history', () => {
@@ -440,7 +432,7 @@ describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
     expect(manageWorkspaceVue).toContain('GraphDesignEntitiesPanel')
     expect(manageWorkspaceVue).toContain('GraphDesignRelationshipsPanel')
     expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
-    expect(manageWorkspaceVue).toContain('graph-management-session-pointers')
+    expect(manageWorkspaceVue).not.toContain('graph-management-session-pointers')
     expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
     expect(manageWorkspaceVue).toContain('schemaRailItems')
     expect(manageWorkspaceVue).toContain('lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)]')
@@ -463,9 +455,7 @@ describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
     })
 
     expect(items.every((item) => item.status && item.lastUpdated && item.label)).toBe(true)
-    expect(items.find((item) => item.id === 'session-pointers')?.modes).toEqual(
-      GRAPH_MANAGEMENT_MODE_ORDER,
-    )
+    expect(items.map((item) => item.id)).not.toContain('session-pointers')
   })
 })
 
@@ -568,14 +558,14 @@ describe('KG-MANAGE-016 - graph management top controls', () => {
     })
 
     expect(
-      resolveRailSelectionForMode('session-pointers', 'extraction-jobs', items),
-    ).toBe('session-pointers')
+      resolveRailSelectionForMode('extraction-jobs-setup', 'extraction-jobs', items),
+    ).toBe('extraction-jobs-setup')
     expect(
       isRailItemValidInMode('schema-readiness', 'extraction-jobs', items),
     ).toBe(false)
     expect(
       resolveRailSelectionForMode('schema-readiness', 'extraction-jobs', items),
-    ).toBe('session-pointers')
+    ).toBe('extraction-jobs-setup')
   })
 
   it('builds graph management URLs with mode query for keyboard navigation', () => {

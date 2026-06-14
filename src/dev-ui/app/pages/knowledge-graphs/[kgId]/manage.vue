@@ -173,27 +173,6 @@ interface ExtractionSessionResponse {
   updated_at: string
 }
 
-interface SessionRunMetricView {
-  sync_run_id: string
-  mutation_log_id: string | null
-  status: string
-  started_at: string
-  completed_at: string | null
-  token_usage_total: number | null
-  cost_total_usd: number | null
-  operation_counts: Record<string, number>
-}
-
-interface ExtractionSessionHistoryItem {
-  id: string
-  created_at: string
-  updated_at: string
-  archived_at: string | null
-  is_active: boolean
-  message_count: number
-  run_metrics: SessionRunMetricView[]
-}
-
 const route = useRoute()
 const { hasTenant, tenantVersion } = useTenant()
 const { extractErrorMessage } = useErrorHandler()
@@ -215,7 +194,6 @@ const workspaceForbiddenReason = ref<string | null>(null)
 const validating = ref(false)
 const transitioning = ref(false)
 const sessionLoading = ref(false)
-const sessionHistoryLoading = ref(false)
 const sessionLoadError = ref<string | null>(null)
 const sessionForbidden = ref(false)
 const sessionForbiddenReason = ref<string | null>(null)
@@ -226,7 +204,6 @@ const runtimeReady = ref(false)
 const runtimeWarmupError = ref<string | null>(null)
 let runtimeWarmupGeneration = 0
 const extractionSession = ref<ExtractionSessionResponse | null>(null)
-const sessionHistory = ref<ExtractionSessionHistoryItem[]>([])
 const draftMessage = ref('')
 const statusProjection = ref<WorkspaceStatusResponse | null>(null)
 const mutationLogLoading = ref(false)
@@ -918,21 +895,22 @@ async function loadExtractionSession() {
   }
 }
 
-async function loadSessionHistory() {
-  if (!kgId.value) return
-  sessionHistoryLoading.value = true
+async function clearChat() {
+  // Clear chat resets the active extraction session for this knowledge graph.
+  if (!kgId.value || sessionForbidden.value) return
+  clearingChat.value = true
   try {
-    const response = await apiFetch<{ sessions: ExtractionSessionHistoryItem[] }>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/history`,
+    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
+      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/clear-chat`,
+      { method: 'POST' },
     )
-    sessionHistory.value = response.sessions
+    toast.success('Extraction chat cleared')
   } catch (err) {
-    sessionHistory.value = []
-    toast.error('Failed to load session history', {
+    toast.error('Failed to clear chat', {
       description: extractErrorMessage(err),
     })
   } finally {
-    sessionHistoryLoading.value = false
+    clearingChat.value = false
   }
 }
 
@@ -1215,26 +1193,6 @@ async function transitionToExtraction() {
   }
 }
 
-async function clearChat() {
-  // Clear chat resets the active extraction session for this knowledge graph.
-  if (!kgId.value || sessionForbidden.value) return
-  clearingChat.value = true
-  try {
-    extractionSession.value = await apiFetch<ExtractionSessionResponse>(
-      `/extraction/knowledge-graphs/${kgId.value}/sessions/${sharedSessionMode.value}/clear-chat`,
-      { method: 'POST' },
-    )
-    toast.success('Extraction chat cleared')
-    await loadSessionHistory()
-  } catch (err) {
-    toast.error('Failed to clear chat', {
-      description: extractErrorMessage(err),
-    })
-  } finally {
-    clearingChat.value = false
-  }
-}
-
 onMounted(() => {
   loadKgIdentity()
   loadWorkspaceStatus()
@@ -1282,7 +1240,6 @@ watch(
       syncGraphManagementState()
       await Promise.all([
         loadExtractionSession(),
-        loadSessionHistory(),
         loadGraphManagementDataSources(),
         refreshDesignArtifacts({ silent: true }),
       ])
@@ -2085,109 +2042,6 @@ watch(
                   Select a schema artifact from the list to inspect mode-specific workspace content.
                 </CardDescription>
               </CardHeader>
-            </Card>
-
-            <Card id="graph-management-session-pointers" class="graph-management-session-pointers">
-              <CardHeader>
-                <CardTitle class="text-base flex items-center gap-2">
-                  <ScrollText class="size-4" />
-                  Session pointers
-                </CardTitle>
-                <CardDescription>
-                  Active bootstrap and extraction sessions, plus archived history for this knowledge graph.
-                </CardDescription>
-              </CardHeader>
-              <CardContent class="space-y-4 text-sm">
-                <div class="grid gap-2 md:grid-cols-3 text-xs">
-                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
-                    <p class="text-muted-foreground">Active schema bootstrap session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.active_schema_bootstrap_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
-                    <p class="text-muted-foreground">Active extraction operations session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.active_extraction_operations_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                  <div class="rounded-lg border bg-muted/30 px-3 py-2">
-                    <p class="text-muted-foreground">Most recent completed session</p>
-                    <p class="mt-1 break-all font-mono">
-                      {{ statusProjection.session_pointers.most_recent_completed_session_id ?? 'None' }}
-                    </p>
-                  </div>
-                </div>
-                <div class="space-y-3 border-t pt-3">
-                  <div class="flex items-center justify-between">
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Session history
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-6 px-2 text-[10px]"
-                      :disabled="sessionHistoryLoading"
-                      @click="loadSessionHistory"
-                    >
-                      Refresh
-                    </Button>
-                  </div>
-                  <div
-                    v-if="sessionHistoryLoading"
-                    class="flex items-center gap-2 text-xs text-muted-foreground"
-                  >
-                    <Loader2 class="size-3.5 animate-spin" />
-                    Loading session history...
-                  </div>
-                  <div
-                    v-else-if="sessionHistory.length === 0"
-                    class="rounded-lg border border-dashed px-3 py-4 text-xs text-muted-foreground"
-                  >
-                    No archived or active sessions found for this scope yet.
-                  </div>
-                  <div v-else class="space-y-2">
-                    <div
-                      v-for="entry in sessionHistory"
-                      :key="entry.id"
-                      class="rounded-lg border bg-card px-3 py-2 text-xs"
-                    >
-                      <div class="flex flex-wrap items-center justify-between gap-2">
-                        <p class="font-mono break-all">{{ entry.id }}</p>
-                        <Badge :variant="entry.is_active ? 'default' : 'secondary'">
-                          {{ entry.is_active ? 'Active' : 'Archived' }}
-                        </Badge>
-                      </div>
-                      <p class="mt-1 text-muted-foreground">
-                        Updated {{ new Date(entry.updated_at).toLocaleString() }}
-                        <span v-if="entry.archived_at">
-                          · Archived {{ new Date(entry.archived_at).toLocaleString() }}
-                        </span>
-                      </p>
-                      <p class="mt-1 text-muted-foreground">
-                        {{ entry.message_count }} message(s)
-                        · {{ entry.run_metrics.length }} linked run(s)
-                      </p>
-                      <div
-                        v-if="entry.run_metrics.length > 0"
-                        class="mt-2 space-y-1.5 rounded-lg border bg-muted/20 p-2"
-                      >
-                        <div
-                          v-for="metric in entry.run_metrics"
-                          :key="metric.sync_run_id"
-                          class="flex flex-wrap items-center justify-between gap-2"
-                        >
-                          <span class="font-mono">{{ metric.mutation_log_id ?? metric.sync_run_id }}</span>
-                          <span class="text-muted-foreground">
-                            {{ metric.token_usage_total ?? 0 }} tokens ·
-                            ${{ (metric.cost_total_usd ?? 0).toFixed(2) }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
             </Card>
           </div>
         </div>

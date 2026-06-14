@@ -8,7 +8,7 @@ import {
 import type { StepStatusLabel } from './kgManageWorkspace'
 
 export function filterSchemaRailItems(items: GraphManagementRailItem[]): GraphManagementRailItem[] {
-  return items.filter((item) => item.id !== 'session-pointers')
+  return items
 }
 
 export function resolveSchemaRailSelection(

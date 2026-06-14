@@ -30,7 +30,7 @@ describe('kgGraphManagementArtifacts', () => {
       resolveSchemaRailSelection(null, 'initial-schema-design', items),
     ).toBe('schema-entities')
     expect(
-      resolveSchemaRailSelection('session-pointers', 'extraction-jobs', items),
+      resolveSchemaRailSelection('schema-readiness', 'extraction-jobs', items),
     ).toBe('extraction-jobs-setup')
   })
 

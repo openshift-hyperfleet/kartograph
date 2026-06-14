@@ -15,9 +15,11 @@ def test_issue_for_sticky_session_includes_chat_scope() -> None:
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-test-1",
     )
 
     assert "workload:chat" in credentials.scopes
+    assert "session:session-test-1" in credentials.scopes
     assert issuer.verify(credentials.token) == credentials
 
 
@@ -35,6 +37,7 @@ def test_verify_survives_new_issuer_instance_with_same_signing_key() -> None:
     credentials = issuer_a.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-test-2",
     )
 
     issuer_b = ScopedWorkloadCredentialIssuer(

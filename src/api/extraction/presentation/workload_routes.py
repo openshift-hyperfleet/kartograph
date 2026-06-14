@@ -15,9 +15,13 @@ from extraction.presentation.workload_auth import (
     get_workload_auth_context,
 )
 from infrastructure.extraction_workload.dependencies import (
+    get_graph_management_session_journal_service,
     get_workload_extraction_jobs_service,
     get_workload_graph_reader,
     get_workload_schema_service,
+)
+from extraction.application.graph_management_session_journal import (
+    GraphManagementSessionJournalService,
 )
 from infrastructure.extraction_workload.workload_errors import raise_graph_storage_http_error
 from management.domain.ontology_prepopulation import PrepopulationValidationError
@@ -256,6 +260,10 @@ async def workload_apply_mutations(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+    session_journal: Annotated[
+        GraphManagementSessionJournalService,
+        Depends(get_graph_management_session_journal_service),
+    ] = ...,
 ) -> WorkloadMutationApplyResponse:
     _require_chat_scope(auth)
     try:
@@ -271,6 +279,13 @@ async def workload_apply_mutations(
     remaining_entity_gaps: list[str] = []
     remaining_relationship_gaps: list[str] = []
     if result.get("applied"):
+        applied_jsonl = str(result.get("applied_jsonl") or "").strip()
+        if auth.session_id and applied_jsonl:
+            await session_journal.append_applied_jsonl(
+                session_id=auth.session_id,
+                applied_jsonl=applied_jsonl,
+            )
+
         from infrastructure.extraction_workload.workspace_readiness import (
             build_workload_readiness_snapshot,
         )

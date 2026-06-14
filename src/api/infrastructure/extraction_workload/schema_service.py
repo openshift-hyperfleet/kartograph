@@ -129,10 +129,11 @@ class GraphWorkloadSchemaService:
             return {"applied": False, "errors": [str(exc)]}
 
         if not define_ops and not instance_ops:
-            return {"applied": True, "errors": [], "operations_applied": 0}
+            return {"applied": True, "errors": [], "operations_applied": 0, "applied_jsonl": ""}
 
         errors: list[str] = []
         operations_applied = 0
+        applied_operations = define_ops + instance_ops
 
         if define_ops:
             define_jsonl = "\n".join(
@@ -171,4 +172,13 @@ class GraphWorkloadSchemaService:
                     await self._repository.replace_ontology(knowledge_graph_id, synced)
 
         await self._session.commit()
-        return {"applied": True, "errors": [], "operations_applied": operations_applied}
+        applied_jsonl = "\n".join(
+            json.dumps(operation.model_dump(mode="json"), separators=(",", ":"))
+            for operation in applied_operations
+        )
+        return {
+            "applied": True,
+            "errors": [],
+            "operations_applied": operations_applied,
+            "applied_jsonl": applied_jsonl,
+        }

@@ -12,7 +12,11 @@ from extraction.application import (
     ExtractionChatTurnService,
     ExtractionSkillResolutionService,
 )
+from extraction.application.graph_management_session_journal import (
+    GraphManagementSessionJournalService,
+)
 from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
+from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 from extraction.infrastructure.sticky_runtime_health import StickyRuntimeHealthChecker
 from extraction.infrastructure.ingestion_readiness_reader import SqlIngestionReadinessReader
 from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
@@ -65,6 +69,10 @@ def _build_extraction_agent_session_service(
         skill_resolution_service=skill_resolution_service,
         run_metrics_reader=ExtractionSessionRunMetricsReader(session=session),
         sticky_runtime_manager=sticky_runtime_manager,
+        session_journal_service=GraphManagementSessionJournalService(
+            session_repository=ExtractionAgentSessionRepository(session=session),
+            extraction_job_repository=ExtractionJobRepository(session=session),
+        ),
     )
 
 

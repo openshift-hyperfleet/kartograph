@@ -17,6 +17,11 @@ from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.extraction_workload.extraction_jobs_service import (
     GraphWorkloadExtractionJobsService,
 )
+from extraction.application.graph_management_session_journal import (
+    GraphManagementSessionJournalService,
+)
+from extraction.infrastructure.repositories import ExtractionAgentSessionRepository
+from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
@@ -41,6 +46,15 @@ def get_workload_graph_reader(
     pool: Annotated[ConnectionPool, Depends(get_age_connection_pool)],
 ) -> IWorkloadGraphReader:
     return GraphWorkloadGraphReader(pool=pool, settings=get_database_settings())
+
+
+def get_graph_management_session_journal_service(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> GraphManagementSessionJournalService:
+    return GraphManagementSessionJournalService(
+        session_repository=ExtractionAgentSessionRepository(session=session),
+        extraction_job_repository=ExtractionJobRepository(session=session),
+    )
 
 
 def get_workload_schema_service(

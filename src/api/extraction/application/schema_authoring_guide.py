@@ -152,10 +152,12 @@ Relationship scanner convention: `out/{source}_{label}_{target}_instances.json` 
 
 ## Instance mutations (JSONL)
 
+- Supported ops: **CREATE**, **UPDATE**, and **DELETE** for nodes and edges.
 - CREATE requires `data_source_id` and `slug` on nodes. Put `source_path` in scanner `properties` when needed.
-- CREATE is strict — use UPDATE for existing instances.
+- CREATE is strict — duplicate ids/slugs fail validation; use UPDATE or DELETE for existing instances.
+- DELETE removes a node or edge by `id` (edges before nodes when batching deletes manually).
 - Never hand-author bulk CREATE lines in chat; use `entities_to_jsonl.py` / `relationships_to_jsonl.py`.
-- Create all entity nodes before relationship edges.
+- Create all entity nodes before relationship edges unless you are correcting data with UPDATE/DELETE.
 
 ## Readiness checklist
 

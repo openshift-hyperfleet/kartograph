@@ -13,8 +13,10 @@ def metrics_from_mutation_jsonl(jsonl_content: str) -> dict[str, int]:
     """Count instance CREATE/UPDATE operations; ignore schema DEFINE operations."""
     entities_created = 0
     entities_modified = 0
+    entities_deleted = 0
     relationships_created = 0
     relationships_modified = 0
+    relationships_deleted = 0
 
     for raw_line in jsonl_content.splitlines():
         line = raw_line.strip()
@@ -34,31 +36,40 @@ def metrics_from_mutation_jsonl(jsonl_content: str) -> dict[str, int]:
         if op not in {
             MutationOperationType.CREATE.value,
             MutationOperationType.UPDATE.value,
+            MutationOperationType.DELETE.value,
         }:
             continue
 
         if entity_type == EntityType.NODE.value:
             if op == MutationOperationType.CREATE.value:
                 entities_created += 1
-            else:
+            elif op == MutationOperationType.UPDATE.value:
                 entities_modified += 1
+            else:
+                entities_deleted += 1
         elif entity_type == EntityType.EDGE.value:
             if op == MutationOperationType.CREATE.value:
                 relationships_created += 1
-            else:
+            elif op == MutationOperationType.UPDATE.value:
                 relationships_modified += 1
+            else:
+                relationships_deleted += 1
 
     write_ops = (
         entities_created
         + entities_modified
+        + entities_deleted
         + relationships_created
         + relationships_modified
+        + relationships_deleted
     )
     return {
         "entities_created": entities_created,
         "entities_modified": entities_modified,
+        "entities_deleted": entities_deleted,
         "relationships_created": relationships_created,
         "relationships_modified": relationships_modified,
+        "relationships_deleted": relationships_deleted,
         "write_ops": write_ops,
     }
 
@@ -98,7 +109,9 @@ def _empty_metrics() -> dict[str, int]:
     return {
         "entities_created": 0,
         "entities_modified": 0,
+        "entities_deleted": 0,
         "relationships_created": 0,
         "relationships_modified": 0,
+        "relationships_deleted": 0,
         "write_ops": 0,
     }

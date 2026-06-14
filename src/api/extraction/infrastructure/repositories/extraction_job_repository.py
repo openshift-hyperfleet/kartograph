@@ -519,6 +519,33 @@ class ExtractionJobRepository:
             )
         return total
 
+    async def insert_archived_session_job(self, job: ExtractionJobRecord) -> None:
+        """Persist one archived Graph Management Assistant session mutation log."""
+        self._session.add(
+            ExtractionJobModel(
+                id=job.id,
+                knowledge_graph_id=job.knowledge_graph_id,
+                job_id=job.job_id,
+                job_set_name=job.job_set_name,
+                strategy=job.strategy,
+                status=job.status.value,
+                order_index=job.order_index,
+                description=job.description,
+                target_instances=[instance.to_dict() for instance in job.target_instances],
+                target_files=[target_file.to_dict() for target_file in job.target_files],
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                entities_created=job.entities_created,
+                entities_modified=job.entities_modified,
+                relationships_created=job.relationships_created,
+                relationships_modified=job.relationships_modified,
+                run_started_at=job.run_started_at,
+                archived_at=job.archived_at,
+                applied_mutations_jsonl=job.applied_mutations_jsonl,
+            )
+        )
+        await self._session.flush()
+
     async def list_archived_jobs(
         self,
         *,

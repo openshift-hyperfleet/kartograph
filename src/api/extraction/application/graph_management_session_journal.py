@@ -1,0 +1,113 @@
+"""Accumulate Graph Management Assistant mutations and archive on session end."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from ulid import ULID
+
+from extraction.domain.entities.agent_session import ExtractionAgentSession
+from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
+from extraction.domain.value_objects import ExtractionSessionMode
+from extraction.infrastructure.extraction_job_mutation_metrics import metrics_from_mutation_jsonl
+from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from extraction.ports.repositories import IExtractionAgentSessionRepository
+
+GRAPH_MANAGEMENT_SESSION_STRATEGY = "graph_management_session"
+
+_JOB_SET_BY_MODE: dict[ExtractionSessionMode, str] = {
+    ExtractionSessionMode.SCHEMA_BOOTSTRAP: "Graph Management · Schema Design",
+    ExtractionSessionMode.EXTRACTION_OPERATIONS: "Graph Management · Extraction Operations",
+}
+
+
+def append_applied_jsonl_to_session(
+    session: ExtractionAgentSession,
+    *,
+    applied_jsonl: str,
+) -> None:
+    """Append successfully applied mutation lines to the session journal."""
+    chunk = applied_jsonl.strip()
+    if not chunk:
+        return
+    journal = dict(session.runtime_context.get("mutation_journal") or {})
+    previous = str(journal.get("jsonl") or "").strip()
+    combined = "\n".join(part for part in (previous, chunk) if part)
+    journal["jsonl"] = combined
+    journal["line_count"] = sum(1 for line in combined.splitlines() if line.strip())
+    if not journal.get("started_at"):
+        journal["started_at"] = session.created_at.isoformat()
+    session.runtime_context["mutation_journal"] = journal
+
+
+class GraphManagementSessionJournalService:
+    """Persist per-session mutation JSONL and archive as one extraction job."""
+
+    def __init__(
+        self,
+        *,
+        session_repository: IExtractionAgentSessionRepository,
+        extraction_job_repository: ExtractionJobRepository,
+    ) -> None:
+        self._session_repository = session_repository
+        self._extraction_job_repository = extraction_job_repository
+
+    async def append_applied_jsonl(
+        self,
+        *,
+        session_id: str,
+        applied_jsonl: str,
+    ) -> None:
+        session = await self._session_repository.get_by_id(session_id)
+        if session is None or not session.is_active:
+            return
+        append_applied_jsonl_to_session(session, applied_jsonl=applied_jsonl)
+        await self._session_repository.save(session)
+
+    async def archive_session_mutations(self, session: ExtractionAgentSession) -> None:
+        """Write one ARCHIVED extraction job row when the session had graph writes."""
+        journal = session.runtime_context.get("mutation_journal") or {}
+        jsonl = str(journal.get("jsonl") or "").strip()
+        if not jsonl:
+            return
+
+        metrics = metrics_from_mutation_jsonl(jsonl)
+        if int(metrics.get("write_ops") or 0) <= 0:
+            return
+
+        now = datetime.now(UTC)
+        started_at = session.created_at
+        started_raw = journal.get("started_at")
+        if isinstance(started_raw, str):
+            try:
+                started_at = datetime.fromisoformat(started_raw)
+            except ValueError:
+                started_at = session.created_at
+
+        job_set_name = _JOB_SET_BY_MODE.get(
+            session.mode,
+            "Graph Management Assistant",
+        )
+        record = ExtractionJobRecord(
+            id=str(ULID()),
+            knowledge_graph_id=session.knowledge_graph_id,
+            job_id=f"gma-{session.id}",
+            job_set_name=job_set_name,
+            strategy=GRAPH_MANAGEMENT_SESSION_STRATEGY,
+            status=ExtractionJobStatus.ARCHIVED,
+            order_index=0,
+            description=(
+                f"Graph Management Assistant session {session.id} "
+                f"({session.mode.value.replace('_', ' ')})"
+            ),
+            run_started_at=started_at,
+            started_at=started_at,
+            completed_at=now,
+            archived_at=now,
+            applied_mutations_jsonl=jsonl,
+            entities_created=int(metrics.get("entities_created") or 0),
+            entities_modified=int(metrics.get("entities_modified") or 0),
+            relationships_created=int(metrics.get("relationships_created") or 0),
+            relationships_modified=int(metrics.get("relationships_modified") or 0),
+        )
+        await self._extraction_job_repository.insert_archived_session_job(record)

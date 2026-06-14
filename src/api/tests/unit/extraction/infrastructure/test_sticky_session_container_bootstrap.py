@@ -31,7 +31,11 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
         agent_max_turns=500,
     )
     issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
-    credentials = issuer.issue_for_sticky_session(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+    credentials = issuer.issue_for_sticky_session(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        session_id="session-bootstrap",
+    )
     bootstrap = StickySessionRuntimeBootstrap(
         tenant_id="tenant-1",
         credentials=credentials,

@@ -110,7 +110,7 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
 
     @tool(
         "kartograph_validate_graph_mutations",
-        "Dry-run: validate JSONL mutations without writing (strict CREATE — no duplicate types/instances).",
+        "Dry-run: validate JSONL mutations without writing (CREATE/UPDATE/DELETE).",
         {"jsonl": str},
     )
     async def validate_graph_mutations(args: dict[str, Any]) -> dict[str, Any]:
@@ -132,7 +132,7 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
 
     @tool(
         "kartograph_apply_graph_mutations",
-        "Apply JSONL mutation lines. CREATE fails if type or instance already exists; use UPDATE to edit.",
+        "Apply JSONL mutation lines (CREATE, UPDATE, DELETE). CREATE fails on duplicates; UPDATE/DELETE require existing ids.",
         {"jsonl": str},
     )
     async def apply_graph_mutations(args: dict[str, Any]) -> dict[str, Any]:
@@ -181,7 +181,7 @@ def build_kartograph_schema_mcp_server(tooling: RuntimeTooling):
 
     @tool(
         "kartograph_apply_graph_mutations_from_file",
-        "Apply a workspace .jsonl file in one call (strict CREATE semantics).",
+        "Apply a workspace .jsonl file in one call (CREATE/UPDATE/DELETE). Apply pre-validates.",
         {"path": str},
     )
     async def apply_graph_mutations_from_file(args: dict[str, Any]) -> dict[str, Any]:

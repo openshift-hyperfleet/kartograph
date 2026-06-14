@@ -133,6 +133,7 @@ class ExtractionChatTurnService:
             workload_token = self._credential_issuer.issue_for_sticky_session(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
+                session_id=session.id,
             ).token
 
         assistant_reply: str | None = None

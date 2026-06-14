@@ -22,6 +22,7 @@ class WorkloadAuthContext:
     credentials: ScopedWorkloadCredentials
     tenant_id: str
     knowledge_graph_id: str
+    session_id: str | None = None
 
 
 def get_workload_auth_context(
@@ -62,8 +63,14 @@ def get_workload_auth_context(
             detail="Workload token is missing tenant or knowledge graph scope",
         )
 
+    session_scope = next(
+        (scope.removeprefix("session:") for scope in credentials.scopes if scope.startswith("session:")),
+        None,
+    )
+
     return WorkloadAuthContext(
         credentials=credentials,
         tenant_id=tenant_scope,
         knowledge_graph_id=kg_scope,
+        session_id=session_scope,
     )

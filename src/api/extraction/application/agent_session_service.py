@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 
 from ulid import ULID
 
+from extraction.application.graph_management_session_journal import (
+    GraphManagementSessionJournalService,
+)
 from extraction.application.skill_resolution_service import (
     ExtractionSkillResolutionService,
 )
@@ -37,11 +40,13 @@ class ExtractionAgentSessionService:
         skill_resolution_service: ExtractionSkillResolutionService | None = None,
         run_metrics_reader: IExtractionSessionRunMetricsReader | None = None,
         sticky_runtime_manager: IStickySessionRuntimeManager | None = None,
+        session_journal_service: GraphManagementSessionJournalService | None = None,
     ) -> None:
         self._repository = repository
         self._skill_resolution_service = skill_resolution_service
         self._run_metrics_reader = run_metrics_reader
         self._sticky_runtime_manager = sticky_runtime_manager
+        self._session_journal_service = session_journal_service
 
     @staticmethod
     def _build_bootstrap_intake_prompt() -> str:
@@ -124,6 +129,8 @@ class ExtractionAgentSessionService:
                     knowledge_graph_id=knowledge_graph_id,
                     mode=mode.value,
                 )
+            if self._session_journal_service is not None:
+                await self._session_journal_service.archive_session_mutations(active)
             active.archive()
             await self._repository.save(active)
 

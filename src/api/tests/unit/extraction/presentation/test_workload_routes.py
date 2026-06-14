@@ -11,6 +11,7 @@ from extraction.presentation import workload_routes
 from extraction.presentation.workload_auth import WorkloadAuthContext, get_workload_auth_context
 from extraction.ports.workload_graph import WorkloadGraphNode, WorkloadGraphRelationship
 from infrastructure.extraction_workload.dependencies import (
+    get_graph_management_session_journal_service,
     get_workload_extraction_jobs_service,
     get_workload_graph_reader,
     get_workload_schema_service,
@@ -53,7 +54,7 @@ class _FakeSchemaService:
         jsonl: str,
     ) -> dict[str, object]:
         self.applied_jsonl = jsonl
-        return {"applied": True, "errors": [], "operations_applied": 1}
+        return {"applied": True, "errors": [], "operations_applied": 1, "applied_jsonl": jsonl}
 
 
 class _FakeGraphReader:
@@ -124,6 +125,14 @@ class _BrokenGraphReader(_FakeGraphReader):
         raise GraphQueryError("graph with oid 17491 does not exist", query="MATCH (n) RETURN n")
 
 
+class _FakeSessionJournal:
+    def __init__(self) -> None:
+        self.appended: list[tuple[str, str]] = []
+
+    async def append_applied_jsonl(self, *, session_id: str, applied_jsonl: str) -> None:
+        self.appended.append((session_id, applied_jsonl))
+
+
 class _FakeExtractionJobsService:
     def __init__(self) -> None:
         self.saved_payload: dict[str, object] | None = None
@@ -172,6 +181,7 @@ class _FakeExtractionJobsService:
 def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     fake = _FakeSchemaService()
     extraction_jobs_fake = _FakeExtractionJobsService()
+    session_journal_fake = _FakeSessionJournal()
     fake.saved = OntologyConfig(
         node_types=(
             NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
@@ -194,6 +204,7 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-test-1",
     )
 
     app = FastAPI()
@@ -201,18 +212,20 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
     app.dependency_overrides[get_workload_schema_service] = lambda: fake
     app.dependency_overrides[get_workload_extraction_jobs_service] = lambda: extraction_jobs_fake
     app.dependency_overrides[get_workload_graph_reader] = lambda: _FakeGraphReader()
+    app.dependency_overrides[get_graph_management_session_journal_service] = lambda: session_journal_fake
     app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
         credentials=credentials,
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-test-1",
     )
 
     client = TestClient(app)
-    return client, fake, credentials.token
+    return client, fake, credentials.token, session_journal_fake
 
 
 def test_workload_get_schema_authoring_guide(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/schema/authoring-guide",
         headers={"X-Workload-Token": token},
@@ -225,7 +238,7 @@ def test_workload_get_schema_authoring_guide(workload_client: tuple[TestClient, 
 
 
 def test_workload_get_workspace_readiness(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/schema/readiness",
         headers={"X-Workload-Token": token},
@@ -250,16 +263,19 @@ def test_workload_get_workspace_readiness_returns_503_for_graph_storage_errors()
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-broken",
     )
     app = FastAPI()
     app.include_router(workload_routes.router, prefix="/extraction")
     app.dependency_overrides[get_workload_schema_service] = lambda: fake
     app.dependency_overrides[get_workload_graph_reader] = lambda: _BrokenGraphReader()
     app.dependency_overrides[get_workload_extraction_jobs_service] = lambda: _FakeExtractionJobsService()
+    app.dependency_overrides[get_graph_management_session_journal_service] = lambda: _FakeSessionJournal()
     app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
         credentials=credentials,
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
+        session_id="session-broken",
     )
     client = TestClient(app)
     response = client.get(
@@ -271,7 +287,7 @@ def test_workload_get_workspace_readiness_returns_503_for_graph_storage_errors()
 
 
 def test_workload_list_instances_by_type(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/graph/instances",
         headers={"X-Workload-Token": token},
@@ -285,7 +301,7 @@ def test_workload_list_instances_by_type(workload_client: tuple[TestClient, _Fak
 
 
 def test_workload_list_relationship_instances(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/graph/relationships",
         headers={"X-Workload-Token": token},
@@ -303,7 +319,7 @@ def test_workload_list_relationship_instances(workload_client: tuple[TestClient,
 
 
 def test_workload_save_schema_ontology(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, fake, token = workload_client
+    client, fake, token, _journal = workload_client
     response = client.put(
         "/extraction/workloads/schema/ontology",
         headers={"X-Workload-Token": token},
@@ -336,7 +352,7 @@ def test_workload_save_schema_ontology(workload_client: tuple[TestClient, _FakeS
 
 
 def test_workload_check_graph_slugs(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.post(
         "/extraction/workloads/graph/check-slugs",
         headers={"X-Workload-Token": token},
@@ -349,7 +365,7 @@ def test_workload_check_graph_slugs(workload_client: tuple[TestClient, _FakeSche
 
 
 def test_workload_validate_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.post(
         "/extraction/workloads/mutations/validate",
         headers={"X-Workload-Token": token},
@@ -361,8 +377,23 @@ def test_workload_validate_graph_mutations(workload_client: tuple[TestClient, _F
     assert payload["operation_count"] == 1
 
 
-def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, fake, token = workload_client
+def test_workload_apply_graph_mutations_appends_session_journal(
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
+) -> None:
+    client, _fake, token, journal = workload_client
+    response = client.post(
+        "/extraction/workloads/mutations/apply",
+        headers={"X-Workload-Token": token},
+        json={"jsonl": '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service","set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap","source_path":"assistant"}}'},
+    )
+    assert response.status_code == 200
+    assert len(journal.appended) == 1
+    assert journal.appended[0][0] == "session-test-1"
+    assert "CREATE" in journal.appended[0][1]
+
+
+def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal]) -> None:
+    client, fake, token, _journal = workload_client
     fake.saved = OntologyConfig(
         node_types=(
             NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
@@ -384,7 +415,7 @@ def test_workload_apply_graph_mutations(workload_client: tuple[TestClient, _Fake
 
 
 def test_workload_get_extraction_jobs_config(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/extraction-jobs",
         headers={"X-Workload-Token": token},
@@ -397,7 +428,7 @@ def test_workload_get_extraction_jobs_config(workload_client: tuple[TestClient, 
 
 
 def test_workload_save_extraction_jobs_config(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     job_set = {
         "name": "Adapter Deep Extraction",
         "strategy": "by_instances",
@@ -419,7 +450,7 @@ def test_workload_save_extraction_jobs_config(workload_client: tuple[TestClient,
 def test_workload_get_extraction_jobs_plan_summary(
     workload_client: tuple[TestClient, _FakeSchemaService, str],
 ) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     client.put(
         "/extraction/workloads/extraction-jobs",
         headers={"X-Workload-Token": token},
@@ -446,7 +477,7 @@ def test_workload_get_extraction_jobs_plan_summary(
 
 
 def test_workload_get_extraction_jobs_status(workload_client: tuple[TestClient, _FakeSchemaService, str]) -> None:
-    client, _fake, token = workload_client
+    client, _fake, token, _journal = workload_client
     response = client.get(
         "/extraction/workloads/extraction-jobs/status",
         headers={"X-Workload-Token": token},

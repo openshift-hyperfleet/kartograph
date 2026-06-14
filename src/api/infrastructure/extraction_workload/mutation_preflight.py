@@ -65,9 +65,33 @@ async def validate_mutation_jsonl(
 
     create_node_ids: list[str] = []
     create_edge_ids: list[str] = []
+    update_node_ids: list[str] = []
+    update_edge_ids: list[str] = []
+    delete_node_ids: list[str] = []
+    delete_edge_ids: list[str] = []
     slug_checks: dict[str, set[str]] = {}
 
     for line_num, operation in enumerate(operations, start=1):
+        if operation.op == MutationOperationType.DELETE:
+            if not operation.id:
+                errors.append(f"Line {line_num}: DELETE requires id.")
+            elif operation.type == EntityType.NODE.value:
+                delete_node_ids.append(operation.id)
+            elif operation.type == EntityType.EDGE.value:
+                delete_edge_ids.append(operation.id)
+            else:
+                errors.append(f"Line {line_num}: DELETE type must be node or edge.")
+
+        if operation.op == MutationOperationType.UPDATE:
+            if not operation.id:
+                errors.append(f"Line {line_num}: UPDATE requires id.")
+            elif operation.type == EntityType.NODE.value:
+                update_node_ids.append(operation.id)
+            elif operation.type == EntityType.EDGE.value:
+                update_edge_ids.append(operation.id)
+            else:
+                errors.append(f"Line {line_num}: UPDATE type must be node or edge.")
+
         if operation.op == MutationOperationType.DEFINE and operation.label:
             key = (operation.label, operation.type)
             if key in existing_type_keys:
@@ -149,6 +173,50 @@ async def validate_mutation_jsonl(
                     errors.append(
                         f"Line {line_num}: {label} slug `{slug}` already exists; "
                         "use UPDATE to change it."
+                    )
+
+        missing_node_ids = set(update_node_ids + delete_node_ids)
+        if missing_node_ids:
+            existing_node_ids = await graph_reader.find_existing_node_ids(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                node_ids=tuple(sorted(missing_node_ids)),
+            )
+            for line_num, operation in enumerate(operations, start=1):
+                if operation.op not in {
+                    MutationOperationType.UPDATE,
+                    MutationOperationType.DELETE,
+                }:
+                    continue
+                if operation.type != EntityType.NODE.value or not operation.id:
+                    continue
+                if operation.id not in existing_node_ids:
+                    verb = operation.op.value
+                    errors.append(
+                        f"Line {line_num}: node id `{operation.id}` does not exist; "
+                        f"cannot {verb}."
+                    )
+
+        missing_edge_ids = set(update_edge_ids + delete_edge_ids)
+        if missing_edge_ids:
+            existing_edge_ids = await graph_reader.find_existing_edge_ids(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                edge_ids=tuple(sorted(missing_edge_ids)),
+            )
+            for line_num, operation in enumerate(operations, start=1):
+                if operation.op not in {
+                    MutationOperationType.UPDATE,
+                    MutationOperationType.DELETE,
+                }:
+                    continue
+                if operation.type != EntityType.EDGE.value or not operation.id:
+                    continue
+                if operation.id not in existing_edge_ids:
+                    verb = operation.op.value
+                    errors.append(
+                        f"Line {line_num}: edge id `{operation.id}` does not exist; "
+                        f"cannot {verb}."
                     )
 
     return errors

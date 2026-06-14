@@ -62,13 +62,17 @@ class ScopedWorkloadCredentialIssuer:
         )
 
     def issue_for_sticky_session(
-        self, *, tenant_id: str, knowledge_graph_id: str
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        session_id: str,
     ) -> ScopedWorkloadCredentials:
         """Issue chat-scoped credentials for sticky session agent containers."""
         return self.issue(
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
-            extra_scopes=("workload:chat",),
+            extra_scopes=("workload:chat", f"session:{session_id}"),
         )
 
     def verify(self, token: str) -> ScopedWorkloadCredentials | None:

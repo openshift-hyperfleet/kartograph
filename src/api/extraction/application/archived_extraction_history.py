@@ -7,12 +7,26 @@ from typing import Any
 from extraction.domain.extraction_job import ExtractionJobRecord
 
 
+def archived_job_write_ops(job: ExtractionJobRecord) -> int:
+    """Return write op count, including DELETE lines for graph-management sessions."""
+    if (
+        job.strategy == "graph_management_session"
+        and job.applied_mutations_jsonl
+    ):
+        from extraction.infrastructure.extraction_job_mutation_metrics import (
+            metrics_from_mutation_jsonl,
+        )
+
+        return int(metrics_from_mutation_jsonl(job.applied_mutations_jsonl).get("write_ops") or 0)
+    return job.write_ops()
+
+
 def serialize_archived_job(job: ExtractionJobRecord) -> dict[str, Any]:
     return {
         **job.to_dict(),
         "jobId": job.job_id,
         "jobSet": job.job_set_name,
-        "writeOps": job.write_ops(),
+        "writeOps": archived_job_write_ops(job),
         "hasMutations": bool(job.applied_mutations_jsonl),
     }
 
@@ -41,7 +55,7 @@ def group_archived_jobs_by_run_and_set(
             job_sets[set_name] = []
         job_sets[set_name].append(serialize_archived_job(job))
         run["jobCount"] += 1
-        run["writeOps"] += job.write_ops()
+        run["writeOps"] += archived_job_write_ops(job)
         run["inputTokens"] += job.input_tokens
         run["outputTokens"] += job.output_tokens
         run["costUsd"] += job.cost_usd

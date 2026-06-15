@@ -23,6 +23,7 @@ certs:
 .PHONY: dev
 dev: certs
 	@echo "🧰 [Development] Starting application containers..."
+	@./scripts/cleanup-openshell-sandboxes.sh
 	docker compose -f compose.yaml -f compose.dev.yaml --profile build-only build agent-runtime
 	docker compose -f compose.yaml build
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
@@ -40,6 +41,7 @@ down:
 	-@docker ps -aq --filter name=kartograph-sticky- | xargs -r docker rm -f
 	-@docker ps -aq --filter name=kartograph-worker- | xargs -r docker rm -f
 	-@docker ps -aq --filter name=kartograph-extract- | xargs -r docker rm -f
+	-@./scripts/cleanup-openshell-sandboxes.sh
 
 .PHONY: dev-backup dev-restore dev-backup-list dev-repair-age-graphs
 dev-backup:

@@ -18,7 +18,7 @@ from kartograph_agent_runtime.thinking_stream import (
     thinking_events_from_sdk_message,
 )
 from kartograph_agent_runtime.tools import RuntimeTooling
-from kartograph_agent_runtime.vertex import build_claude_agent_env
+from kartograph_agent_runtime.vertex import VERTEX_COMPATIBLE_EFFORT, build_claude_agent_env
 
 _DEFAULT_TURN_TIMEOUT_SECONDS = 1000.0
 _SDK_HEARTBEAT_SECONDS = 8.0
@@ -142,6 +142,8 @@ def _build_workspace_prompt_appendix(settings: AgentRuntimeSettings) -> str:
 def _apply_model_env(settings: AgentRuntimeSettings) -> str:
     for key, value in build_claude_agent_env(settings).items():
         os.environ[key] = value
+    if settings.openshell_inference_enabled():
+        return "OpenShell inference (Vertex)"
     if settings.vertex_enabled():
         return "Vertex AI"
     if settings.anthropic_api_key.strip():
@@ -440,6 +442,11 @@ async def _stream_with_claude_sdk(
             "kartograph": build_kartograph_schema_mcp_server(tooling),
         }
         options_kwargs["allowed_tools"] = list(GMA_ALLOWED_TOOL_NAMES)
+    if settings.openshell_inference_enabled():
+        options_kwargs["extra_args"] = {"bare": None}
+        options_kwargs["effort"] = VERTEX_COMPATIBLE_EFFORT
+    elif settings.vertex_enabled():
+        options_kwargs["effort"] = VERTEX_COMPATIBLE_EFFORT
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         env=sdk_env,

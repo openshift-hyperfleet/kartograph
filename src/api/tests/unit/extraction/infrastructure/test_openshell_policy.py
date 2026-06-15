@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from extraction.infrastructure.openshell.policy import (
     bundled_policy_dir,
+    regional_vertex_ai_endpoint,
     resolve_endpoints,
     resolve_enforcement,
     resolve_l7_paths,
@@ -28,6 +29,29 @@ def test_resolve_endpoints_rewrites_api_host() -> None:
 def test_resolve_enforcement_from_bundled_policy() -> None:
     enforcement = resolve_enforcement(ui_mode="initial-schema-design")
     assert enforcement in {"soft", "hard_requirement"}
+
+
+def test_resolve_endpoints_includes_vertex_oauth_for_gma_modes() -> None:
+    endpoints = resolve_endpoints(ui_mode="extraction-jobs")
+    assert "oauth2.googleapis.com:443:read-write" in endpoints
+    assert "aiplatform.googleapis.com:443:read-write" in endpoints
+
+
+def test_resolve_endpoints_adds_regional_vertex_hostname() -> None:
+    endpoints = resolve_endpoints(
+        ui_mode="extraction-jobs",
+        api_host="host.docker.internal:8000",
+        vertex_region="us-east5",
+    )
+    assert "us-east5-aiplatform.googleapis.com:443:read-write" in endpoints
+    assert "host.docker.internal:8000:read-write" in endpoints
+
+
+def test_regional_vertex_ai_endpoint() -> None:
+    assert (
+        regional_vertex_ai_endpoint(vertex_region="us-east5")
+        == "us-east5-aiplatform.googleapis.com:443:read-write"
+    )
 
 
 def test_resolve_l7_paths_for_extraction_jobs_mode() -> None:

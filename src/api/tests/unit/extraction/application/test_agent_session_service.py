@@ -420,6 +420,66 @@ class TestExtractionAgentSessionService:
         assert updated.id == session.id
 
 
+class _InactiveStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
+    def is_runtime_active(self, **kwargs) -> bool:
+        return False
+
+
+@pytest.mark.asyncio
+class TestOrphanedStickySessionReconciliation:
+    async def test_get_active_session_archives_session_when_runtime_is_gone(self):
+        repo = _InMemoryAgentSessionRepository()
+        runtime = _InactiveStickyRuntimeManager()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            sticky_runtime_manager=runtime,
+        )
+        session = await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+        session.runtime_context["sticky_runtime"] = {
+            "phase": "ready",
+            "status": "active",
+            "container_id": "kartograph-gma-deadbeef",
+        }
+        await repo.save(session)
+
+        active = await service.get_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+
+        assert active is None
+        stored = await repo.get_by_id(session.id)
+        assert stored is not None
+        assert stored.archived_at is not None
+
+    async def test_get_active_session_keeps_session_without_runtime_attempt(self):
+        repo = _InMemoryAgentSessionRepository()
+        runtime = _InactiveStickyRuntimeManager()
+        service = ExtractionAgentSessionService(
+            repository=repo,
+            sticky_runtime_manager=runtime,
+        )
+        session = await service.start_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+
+        active = await service.get_active_session(
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
+        )
+
+        assert active is not None
+        assert active.id == session.id
+
+
 def test_resolve_backend_session_mode_maps_ui_modes() -> None:
     assert resolve_backend_session_mode(GraphManagementUiMode.INITIAL_SCHEMA_DESIGN) == (
         ExtractionSessionMode.SCHEMA_BOOTSTRAP

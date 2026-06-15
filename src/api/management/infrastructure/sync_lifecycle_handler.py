@@ -261,4 +261,5 @@ class SyncLifecycleHandler:
             prepared_commit=commit,
             prepared_file_count=file_count,
         )
+        ds.maybe_seed_extraction_baseline_from_prepare(prepared_commit=commit)
         await self._ds_repo.save(ds)

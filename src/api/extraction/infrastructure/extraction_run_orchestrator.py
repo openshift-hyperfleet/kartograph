@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from extraction.infrastructure.extraction_job_executor import ExtractionJobExecutor
 from extraction.domain.extraction_job import ExtractionRunStatus
 from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from management.infrastructure.extraction_baseline_updater import (
+    advance_extraction_baselines_for_knowledge_graph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +209,10 @@ class ExtractionRunOrchestrator:
                     worker_count=state.worker_count,
                     pause_requested=False,
                     completed_at=datetime.now(UTC),
+                )
+                await advance_extraction_baselines_for_knowledge_graph(
+                    session=session,
+                    knowledge_graph_id=state.knowledge_graph_id,
                 )
                 await session.commit()
                 state.stop_event.set()

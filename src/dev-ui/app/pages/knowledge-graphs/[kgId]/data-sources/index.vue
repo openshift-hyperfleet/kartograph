@@ -21,6 +21,7 @@ import {
   buildKgManageUrl,
   parseKgDataSourcesFocusQuery,
 } from '@/utils/kgDataSourcesNavigation'
+import { buildManageStepUrl } from '@/utils/kgManageWorkspace'
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
 import {
   hasAnyActiveSync,
@@ -535,12 +536,12 @@ async function viewLogs(ds: DataSourceItem, run: SyncRun) {
 
 onMounted(async () => {
   if (!hasTenant.value) return
+  if (maintainFocus.value) {
+    await navigateTo(buildManageStepUrl(kgId.value, 'maintain'))
+    return
+  }
   await loadKnowledgeGraph()
   await ensureEntryRoute()
-  if (maintainFocus.value) {
-    await nextTick()
-    document.getElementById('maintain-section')?.scrollIntoView({ behavior: 'smooth' })
-  }
 })
 
 onUnmounted(() => stopPolling())

@@ -133,6 +133,7 @@ async def test_prepare_materializes_instance_referenced_paths_and_workspace_layo
     assert repo_file.is_file()
     assert (job_root / "mutations").is_dir()
     assert (job_root / "helpers" / "workload-mutations.sh").is_file()
+    assert (job_root / "helpers" / "workload-graph-read.sh").is_file()
     assert (job_root / "helpers" / "mutation-examples.jsonl").is_file()
     assert (job_root / "helpers" / "sync_instances.py").is_file()
     context = json.loads((job_root / "job-context.json").read_text(encoding="utf-8"))

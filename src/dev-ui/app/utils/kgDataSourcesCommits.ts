@@ -99,6 +99,17 @@ export function formatPreparedFileCount(count: number | null | undefined): strin
   return count.toLocaleString()
 }
 
+/** Files materialized in the local clone (shown when a clone commit exists). */
+export function formatFilesOnDisk(ds: {
+  clone_head_commit?: string | null
+  last_prepared_commit?: string | null
+  ingested_head_commit?: string | null
+  last_prepared_file_count?: number | null
+}): string {
+  if (!resolveIngestedHeadCommit(ds)) return '—'
+  return (ds.last_prepared_file_count ?? 0).toLocaleString()
+}
+
 export function resolveRepoUrl(connectionConfig: Record<string, string> | undefined): string {
   if (!connectionConfig) return '—'
   if (connectionConfig.repo_url) return connectionConfig.repo_url

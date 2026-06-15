@@ -33,3 +33,6 @@ def test_authoring_guide_documents_bootstrap_and_modeling_guidance() -> None:
     assert "duplicate labels are rejected" in SCHEMA_AUTHORING_GUIDE
     assert "tests_ct_api" in SCHEMA_AUTHORING_GUIDE
     assert "eight primary" in SCHEMA_AUTHORING_GUIDE
+    assert "## Batch extraction jobs" in SCHEMA_AUTHORING_GUIDE
+    assert "workload-graph-read.sh" in SCHEMA_AUTHORING_GUIDE
+    assert "Partial UPDATE" in SCHEMA_AUTHORING_GUIDE

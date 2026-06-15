@@ -7,8 +7,8 @@ import {
   Play,
   Settings,
   ClipboardList,
-  AlertCircle,
   Eye,
+  Archive,
   XCircle,
 } from 'lucide-vue-next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -75,17 +75,7 @@ interface ExtractionRunState {
   status: string
   workerCount: number
   pauseRequested: boolean
-}
-
-interface PlanSummary {
-  job_sets: Array<{
-    name: string
-    strategy: string
-    enabled?: boolean
-    entity_type?: string
-    instances_per_job?: number
-    projected_jobs?: number | null
-  }>
+  sandboxSlotCount?: number
 }
 
 const selectedOntologyTab = ref<OntologyTab>('entities')
@@ -95,7 +85,6 @@ const dbLoading = ref(true)
 const dbRefreshing = ref(false)
 const dbError = ref<string | null>(null)
 const extractionRunState = ref<ExtractionRunState | null>(null)
-const planSummary = ref<PlanSummary | null>(null)
 const workers = ref(20)
 const startingExtraction = ref(false)
 const pausingExtraction = ref(false)
@@ -103,6 +92,7 @@ const killingExtraction = ref(false)
 const regeneratingJobs = ref(false)
 const resettingRunning = ref(false)
 const resettingCompleted = ref(false)
+const archivingCompleted = ref(false)
 const resettingFailed = ref(false)
 const resettingAll = ref(false)
 const optimisticLiveUntilMs = ref<number | null>(null)
@@ -161,7 +151,7 @@ async function loadDatabaseStatus(options?: { background?: boolean }) {
   try {
     const status = await apiFetch<DbStatus>(`${basePath.value}/database-status`)
     dbStatus.value = status
-    mergeRecentJobEvents(status.recentJobs || [])
+    mergeRecentJobEvents(status)
     lastStatusRefreshMs.value = Date.now()
     dbError.value = null
   } catch (e: unknown) {
@@ -182,20 +172,11 @@ async function loadExtractionRunState() {
   }
 }
 
-async function loadPlanSummary() {
-  try {
-    planSummary.value = await apiFetch<PlanSummary>(`${basePath.value}/plan-summary`)
-  } catch {
-    // Keep prior plan summary during background refresh failures.
-  }
-}
-
 async function refreshAll(options?: { background?: boolean }) {
   const background = options?.background ?? dbStatus.value !== null
   await Promise.all([
     loadDatabaseStatus({ background }),
     loadExtractionRunState(),
-    loadPlanSummary(),
   ])
 }
 
@@ -206,8 +187,8 @@ const completedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.c
 const archivedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.archived || 0))
 const failedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.failed || 0))
 const remainingJobsCount = computed(() => pendingJobsCount.value + inProgressJobsCount.value)
-const materializedJobsTotal = computed(
-  () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value + archivedJobsCount.value,
+const activeQueueJobsTotal = computed(
+  () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value,
 )
 const extractionRunLive = computed(() => {
   if (optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value) return true
@@ -215,20 +196,13 @@ const extractionRunLive = computed(() => {
 })
 const hasRunningJobs = computed(() => inProgressJobsCount.value > 0)
 const extractionProgressPercent = computed(() => {
-  const total = materializedJobsTotal.value
+  const total = activeQueueJobsTotal.value
   if (total <= 0) return 0
-  return Math.round(((completedJobsCount.value + archivedJobsCount.value + failedJobsCount.value) / total) * 100)
+  return Math.round(((completedJobsCount.value + failedJobsCount.value) / total) * 100)
 })
-const plannedKnownTotalJobs = computed(() => {
-  const sets = planSummary.value?.job_sets || []
-  return sets.reduce((sum, set) => sum + (Number(set.projected_jobs) || 0), 0)
-})
-const plannedVsMaterializedMismatch = computed(() => {
-  const planned = plannedKnownTotalJobs.value
-  if (planned <= 0) return false
-  return planned !== materializedJobsTotal.value
-})
-const recentJobs = computed(() => recentJobEvents.value)
+const recentJobs = computed(() =>
+  recentJobEvents.value.filter((event) => event.status !== 'archived'),
+)
 const activeWorkerCount = computed(() => dbStatus.value?.activeWorkers?.length || 0)
 const idleWorkerCount = computed(() => Math.max(0, workerCount.value - activeWorkerCount.value))
 const statusAgeSeconds = computed(() => {
@@ -239,14 +213,27 @@ const showOptimisticLiveActivity = computed(
   () => Boolean(optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value),
 )
 
-function mergeRecentJobEvents(incoming: DbStatus['recentJobs']) {
+function mergeRecentJobEvents(status: DbStatus) {
+  const incoming = status.recentJobs || []
   const now = Date.now()
-  const existingByJobId = new Map(recentJobEvents.value.map((event) => [event.jobId, event] as const))
-  for (const job of incoming) {
+  const activeIncoming = incoming.filter((job) => job.status !== 'archived')
+  const activeWorkerJobIds = new Set((status.activeWorkers || []).map((worker) => worker.jobId))
+  const inProgressCount = Number(status.jobsByStatus?.in_progress || 0)
+  const existingByJobId = new Map(
+    recentJobEvents.value
+      .filter((event) => event.status !== 'archived')
+      .map((event) => [event.jobId, event] as const),
+  )
+  for (const job of activeIncoming) {
     existingByJobId.set(job.jobId, { ...job, eventKey: job.jobId, seenAtMs: now })
   }
   const maxAgeMs = 15 * 60 * 1000
-  const merged = Array.from(existingByJobId.values()).filter((event) => now - event.seenAtMs <= maxAgeMs)
+  let merged = Array.from(existingByJobId.values()).filter((event) => now - event.seenAtMs <= maxAgeMs)
+  if (inProgressCount === 0) {
+    merged = merged.filter(
+      (event) => event.status !== 'in_progress' || activeWorkerJobIds.has(event.jobId),
+    )
+  }
   merged.sort((a, b) => {
     const aTs = Date.parse(a.completedAt || a.startedAt || '') || a.seenAtMs
     const bTs = Date.parse(b.completedAt || b.startedAt || '') || b.seenAtMs
@@ -418,6 +405,24 @@ async function resetByKind(kind: 'stale' | 'completed' | 'failed' | 'all') {
   }
 }
 
+async function archiveCompletedJobs() {
+  archivingCompleted.value = true
+  try {
+    const res = await apiFetch<{ message?: string; archived_count?: number }>(
+      `${basePath.value}/archive-completed`,
+      { method: 'POST' },
+    )
+    toast.success('Completed jobs archived', {
+      description: res.message || (res.archived_count !== undefined ? `${res.archived_count} job(s) archived` : undefined),
+    })
+    await refreshAll()
+  } catch (e: unknown) {
+    toast.error('Archive failed', { description: resolveApiErrorDescription(e) })
+  } finally {
+    archivingCompleted.value = false
+  }
+}
+
 function startAutoRefresh() {
   if (autoRefreshInterval) return
   autoRefreshInterval = setInterval(() => { void refreshAll({ background: true }) }, 1500)
@@ -518,7 +523,8 @@ onUnmounted(() => {
           Run extraction
         </CardTitle>
         <CardDescription>
-          Launch parallel extraction workers. Each worker processes one pending job at a time using the job set description.
+          Launch parallel extraction workers. Each worker owns one OpenShell sandbox, claims jobs
+          from the queue until the run completes, and keeps per-job stats in Graph Writes History.
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
@@ -551,33 +557,14 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+        <div class="grid gap-3 sm:grid-cols-2 text-sm">
           <div class="rounded-lg border bg-muted/30 p-3">
             <p class="text-xs text-muted-foreground">Remaining jobs</p>
             <p class="text-lg font-semibold">{{ remainingJobsCount }}</p>
           </div>
           <div class="rounded-lg border bg-muted/30 p-3">
-            <p class="text-xs text-muted-foreground">Materialized jobs</p>
-            <p class="text-lg font-semibold">{{ materializedJobsTotal }}</p>
-          </div>
-          <div class="rounded-lg border bg-muted/30 p-3">
-            <p class="text-xs text-muted-foreground">Planned (from job sets)</p>
-            <p class="text-lg font-semibold">{{ plannedKnownTotalJobs || '—' }}</p>
-          </div>
-          <div class="rounded-lg border bg-muted/30 p-3">
             <p class="text-xs text-muted-foreground">Progress</p>
             <p class="text-lg font-semibold">{{ extractionProgressPercent }}%</p>
-          </div>
-        </div>
-
-        <div v-if="plannedVsMaterializedMismatch" class="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
-          <AlertCircle class="mt-0.5 size-4 shrink-0 text-amber-600" />
-          <div>
-            Planned job count ({{ plannedKnownTotalJobs }}) differs from materialized total ({{ materializedJobsTotal }}).
-            Regenerate syncs pending jobs for enabled sets only; running jobs are left untouched.
-            <Button size="sm" variant="link" class="h-auto p-0 text-xs" :disabled="regeneratingJobs" @click="regenerateJobs">
-              Regenerate jobs
-            </Button>
           </div>
         </div>
 
@@ -590,6 +577,9 @@ onUnmounted(() => {
               </Badge>
               <Badge variant="outline" class="font-mono text-[11px]">
                 workers: {{ activeWorkerCount }}/{{ workerCount }}
+              </Badge>
+              <Badge v-if="extractionRunState?.sandboxSlotCount" variant="outline" class="font-mono text-[11px]">
+                sandboxes: {{ extractionRunState.sandboxSlotCount }} (1 per worker)
               </Badge>
               <Badge v-if="idleWorkerCount > 0" variant="outline" class="font-mono text-[11px]">
                 {{ idleWorkerCount }} idle
@@ -744,6 +734,15 @@ onUnmounted(() => {
             </Button>
             <Button size="sm" variant="outline" :disabled="resettingCompleted" @click="resetByKind('completed')">
               Reset Completed
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="archivingCompleted || completedJobsCount === 0"
+              @click="archiveCompletedJobs"
+            >
+              <Archive class="mr-1.5 size-3.5" />
+              Archive Completed
             </Button>
             <Button size="sm" variant="outline" :disabled="resettingFailed" @click="resetByKind('failed')">
               Reset Failed

@@ -6,6 +6,7 @@ import {
   handleActivatableKeydown,
   handleChatInputKeydown,
   isForbiddenHttpError,
+  isNotFoundHttpError,
   resolveForbiddenReason,
   resolveSectionState,
   shouldApplyMutationResult,
@@ -133,6 +134,12 @@ describe('KG-MANAGE-020 - forbidden and disabled action restrictions', () => {
     expect(isForbiddenHttpError({ statusCode: 403 })).toBe(true)
     expect(isForbiddenHttpError(new Error('Forbidden'))).toBe(true)
     expect(isForbiddenHttpError({ statusCode: 404 })).toBe(false)
+  })
+
+  it('detects not-found HTTP errors without treating them as failures', () => {
+    expect(isNotFoundHttpError({ statusCode: 404 })).toBe(true)
+    expect(isNotFoundHttpError(new Error('Not Found'))).toBe(true)
+    expect(isNotFoundHttpError({ statusCode: 403 })).toBe(false)
   })
 
   it('builds explicit forbidden section messaging', () => {

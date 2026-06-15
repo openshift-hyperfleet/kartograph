@@ -473,6 +473,41 @@ class TestDataSourceRecordIngestionPrepared:
         assert ds.last_prepared_file_count == 124
 
 
+class TestDataSourceExtractionBaseline:
+    """Tests for extraction baseline seed/advance helpers."""
+
+    def _create_ds(self, **kwargs):
+        defaults = {
+            "knowledge_graph_id": "kg-123",
+            "tenant_id": "tenant-456",
+            "name": "Source",
+            "adapter_type": DataSourceAdapterType.GITHUB,
+            "connection_config": {},
+        }
+        defaults.update(kwargs)
+        ds = DataSource.create(**defaults)
+        ds.collect_events()
+        return ds
+
+    def test_maybe_seed_extraction_baseline_sets_commit_when_unset(self):
+        ds = self._create_ds()
+        ds.maybe_seed_extraction_baseline_from_prepare(prepared_commit="abc123")
+        assert ds.last_extraction_baseline_commit == "abc123"
+
+    def test_maybe_seed_extraction_baseline_is_noop_when_already_set(self):
+        ds = self._create_ds()
+        ds.last_extraction_baseline_commit = "existing"
+        ds.maybe_seed_extraction_baseline_from_prepare(prepared_commit="abc123")
+        assert ds.last_extraction_baseline_commit == "existing"
+
+    def test_advance_extraction_baseline_to_ingested_head_uses_prepared_commit(self):
+        ds = self._create_ds()
+        ds.last_prepared_commit = "prepared999"
+        ds.last_extraction_baseline_commit = "old"
+        ds.advance_extraction_baseline_to_ingested_head()
+        assert ds.last_extraction_baseline_commit == "prepared999"
+
+
 class TestDataSourceMarkForDeletion:
     """Tests for DataSource.mark_for_deletion() method."""
 

@@ -16,8 +16,7 @@ from infrastructure.management.extraction_job_materializer import (
     projected_job_count,
 )
 from extraction.infrastructure.extraction_job_container import (
-    stop_extraction_job_container,
-    stop_extraction_job_containers,
+    stop_extraction_job_runtimes,
 )
 from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
 from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
@@ -257,10 +256,12 @@ class ExtractionJobsService:
         )
         if not job_ids:
             return 0
-        return stop_extraction_job_containers(
+        containers_stopped, sandboxes_stopped = stop_extraction_job_runtimes(
             job_ids=job_ids,
             container_engine=runtime_settings.container_engine,
+            openshell_backend=runtime_settings.backend == "openshell",
         )
+        return containers_stopped + sandboxes_stopped
 
     async def cancel_job(
         self,
@@ -300,9 +301,11 @@ class ExtractionJobsService:
                 "Use Reset Failed or Reset All Jobs to re-queue finished jobs."
             )
 
-        stop_extraction_job_container(
-            job_id=job_id,
+        runtime_settings = get_extraction_workload_runtime_settings()
+        containers_stopped, sandboxes_stopped = stop_extraction_job_runtimes(
+            job_ids=(job_id,),
             container_engine=runtime_settings.container_engine,
+            openshell_backend=runtime_settings.backend == "openshell",
         )
         await self._extraction_job_repository.mark_job_failed(
             knowledge_graph_id=kg_id,
@@ -310,9 +313,17 @@ class ExtractionJobsService:
             error_message="Cancelled by operator",
         )
         await self._session.commit()
+        runtime_bits: list[str] = []
+        if containers_stopped:
+            runtime_bits.append(f"{containers_stopped} container(s)")
+        if sandboxes_stopped:
+            runtime_bits.append(f"{sandboxes_stopped} OpenShell sandbox(es)")
+        runtime_detail = (
+            " and ".join(runtime_bits) if runtime_bits else "no active runtime resources"
+        )
         return {
             "success": True,
-            "message": f"Cancelled running job {job_id} and stopped its container.",
+            "message": f"Cancelled running job {job_id} and stopped {runtime_detail}.",
         }
 
     async def get_database_status(
@@ -439,7 +450,8 @@ class ExtractionJobsService:
                 "workerCount": 0,
                 "pauseRequested": False,
             }
-        return {
+        runtime_settings = get_extraction_workload_runtime_settings()
+        payload = {
             "live": live or run.status in {ExtractionRunStatus.RUNNING, ExtractionRunStatus.PAUSING},
             "status": run.status.value,
             "workerCount": run.worker_count,
@@ -448,6 +460,9 @@ class ExtractionJobsService:
             "completedAt": run.completed_at.isoformat() if run.completed_at else None,
             "orchestratorPid": run.orchestrator_pid,
         }
+        if runtime_settings.job_runner == "openshell" and run.worker_count > 0:
+            payload["sandboxSlotCount"] = run.worker_count
+        return payload
 
     async def get_extraction_plan_summary(
         self,
@@ -533,16 +548,25 @@ class ExtractionJobsService:
         orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
         await orchestrator.halt(knowledge_graph_id=kg_id)
         runtime_settings = get_extraction_workload_runtime_settings()
-        stopped = stop_extraction_job_containers(
+        containers_stopped, sandboxes_stopped = stop_extraction_job_runtimes(
             job_ids=job_ids,
             container_engine=runtime_settings.container_engine,
+            openshell_backend=runtime_settings.backend == "openshell",
         )
         await self._session.commit()
+        runtime_bits: list[str] = []
+        if containers_stopped:
+            runtime_bits.append(f"{containers_stopped} container(s)")
+        if sandboxes_stopped:
+            runtime_bits.append(f"{sandboxes_stopped} OpenShell sandbox(es)")
+        runtime_detail = (
+            " and ".join(runtime_bits) if runtime_bits else "no active runtime resources"
+        )
         return {
             "success": True,
             "message": (
                 "Extraction halted, incomplete jobs marked failed, and "
-                f"{stopped} extraction container(s) stopped."
+                f"{runtime_detail} stopped."
             ),
         }
 
@@ -620,6 +644,34 @@ class ExtractionJobsService:
         )
         await self._session.commit()
         return {"success": True, "reset_count": reset}
+
+    async def archive_completed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
+        from extraction.application.archive_completed_extraction_jobs import (
+            archive_completed_extraction_jobs,
+        )
+
+        _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
+        runtime_settings = get_extraction_workload_runtime_settings()
+        result = await archive_completed_extraction_jobs(
+            repository=self._extraction_job_repository,
+            knowledge_graph_id=kg_id,
+            settings=runtime_settings,
+        )
+        await self._session.commit()
+        archived_count = int(result.get("archived_count") or 0)
+        backfilled_count = int(result.get("metrics_backfilled_count") or 0)
+        message = f"Archived {archived_count} completed job(s)."
+        if backfilled_count:
+            message = (
+                f"Archived {archived_count} completed job(s); "
+                f"backfilled graph write metrics for {backfilled_count}."
+            )
+        return {
+            "success": True,
+            "archived_count": archived_count,
+            "metrics_backfilled_count": backfilled_count,
+            "message": message,
+        }
 
     async def reset_failed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)

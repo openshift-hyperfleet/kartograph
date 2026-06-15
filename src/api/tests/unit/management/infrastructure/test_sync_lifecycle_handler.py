@@ -166,7 +166,51 @@ class TestIngestionPreparedTransition:
         assert ds.last_prepared_commit == "abc123"
         assert ds.clone_head_commit == "abc123"
         assert ds.last_prepared_file_count == 99
+        assert ds.last_extraction_baseline_commit == "abc123"
         mock_ds_repo.save.assert_awaited_once()
+
+    async def test_ingestion_prepared_does_not_overwrite_existing_baseline(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value=run.data_source_id),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Repo",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "repo"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            last_extraction_baseline_commit="existing-baseline",
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+                prepared_commit_sha="abc123",
+                prepared_file_count=99,
+            ),
+        )
+
+        assert ds.last_prepared_commit == "abc123"
+        assert ds.last_extraction_baseline_commit == "existing-baseline"
 
 
 @pytest.mark.asyncio

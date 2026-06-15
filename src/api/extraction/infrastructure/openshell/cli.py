@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from typing import Sequence
 
@@ -13,6 +14,30 @@ _SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "KARTOGRAPH_RUNTIME_
 
 class OpenShellCliError(RuntimeError):
     """Raised when an OpenShell CLI command fails."""
+
+
+def openshell_subprocess_env() -> dict[str, str]:
+    """Build subprocess env so openshell uses the mounted host gateway config."""
+    env = os.environ.copy()
+    config_home = (
+        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", "").strip()
+        or os.environ.get("XDG_CONFIG_HOME", "").strip()
+    )
+    if config_home:
+        env["XDG_CONFIG_HOME"] = config_home
+    gateway_name = (
+        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME", "").strip()
+        or os.environ.get("OPENSHELL_GATEWAY", "").strip()
+    )
+    if gateway_name:
+        env["OPENSHELL_GATEWAY"] = gateway_name
+    gateway_url = (
+        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL", "").strip()
+        or os.environ.get("OPENSHELL_GATEWAY_ENDPOINT", "").strip()
+    )
+    if gateway_url:
+        env["OPENSHELL_GATEWAY_ENDPOINT"] = gateway_url
+    return env
 
 
 def redact_args(args: Sequence[str]) -> list[str]:
@@ -43,6 +68,7 @@ def run_openshell(
             text=text,
             check=False,
             timeout=timeout,
+            env=openshell_subprocess_env(),
         )
     except FileNotFoundError as exc:
         raise OpenShellCliError(
@@ -65,6 +91,7 @@ def popen_openshell(args: Sequence[str]) -> subprocess.Popen[str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=openshell_subprocess_env(),
         )
     except FileNotFoundError as exc:
         raise OpenShellCliError(

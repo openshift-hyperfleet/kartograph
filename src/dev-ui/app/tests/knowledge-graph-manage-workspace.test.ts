@@ -10,6 +10,7 @@ import {
   buildSuggestedNextStep,
   buildWorkspaceStepCards,
   isMaintenanceReady,
+  parseManageStepQuery,
   resolveStepDestination,
   stepStatusTintClass,
 } from '../utils/kgManageWorkspace'
@@ -45,6 +46,14 @@ const sharedConversationPanelVue = readFileSync(
 )
 const graphExtractionArchivedHistoryVue = readFileSync(
   resolve(__dirname, '../components/graph-management/GraphExtractionArchivedHistory.vue'),
+  'utf-8',
+)
+const graphExtractionJobsWorkspaceVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphExtractionJobsWorkspace.vue'),
+  'utf-8',
+)
+const graphMaintenanceWorkspaceVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphMaintenanceWorkspace.vue'),
   'utf-8',
 )
 const graphManagementMutationAuthoringVue = readFileSync(
@@ -107,6 +116,30 @@ describe('Knowledge Graph Manage Workspace - graph writes history', () => {
     expect(graphExtractionArchivedHistoryVue).toContain('graph_management_session')
     expect(graphExtractionArchivedHistoryVue).toContain('GMA session')
     expect(graphExtractionArchivedHistoryVue).toContain('Extraction job')
+  })
+})
+
+describe('KG-MANAGE-012a - completed job archival maintenance', () => {
+  it('exposes archive completed action alongside reset maintenance controls', () => {
+    expect(graphExtractionJobsWorkspaceVue).toContain('/archive-completed')
+    expect(graphExtractionJobsWorkspaceVue).toContain('Archive Completed')
+    expect(graphExtractionJobsWorkspaceVue).toContain('archiveCompletedJobs')
+  })
+})
+
+describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
+  it('labels new files section and exposes commit refresh actions', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('New Files to Process')
+    expect(graphMaintenanceWorkspaceVue).toContain('Check for new commits')
+    expect(graphMaintenanceWorkspaceVue).toContain('Get latest commit locally')
+    expect(graphMaintenanceWorkspaceVue).toContain('last_extraction_baseline_commit')
+    expect(graphMaintenanceWorkspaceVue).toContain('diff-summary')
+  })
+
+  it('defaults maintain files per job to two and shows preview', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('filesPerJob = ref(2)')
+    expect(graphMaintenanceWorkspaceVue).toContain('Files per job')
+    expect(graphMaintenanceWorkspaceVue).toContain('estimatedJobsFromFiles')
   })
 })
 
@@ -215,8 +248,8 @@ describe('KG-MANAGE-002 - workspace hub tile set', () => {
     expect(cards.map((card) => card.title)).toEqual([
       'Data Sources',
       'Graph Management',
-      'Graph Writes History',
       'Maintain',
+      'Graph Writes History',
     ])
   })
 })
@@ -327,11 +360,16 @@ describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
 })
 
 describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
-  it('keeps maintain route utility for workspace cards but not graph-management redirects', () => {
-    expect(manageWorkspaceVue).not.toContain('navigateTo(buildMaintainStepUrl(kgId))')
+  it('routes maintain workspace cards to manage step', () => {
     expect(buildMaintainStepUrl('kg-abc')).toBe(
-      '/knowledge-graphs/kg-abc/data-sources?focus=maintain',
+      '/knowledge-graphs/kg-abc/manage?step=maintain',
     )
+    expect(parseManageStepQuery('maintain')).toBe('maintain')
+  })
+
+  it('renders maintain workspace on manage page', () => {
+    expect(manageWorkspaceVue).toContain("activeStep === 'maintain'")
+    expect(manageWorkspaceVue).toContain('GraphMaintenanceWorkspace')
   })
 
   it('returns to manage overview from in-page steps', () => {

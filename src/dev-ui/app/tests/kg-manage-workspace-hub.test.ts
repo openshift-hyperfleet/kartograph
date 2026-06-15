@@ -38,8 +38,8 @@ describe('kgManageWorkspaceHub', () => {
     expect(tiles.map((tile) => tile.key)).toEqual([
       'data-sources',
       'graph-management',
-      'mutation-logs',
       'maintain',
+      'mutation-logs',
     ])
   })
 

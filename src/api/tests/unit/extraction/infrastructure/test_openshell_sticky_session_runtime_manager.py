@@ -41,7 +41,7 @@ class TestOpenShellStickySessionRuntimeManager:
         ), patch(
             "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.create_sandbox"
         ), patch(
-            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.upload_path"
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.upload_directory_contents"
         ), patch(
             "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.apply_policy"
         ) as apply_policy, patch(
@@ -63,6 +63,55 @@ class TestOpenShellStickySessionRuntimeManager:
         assert lease.runtime_base_url.startswith("http://host.docker.internal:")
         apply_policy.assert_called_once()
         assert apply_policy.call_args.kwargs["ui_mode"] == "initial-schema-design"
+
+    def test_start_runtime_ensures_vertex_provider(self) -> None:
+        manager = OpenShellStickySessionRuntimeManager(
+            sticky_image="kartograph-agent-runtime:dev",
+            session_ttl=timedelta(minutes=30),
+            vertex_enabled=True,
+            vertex_project_id="my-project",
+            vertex_region="us-east5",
+            gcloud_config_mount="/host/.config/gcloud",
+        )
+
+        with patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_gateway.ensure_gateway_registered"
+        ), patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.ensure_vertex_provider"
+        ) as ensure_provider, patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.delete_sandbox"
+        ), patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.create_sandbox"
+        ), patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.apply_policy"
+        ), patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.exec_background"
+        ) as exec_background, patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.start_forward"
+        ), patch(
+            "extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager.openshell_sandbox.emit_lifecycle"
+        ):
+            manager.get_or_start_runtime(
+                session_id="session-1",
+                user_id="user-1",
+                knowledge_graph_id="kg-1",
+                mode="graph_management",
+                bootstrap=None,
+            )
+
+        ensure_provider.assert_called_once_with(
+            provider_name="kartograph-gma",
+            project_id="my-project",
+            region="us-east5",
+            gcloud_config_mount="/host/.config/gcloud",
+            auth_mode="vertex",
+        )
+        env = exec_background.call_args.kwargs["env"]
+        assert env["ANTHROPIC_BASE_URL"] == "https://inference.local"
+        assert env["ANTHROPIC_API_KEY"] == "unused"
+        assert env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] == "1"
+        assert "CLAUDE_CODE_USE_VERTEX" not in env
+        assert "GOOGLE_APPLICATION_CREDENTIALS" not in env
 
     def test_terminate_runtime_deletes_sandbox(self) -> None:
         manager = OpenShellStickySessionRuntimeManager(

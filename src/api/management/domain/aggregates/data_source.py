@@ -380,6 +380,33 @@ class DataSource:
         if self.tracked_branch_head_commit:
             self.last_extraction_baseline_commit = self.tracked_branch_head_commit
 
+    def maybe_seed_extraction_baseline_from_prepare(
+        self,
+        *,
+        prepared_commit: str | None,
+    ) -> None:
+        """Set baseline from the first successful prepare when still unset."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        if self.last_extraction_baseline_commit is not None:
+            return
+        if prepared_commit:
+            self.last_extraction_baseline_commit = prepared_commit
+
+    def advance_extraction_baseline_to_ingested_head(self) -> None:
+        """Move extraction baseline to the ingested/prepared commit on disk."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        from management.domain.commit_pull_state import resolve_ingested_head_commit
+
+        commit = resolve_ingested_head_commit(self)
+        if commit:
+            self.last_extraction_baseline_commit = commit
+
     def record_ingestion_prepared(
         self,
         *,

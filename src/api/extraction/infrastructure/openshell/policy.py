@@ -24,6 +24,14 @@ _MODE_POLICY_FILES: dict[str, str] = {
 }
 
 
+def regional_vertex_ai_endpoint(*, vertex_region: str) -> str:
+    """OpenShell endpoint for a regional Vertex AI hostname (e.g. us-east5-aiplatform.googleapis.com)."""
+    region = vertex_region.strip()
+    if not region:
+        raise ValueError("vertex_region must not be empty")
+    return f"{region}-aiplatform.googleapis.com:443:read-write"
+
+
 def bundled_policy_dir() -> Path:
     return _BUNDLED_POLICY_DIR
 
@@ -56,6 +64,7 @@ def resolve_endpoints(
     workload: Literal["gma", "extraction_job"] = "gma",
     policy_dir: str | None = None,
     api_host: str | None = None,
+    vertex_region: str | None = None,
 ) -> tuple[str, ...]:
     """Return OpenShell ``policy update --add-endpoint`` strings."""
     path = resolve_policy_path(ui_mode=ui_mode, workload=workload, policy_dir=policy_dir)
@@ -76,6 +85,10 @@ def resolve_endpoints(
             else:
                 rewritten.append(endpoint)
         endpoints = rewritten
+    if vertex_region and vertex_region.strip():
+        regional = regional_vertex_ai_endpoint(vertex_region=vertex_region)
+        if regional not in endpoints:
+            endpoints.append(regional)
     return tuple(endpoints)
 
 

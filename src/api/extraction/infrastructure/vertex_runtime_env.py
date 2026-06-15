@@ -8,6 +8,8 @@ from typing import Any
 
 GCLOUD_ADC_FILENAME = "application_default_credentials.json"
 DEFAULT_GCLOUD_CONTAINER_PATH = "/gcloud/config"
+# OpenShell sandboxes cannot bind-mount host gcloud config; upload ADC under /tmp instead.
+OPENSHELL_GCLOUD_CONTAINER_PATH = "/tmp/kartograph-gcloud"
 
 
 def is_truthy_env(value: str | None) -> bool:
@@ -34,6 +36,19 @@ def build_vertex_container_env(
         env["CLOUD_ML_REGION"] = region.strip()
         env["VERTEXAI_LOCATION"] = region.strip()
     return env
+
+
+def build_openshell_inference_container_env() -> dict[str, str]:
+    """Route Claude Code through OpenShell inference.local (host holds Vertex ADC).
+
+    Do not set ``CLAUDE_CODE_USE_VERTEX`` — that triggers metadata-server ADC
+    inside the sandbox, which OpenShell blocks for SSRF hardening.
+    """
+    return {
+        "ANTHROPIC_BASE_URL": "https://inference.local",
+        "ANTHROPIC_API_KEY": "unused",
+        "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    }
 
 
 def build_gcloud_adc_env(*, container_config_path: str) -> dict[str, str]:

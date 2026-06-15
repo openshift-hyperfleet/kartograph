@@ -33,10 +33,19 @@ services:
       KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: openshell
       ## End Track A / Track B selection
       KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL: https://host.docker.internal:17670
-      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST: host.docker.internal
+      # Forwards run inside this container; bind to 127.0.0.1 here, not on the host.
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST: 127.0.0.1
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL: http://host.docker.internal:8000
       KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR: /etc/openshell/policies
       KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME: openshell
+      # OpenShell CLI in the API container reads host gateway registration + mTLS from here
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME: /root/.config
+      # Host gateway must listen beyond localhost — in ~/.config/openshell/gateway.toml:
+      #   bind_address = "0.0.0.0:17670"
+      # then: systemctl --user restart openshell-gateway
       KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_IMAGE: ghcr.io/opendatahub-io/ai-helpers:latest
+      # OpenShell extraction jobs use agentic-ci claude-sandbox (not ai-helpers or sticky runtime).
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_EXTRACTION_IMAGE: quay.io/aipcc/agentic-ci/claude-sandbox:latest
       KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_HARNESS: claude-code
       KARTOGRAPH_EXTRACTION_RUNTIME_EXTRACTION_JOB_WORK_DIR: /tmp/kartograph/extraction_jobs
       # Vertex AI for Claude Agent SDK in sticky assistant containers
@@ -60,6 +69,8 @@ services:
       # OpenShell CLI + mTLS config (host gateway; API container invokes openshell subprocess)
       - /usr/bin/openshell:/usr/bin/openshell:ro
       - ${HOME}/.config/openshell:/root/.config/openshell:ro,z
+      # forward start -d writes PID/state here; read-only parent mount hangs the CLI
+      - openshell-forwards:/root/.config/openshell/forwards
       # OpenShell policy templates (Phase 3) when backend=openshell
       - ./src/api/extraction/infrastructure/openshell/policies:/etc/openshell/policies:ro,z
     extra_hosts:
@@ -89,3 +100,6 @@ services:
     ports:
       - "3000:3000"
       - "24678:24678"
+
+volumes:
+  openshell-forwards:

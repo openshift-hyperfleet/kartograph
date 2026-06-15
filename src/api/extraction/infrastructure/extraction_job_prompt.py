@@ -8,18 +8,29 @@ from extraction.domain.extraction_job import ExtractionJobRecord
 
 EXTRACTION_PROMPT_FILENAME = "extraction_prompt.md"
 MUTATIONS_HELPER = "helpers/workload-mutations.sh"
+GRAPH_READ_HELPER = "helpers/workload-graph-read.sh"
 MUTATION_EXAMPLES = "helpers/mutation-examples.jsonl"
 
 EXTRACTION_JOB_INVOKE_PROMPT = (
     "You are running a Kartograph extraction job in /workspace. "
     f"Read {EXTRACTION_PROMPT_FILENAME}, job-context.json, and sources-index.json, then follow "
     "the instructions completely. Read job-context.json target_instances for graph_id and "
-    "properties_missing before querying the graph API. Copy JSONL shapes from "
+    "properties_missing before querying the graph. For existing instances, fetch live properties "
+    f"with `bash {GRAPH_READ_HELPER} search-by-slug <slug> --entity-type <Type> --out "
+    "mutations/current_<slug>.json` before editing. Copy JSONL shapes from "
     f"{MUTATION_EXAMPLES} when writing mutations. Write JSONL batches under mutations/, validate with "
     f"`bash {MUTATIONS_HELPER} validate mutations/<batch>.jsonl`, then apply with "
     f"`bash {MUTATIONS_HELPER} apply mutations/<batch>.jsonl`. Do not finish until apply "
     "succeeds and mutations/result.json reports operations_applied > 0."
 )
+
+
+def build_extraction_job_invoke_prompt(*, workspace_dir: str = "/workspace") -> str:
+    """Return the one-shot claude-code -p prompt for one extraction job run."""
+    prompt = EXTRACTION_JOB_INVOKE_PROMPT
+    if workspace_dir != "/workspace":
+        prompt = prompt.replace("/workspace", workspace_dir.rstrip("/"))
+    return prompt
 
 
 def write_extraction_prompt_file(*, workdir: Path, prompt: str) -> Path:
@@ -93,6 +104,27 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
             "Use set_properties (not properties). UPDATE and DELETE require top-level id.",
             "Existing instances must use UPDATE with graph_id from job-context.json target_instances.",
             "",
+            "## Editing existing instances (token-efficient)",
+            "UPDATE merges `set_properties` into the live node — properties you omit are preserved.",
+            "Include only the fields you are changing in each UPDATE line; never resubmit every",
+            "property when a subset changed.",
+            "`properties_missing` lists empty ontology fields only. Populated fields you refine",
+            "(for example a long `description`) are not listed — fetch current values before editing.",
+            f"- Fetch one instance: `bash {GRAPH_READ_HELPER} search-by-slug <slug> --entity-type <Type> "
+            "--out mutations/current_<slug>.json`",
+            f"- List by type: `bash {GRAPH_READ_HELPER} instances <EntityType> --limit 100 --offset 0`",
+            "For surgical edits to long text: load the saved JSON, edit the target property with",
+            "Bash/python, then write one UPDATE line with only the changed keys in `set_properties`.",
+            "Generate JSONL programmatically (Write + python3); do not paste full prior text into chat.",
+            "Prefer UPDATE over CREATE when graph_id is present in job-context.json.",
+            "",
+            "## Graph read workflow (required before UPDATE)",
+            f"Use `bash {GRAPH_READ_HELPER}` (reads api_base_url and workload_token from job-context.json):",
+            f"- `bash {GRAPH_READ_HELPER} search-by-slug <slug> [--entity-type <Type>] [--out FILE]`",
+            f"- `bash {GRAPH_READ_HELPER} instances <EntityType> [--limit N] [--offset N] [--out FILE]`",
+            f"- `bash {GRAPH_READ_HELPER} ontology [--out FILE]`",
+            f"- `bash {GRAPH_READ_HELPER} authoring-guide [--out FILE]`",
+            "",
             "## Mutations workflow (required)",
             "This container has no Kartograph MCP tools. Use the bundled helper script:",
             f"- Validate: `bash {MUTATIONS_HELPER} validate mutations/<batch>.jsonl`",
@@ -101,15 +133,15 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
             "workload API, and writes mutations/result.json (the CI verdict artifact).",
             "Always validate before apply. Do not finish until apply succeeds.",
             "",
-            "Manual curl (only if helper fails): base `{api_base_url}/extraction/workloads`,",
+            "Manual curl (only if helpers fail): base `{api_base_url}/extraction/workloads`,",
             "header `X-Workload-Token: <workload_token>`, POST `/mutations/validate` or",
             "`/mutations/apply` with JSON body `{\"jsonl\": \"<file contents>\"}`.",
             "",
-            "Other useful GET endpoints:",
+            "Other useful GET endpoints (prefer workload-graph-read.sh):",
             "- `/schema/authoring-guide` — JSONL mutation shapes and rules",
             "- `/schema/ontology` — current graph schema",
-            "- `/graph/search?q=...` — search existing nodes",
-            "- `/graph/instances?entity_type=...` — list instances by type",
+            "- `/graph/search-by-slug?slug=...&entity_type=...` — one instance with full properties",
+            "- `/graph/instances?entity_type=...` — paginated instances by type",
             "",
             "## Completion",
             "When finished, mutations/result.json must show action=apply and operations_applied > 0.",

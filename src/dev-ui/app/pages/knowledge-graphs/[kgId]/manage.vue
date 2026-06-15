@@ -48,6 +48,7 @@ import GraphDesignEntitiesPanel from '@/components/graph-management/GraphDesignE
 import GraphDesignRelationshipsPanel from '@/components/graph-management/GraphDesignRelationshipsPanel.vue'
 import GraphExtractionJobsWorkspace from '@/components/graph-management/GraphExtractionJobsWorkspace.vue'
 import GraphExtractionArchivedHistory from '@/components/graph-management/GraphExtractionArchivedHistory.vue'
+import GraphMaintenanceWorkspace from '@/components/graph-management/GraphMaintenanceWorkspace.vue'
 import GraphManagementMutationAuthoringPanel from '@/components/graph-management/GraphManagementMutationAuthoringPanel.vue'
 import GraphSchemaExplorer from '@/components/graph-management/GraphSchemaExplorer.vue'
 import {
@@ -95,6 +96,7 @@ import {
   buildTransitionRestrictionReason,
   handleActivatableKeydown,
   isForbiddenHttpError,
+  isNotFoundHttpError,
   resolveForbiddenReason,
   resolveSectionState,
   shouldApplyMutationResult,
@@ -289,6 +291,12 @@ const modeLabel = computed(() =>
 const stepBadgeLabel = computed(() => {
   if (activeStep.value === 'graph-management') {
     return graphManagementModeLabel.value
+  }
+  if (activeStep.value === 'maintain') {
+    return 'Maintain'
+  }
+  if (activeStep.value === 'mutation-logs') {
+    return 'Graph Writes History'
   }
   return modeLabel.value
 })
@@ -834,6 +842,16 @@ function restoreModeConversation(mode: GraphManagementMode) {
   draftMessage.value = cached.draftMessage
 }
 
+function syncRuntimeReadyFromSession() {
+  if (runtimeWarming.value) return
+  const sticky = extractionSession.value?.runtime_context?.sticky_runtime
+  runtimeReady.value = Boolean(
+    sticky
+    && typeof sticky === 'object'
+    && (sticky as { phase?: string }).phase === 'ready',
+  )
+}
+
 async function loadExtractionSession() {
   if (!kgId.value || activeStep.value !== 'graph-management') return
   sessionLoading.value = true
@@ -844,15 +862,7 @@ async function loadExtractionSession() {
         + `?graph_management_ui_mode=${encodeURIComponent(graphManagementMode.value)}`,
     )
     syncActivityLinesFromSession()
-    const stickyPhase = extractionSession.value?.runtime_context?.sticky_runtime
-    if (
-      stickyPhase
-      && typeof stickyPhase === 'object'
-      && (stickyPhase as { phase?: string }).phase === 'ready'
-      && !runtimeWarming.value
-    ) {
-      runtimeReady.value = true
-    }
+    syncRuntimeReadyFromSession()
     sessionForbidden.value = false
     sessionForbiddenReason.value = null
   } catch (err) {
@@ -864,7 +874,7 @@ async function loadExtractionSession() {
         err,
         'You do not have permission to manage this knowledge graph.',
       )
-    } else if (extractErrorMessage(err).includes('404') || extractErrorMessage(err).toLowerCase().includes('not found')) {
+    } else if (isNotFoundHttpError(err)) {
       sessionForbidden.value = false
       sessionForbiddenReason.value = null
       sessionLoadError.value = null
@@ -1073,6 +1083,7 @@ async function warmupAssistantRuntime() {
   } finally {
     if (generation === runtimeWarmupGeneration) {
       runtimeWarming.value = false
+      syncRuntimeReadyFromSession()
       snapshotCurrentModeConversation()
     }
   }
@@ -1341,8 +1352,14 @@ watch(
             <template v-if="activeStep === 'graph-management'">
               Conversation-first graph management with shared session and mode-specific workspace panels.
             </template>
-            <template v-else>
+            <template v-else-if="activeStep === 'maintain'">
+              Schedule and run incremental maintenance extraction jobs when tracked sources have new commits.
+            </template>
+            <template v-else-if="activeStep === 'mutation-logs'">
               Knowledge-graph scoped mutation run visibility and run metrics.
+            </template>
+            <template v-else>
+              Knowledge-graph scoped workspace overview.
             </template>
           </p>
         </div>
@@ -1606,6 +1623,10 @@ watch(
 
       <section v-else-if="activeStep === 'mutation-logs'" class="space-y-4">
         <GraphExtractionArchivedHistory :kg-id="kgId" />
+      </section>
+
+      <section v-else-if="activeStep === 'maintain'" class="space-y-4">
+        <GraphMaintenanceWorkspace :kg-id="kgId" />
       </section>
 
       <section v-else-if="activeStep === 'graph-management'" class="space-y-4">

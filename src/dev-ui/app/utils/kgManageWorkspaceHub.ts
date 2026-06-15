@@ -97,7 +97,7 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
     if (done) return 'success'
     if (!enabled) return 'muted'
     if (cardStatus === 'needs_attention') return 'warning'
-    if (highlightKey === (['data-sources', 'graph-management', 'mutation-logs', 'maintain'] as const)[step - 1]) {
+    if (highlightKey === (['data-sources', 'graph-management', 'maintain', 'mutation-logs'] as const)[step - 1]) {
       return 'primary'
     }
     return 'muted'
@@ -145,21 +145,6 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
     },
     {
       step: 3,
-      key: 'mutation-logs',
-      title: 'Graph Writes History',
-      subtitle: input.mutationLogRunCount > 0
-        ? `${input.mutationLogRunCount} archived write entr${input.mutationLogRunCount === 1 ? 'y' : 'ies'} recorded`
-        : 'Review GMA sessions and extraction job writes',
-      to: resolveStepDestination(input.kgId, 'mutation-logs'),
-      enabled: input.dataSourceCount > 0,
-      lockedReason: input.dataSourceCount > 0 ? null : 'Connect a data source before reviewing runs.',
-      highlight: highlightKey === 'mutation-logs',
-      tone: toneFor(3, input.mutationLogRunCount > 0, input.dataSourceCount > 0, mlCard.status),
-      linkLabel: linkLabelFor(mlCard.actionLabel, input.mutationLogRunCount > 0),
-      done: input.mutationLogRunCount > 0,
-    },
-    {
-      step: 4,
       key: 'maintain',
       title: 'Maintain',
       subtitle: input.maintenanceReadyCount > 0
@@ -169,9 +154,24 @@ export function buildWorkspaceHubTiles(input: WorkspaceHubOverview): WorkspaceHu
       enabled: designDone,
       lockedReason: designDone ? null : 'Complete graph management validation before maintenance.',
       highlight: highlightKey === 'maintain',
-      tone: toneFor(4, maintainCard.status === 'ready' && input.maintenanceReadyCount === 0, designDone, maintainCard.status),
+      tone: toneFor(3, maintainCard.status === 'ready' && input.maintenanceReadyCount === 0, designDone, maintainCard.status),
       linkLabel: linkLabelFor(maintainCard.actionLabel, maintainCard.status === 'ready' && input.maintenanceReadyCount === 0),
       done: maintainCard.status === 'ready' && input.maintenanceReadyCount === 0 && input.dataSourceCount > 0,
+    },
+    {
+      step: 4,
+      key: 'mutation-logs',
+      title: 'Graph Writes History',
+      subtitle: input.mutationLogRunCount > 0
+        ? `${input.mutationLogRunCount} archived write entr${input.mutationLogRunCount === 1 ? 'y' : 'ies'} recorded`
+        : 'Review GMA sessions and extraction job writes',
+      to: resolveStepDestination(input.kgId, 'mutation-logs'),
+      enabled: input.dataSourceCount > 0,
+      lockedReason: input.dataSourceCount > 0 ? null : 'Connect a data source before reviewing runs.',
+      highlight: highlightKey === 'mutation-logs',
+      tone: toneFor(4, input.mutationLogRunCount > 0, input.dataSourceCount > 0, mlCard.status),
+      linkLabel: linkLabelFor(mlCard.actionLabel, input.mutationLogRunCount > 0),
+      done: input.mutationLogRunCount > 0,
     },
   ]
 }
@@ -259,7 +259,7 @@ export function workspaceHubDescription(input: WorkspaceHubOverview): string {
   if (!designPhaseComplete(input)) {
     return 'Use Graph Management for the assistant and schema bootstrap. Green tiles use Revisit; the highlighted tile is your suggested next step.'
   }
-  return 'Continue with graph writes history or maintenance, or Revisit any completed step below.'
+  return 'Continue with maintenance or graph writes history, or Revisit any completed step below.'
 }
 
 export function buildManageOverviewUrl(kgId: string): string {

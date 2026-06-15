@@ -45,6 +45,7 @@ def test_extraction_job_invoke_prompt_references_materialized_file() -> None:
     assert "extraction_prompt.md" in EXTRACTION_JOB_INVOKE_PROMPT
     assert "job-context.json" in EXTRACTION_JOB_INVOKE_PROMPT
     assert "helpers/workload-mutations.sh" in EXTRACTION_JOB_INVOKE_PROMPT
+    assert "helpers/workload-graph-read.sh" in EXTRACTION_JOB_INVOKE_PROMPT
     assert "mutations/result.json" in EXTRACTION_JOB_INVOKE_PROMPT
 
 

@@ -63,6 +63,19 @@ export function isForbiddenHttpError(err: unknown): boolean {
   return false
 }
 
+export function isNotFoundHttpError(err: unknown): boolean {
+  if (err && typeof err === 'object') {
+    const fetchErr = err as { statusCode?: number; status?: number }
+    const status = fetchErr.statusCode ?? fetchErr.status
+    if (status === 404) return true
+  }
+  if (err instanceof Error) {
+    const message = err.message.toLowerCase()
+    return message.includes('not found') || message.includes('404')
+  }
+  return false
+}
+
 export function resolveForbiddenReason(
   err: unknown,
   fallback: string,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
 
@@ -10,6 +11,7 @@ __all__ = [
     "applied_mutation_jsonl_from_workdir",
     "metrics_from_mutation_jsonl",
     "metrics_from_mutation_workdir",
+    "reconcile_mutation_metrics",
 ]
 
 
@@ -42,6 +44,31 @@ def applied_mutation_jsonl_from_workdir(job_root: Path) -> str | None:
     parts = [path.read_text(encoding="utf-8") for path in jsonl_files]
     content = "\n".join(part.rstrip("\n") for part in parts if part.strip())
     return content or None
+
+
+def reconcile_mutation_metrics(
+    metrics: dict[str, Any],
+    *,
+    workdir: Path,
+    operations_applied: int,
+) -> dict[str, Any]:
+    """Ensure graph write counters align with applied mutation batches."""
+    merged = dict(metrics)
+    if int(merged.get("write_ops", 0)) > 0:
+        return merged
+
+    workdir_metrics = metrics_from_mutation_workdir(workdir)
+    if int(workdir_metrics.get("write_ops", 0)) > 0:
+        merged.update(workdir_metrics)
+        applied_jsonl = applied_mutation_jsonl_from_workdir(workdir)
+        if applied_jsonl:
+            merged["applied_mutations_jsonl"] = applied_jsonl
+        return merged
+
+    if operations_applied > 0:
+        merged["entities_modified"] = operations_applied
+        merged["write_ops"] = operations_applied
+    return merged
 
 
 def _empty_metrics() -> dict[str, int]:

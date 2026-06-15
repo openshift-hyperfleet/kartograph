@@ -47,6 +47,7 @@ class ActionResponse(BaseModel):
     message: str | None = None
     generated_jobs: int | None = None
     reset_count: int | None = None
+    archived_count: int | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -378,6 +379,26 @@ async def reset_completed_jobs(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     return ActionResponse(success=True, reset_count=int(result.get("reset_count") or 0))
+
+
+@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/archive-completed", response_model=ActionResponse)
+async def archive_completed_jobs(
+    kg_id: str,
+    service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> ActionResponse:
+    try:
+        result = await service.archive_completed_jobs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+    except UnauthorizedError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return ActionResponse(
+        success=True,
+        message=result.get("message"),
+        archived_count=int(result.get("archived_count") or 0),
+    )
 
 
 @router.post("/knowledge-graphs/{kg_id}/extraction-jobs/reset-failed", response_model=ActionResponse)

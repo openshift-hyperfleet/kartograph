@@ -300,4 +300,29 @@ Only pass `approved_at` when the user explicitly approved a timestamp.
 **Do not** conflate schema design, prepopulation planning, and implementation in one turn when the
 user listed multiple deliverables — but **do** stop all implementation when graph tools return
 systemic server errors.
+
+## Batch extraction jobs (workload API, no MCP)
+
+Extraction job sandboxes use `helpers/workload-graph-read.sh` and `helpers/workload-mutations.sh`
+instead of `kartograph_*` MCP tools. Credentials live in `job-context.json`.
+
+**Read before UPDATE:** `job-context.json` `target_instances` includes `graph_id` and
+`properties_missing` (empty fields only). For populated fields you are refining — especially long
+text like `description` — fetch live values first:
+
+```bash
+bash helpers/workload-graph-read.sh search-by-slug <slug> --entity-type <Type> --out mutations/current_<slug>.json
+```
+
+**Partial UPDATE:** `set_properties` merges into the live node; omitted properties are preserved.
+Put only changed keys in each UPDATE line. Example:
+
+```json
+{"op":"UPDATE","type":"node","id":"componenttest:abc123def4567890","set_properties":{"description":"<edited full text>"}}
+```
+
+For surgical text edits: load the saved JSON, edit one property with Bash/python, emit JSONL
+programmatically — do not paste full prior text into chat or resubmit unrelated properties.
+
+**Apply:** validate then apply via `helpers/workload-mutations.sh` (writes `mutations/result.json`).
 """.strip()

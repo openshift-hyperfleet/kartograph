@@ -1,42 +1,22 @@
-"""Unit tests for Vertex runtime environment helpers."""
+"""Tests for Vertex and OpenShell inference runtime env helpers."""
 
 from __future__ import annotations
 
-import pytest
-
 from extraction.infrastructure.vertex_runtime_env import (
+    build_openshell_inference_container_env,
     build_vertex_container_env,
-    vertex_enabled_from_env,
 )
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("1", True),
-        ("true", True),
-        ("yes", True),
-        ("0", False),
-        ("", False),
-        (None, False),
-    ],
-)
-def test_vertex_enabled_from_env(
-    monkeypatch: pytest.MonkeyPatch, value: str | None, expected: bool
-) -> None:
-    if value is None:
-        monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
-    else:
-        monkeypatch.setenv("CLAUDE_CODE_USE_VERTEX", value)
-    assert vertex_enabled_from_env() is expected
+def test_build_openshell_inference_container_env_routes_through_inference_local() -> None:
+    env = build_openshell_inference_container_env()
+    assert env["ANTHROPIC_BASE_URL"] == "https://inference.local"
+    assert env["ANTHROPIC_API_KEY"] == "unused"
+    assert "CLAUDE_CODE_USE_VERTEX" not in env
 
 
-def test_build_vertex_container_env_includes_project_and_region() -> None:
-    env = build_vertex_container_env(
-        project_id="my-gcp-project",
-        region="us-central1",
-    )
+def test_build_vertex_container_env_sets_vertex_flags() -> None:
+    env = build_vertex_container_env(project_id="proj", region="us-east5")
     assert env["CLAUDE_CODE_USE_VERTEX"] == "1"
-    assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "my-gcp-project"
-    assert env["CLOUD_ML_REGION"] == "us-central1"
-    assert env["VERTEXAI_LOCATION"] == "us-central1"
+    assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "proj"
+    assert env["CLOUD_ML_REGION"] == "us-east5"

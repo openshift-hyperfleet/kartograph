@@ -42,6 +42,10 @@ def test_build_extraction_job_prompt_includes_instances_and_files() -> None:
     assert "mutation-examples.jsonl" in prompt
     assert "properties_missing" in prompt
     assert "paths_not_found" in prompt
+    assert "workload-graph-read.sh" in prompt
+    assert "token-efficient" in prompt.lower() or "token-efficient" in prompt
+    assert "set_properties" in prompt
+    assert "properties you omit are preserved" in prompt
 
 
 def test_build_extraction_job_prompt_mentions_graph_id_in_job_context() -> None:

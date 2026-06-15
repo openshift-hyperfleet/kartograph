@@ -23,8 +23,8 @@ export const WORKSPACE_STEP_TITLES: Record<WorkspaceStepId, string> = {
 export const WORKSPACE_STEP_ORDER: WorkspaceStepId[] = [
   'data-sources',
   'graph-management',
-  'mutation-logs',
   'maintain',
+  'mutation-logs',
 ]
 
 export interface WorkspaceReadinessSnapshot {
@@ -76,7 +76,7 @@ export function buildDataSourcesStepUrl(kgId: string, dataSourceCount = 0): stri
 }
 
 export function buildMaintainStepUrl(kgId: string): string {
-  return buildKgDataSourcesUrl(kgId, { focus: 'maintain' })
+  return buildManageStepUrl(kgId, 'maintain')
 }
 
 export function buildManageStepUrl(kgId: string, step?: WorkspaceStepId): string {
@@ -87,7 +87,11 @@ export function buildManageStepUrl(kgId: string, step?: WorkspaceStepId): string
 }
 
 export function parseManageStepQuery(step: unknown): WorkspaceStepId | null {
-  if (step === 'graph-management' || step === 'mutation-logs') {
+  if (
+    step === 'graph-management'
+    || step === 'mutation-logs'
+    || step === 'maintain'
+  ) {
     return step
   }
   return null
@@ -244,8 +248,8 @@ export function buildWorkspaceStepCards(input: WorkspaceOverviewInputs): Workspa
   return [
     buildDataSourcesCard(input),
     buildGraphManagementCard(input),
-    buildMutationLogsCard(input),
     buildMaintainCard(input),
+    buildMutationLogsCard(input),
   ]
 }
 

@@ -96,6 +96,38 @@ class ExtractionAgentSessionService:
         session.archive()
         await self._repository.save(session)
 
+    @staticmethod
+    def _session_had_sticky_runtime_attempt(session: ExtractionAgentSession) -> bool:
+        sticky = session.runtime_context.get("sticky_runtime")
+        if not isinstance(sticky, dict):
+            return False
+        phase = sticky.get("phase")
+        return phase in {"starting", "ready", "unhealthy", "failed"}
+
+    async def _reconcile_orphaned_sticky_session(
+        self,
+        session: ExtractionAgentSession,
+    ) -> ExtractionAgentSession | None:
+        """Archive sessions whose sticky runtime no longer exists (e.g. after sandbox delete)."""
+        if self._sticky_runtime_manager is None:
+            return session
+        if not self._session_had_sticky_runtime_attempt(session):
+            return session
+
+        sticky = session.runtime_context.get("sticky_runtime", {})
+        container_id = sticky.get("container_id") if isinstance(sticky, dict) else None
+        if self._sticky_runtime_manager.is_runtime_active(
+            session_id=session.id,
+            container_id=container_id if isinstance(container_id, str) else None,
+            user_id=session.user_id,
+            knowledge_graph_id=session.knowledge_graph_id,
+            mode=session.mode.value,
+        ):
+            return session
+
+        await self._end_session_record(session)
+        return None
+
     async def _create_session(
         self,
         *,
@@ -147,11 +179,14 @@ class ExtractionAgentSessionService:
         ui_mode: GraphManagementUiMode,
     ) -> ExtractionAgentSession | None:
         await self._expire_idle_sessions(user_id, knowledge_graph_id)
-        return await self._repository.find_active_by_ui_mode(
+        session = await self._repository.find_active_by_ui_mode(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,
             ui_mode=ui_mode,
         )
+        if session is None:
+            return None
+        return await self._reconcile_orphaned_sticky_session(session)
 
     async def start_session(
         self,
@@ -166,7 +201,9 @@ class ExtractionAgentSessionService:
             ui_mode=ui_mode,
         )
         if existing is not None:
-            return existing
+            existing = await self._reconcile_orphaned_sticky_session(existing)
+            if existing is not None:
+                return existing
         return await self._create_session(
             user_id=user_id,
             knowledge_graph_id=knowledge_graph_id,

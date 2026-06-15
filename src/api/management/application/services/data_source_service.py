@@ -474,8 +474,8 @@ class DataSourceService:
         """Persist the latest tracked branch head for a Git-backed data source.
 
         Requires MANAGE permission. Updates only ``tracked_branch_head_commit``;
-        extraction baseline is advanced on successful sync completion or via
-        ``adopt_tracked_head_as_baseline``.
+        extraction baseline is seeded on first prepare, advanced when extraction
+        jobs finish or maintain sync applies mutations.
         """
         has_manage = await self._check_permission(
             user_id=user_id,

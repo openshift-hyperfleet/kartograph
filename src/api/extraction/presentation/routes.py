@@ -85,7 +85,7 @@ async def get_active_session(
     graph_management_ui_mode: GraphManagementUiMode,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
-        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service_with_runtime)
     ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> ExtractionSessionResponse:
@@ -118,7 +118,7 @@ async def start_session(
     request: GraphManagementSessionRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
-        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service)
+        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service_with_runtime)
     ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> ExtractionSessionResponse:

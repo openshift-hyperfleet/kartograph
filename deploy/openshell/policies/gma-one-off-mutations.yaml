@@ -5,6 +5,9 @@ description: Production policy for one-off graph mutations mode.
 endpoints:
   - "kartograph-api:8000:read-write"
   - "inference.local:443:read-write"
+  - "aiplatform.googleapis.com:443:read-write"
+  - "*.aiplatform.googleapis.com:443:read-write"
+  - "oauth2.googleapis.com:443:read-write"
 l7_allowed_paths:
   - "/extraction/workloads/mutations/*"
   - "/extraction/workloads/graph/*"

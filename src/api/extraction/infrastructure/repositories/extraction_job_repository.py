@@ -324,7 +324,10 @@ class ExtractionJobRepository:
     ) -> list[ExtractionJobRecord]:
         stmt = (
             select(ExtractionJobModel)
-            .where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status != ExtractionJobStatus.ARCHIVED.value,
+            )
             .order_by(
                 ExtractionJobModel.updated_at.desc(),
                 ExtractionJobModel.order_index.asc(),
@@ -333,6 +336,58 @@ class ExtractionJobRepository:
         )
         result = await self._session.execute(stmt)
         return [_job_model_to_record(model) for model in result.scalars().all()]
+
+    async def list_jobs_by_status(
+        self,
+        *,
+        knowledge_graph_id: str,
+        status: ExtractionJobStatus,
+        limit: int = 10_000,
+    ) -> list[ExtractionJobRecord]:
+        stmt = (
+            select(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.status == status.value,
+            )
+            .order_by(
+                ExtractionJobModel.completed_at.desc().nullslast(),
+                ExtractionJobModel.order_index.asc(),
+            )
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [_job_model_to_record(model) for model in result.scalars().all()]
+
+    async def promote_completed_job_to_archived(
+        self,
+        *,
+        knowledge_graph_id: str,
+        job_id: str,
+        metrics: dict[str, Any],
+    ) -> bool:
+        now = datetime.now(UTC)
+        values: dict[str, Any] = {
+            "status": ExtractionJobStatus.ARCHIVED.value,
+            "archived_at": now,
+            "entities_created": int(metrics.get("entities_created", 0)),
+            "entities_modified": int(metrics.get("entities_modified", 0)),
+            "relationships_created": int(metrics.get("relationships_created", 0)),
+            "relationships_modified": int(metrics.get("relationships_modified", 0)),
+        }
+        applied_jsonl = metrics.get("applied_mutations_jsonl")
+        if isinstance(applied_jsonl, str) and applied_jsonl.strip():
+            values["applied_mutations_jsonl"] = applied_jsonl
+        result = await self._session.execute(
+            update(ExtractionJobModel)
+            .where(
+                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
+                ExtractionJobModel.job_id == job_id,
+                ExtractionJobModel.status == ExtractionJobStatus.COMPLETED.value,
+            )
+            .values(**values)
+        )
+        return int(result.rowcount or 0) > 0
 
     async def list_active_workers(self, *, knowledge_graph_id: str) -> list[dict[str, Any]]:
         stmt = select(ExtractionJobModel).where(

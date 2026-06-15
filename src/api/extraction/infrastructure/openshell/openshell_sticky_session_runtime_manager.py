@@ -10,8 +10,13 @@ from urllib.parse import urlparse
 from extraction.infrastructure.openshell import gateway as openshell_gateway
 from extraction.infrastructure.openshell import sandbox as openshell_sandbox
 from extraction.infrastructure.openshell.audit import LoggingOpenShellRuntimeProbe, OpenShellRuntimeProbe
+from extraction.infrastructure.openshell.runtime_env import apply_openshell_gateway_env
+from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
 from extraction.infrastructure.runtime_session_auth import issue_runtime_auth_token
-from extraction.infrastructure.vertex_runtime_env import build_vertex_container_env
+from extraction.infrastructure.vertex_runtime_env import (
+    OPENSHELL_GCLOUD_CONTAINER_PATH,
+    build_openshell_inference_container_env,
+)
 from extraction.ports.runtime import (
     IStickySessionRuntimeManager,
     StickySessionRuntimeBootstrap,
@@ -47,17 +52,19 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
         sticky_image: str,
         session_ttl: timedelta = timedelta(minutes=60),
         sticky_service_port: int = 8787,
-        container_work_mount: str = "/workspace",
+        container_work_mount: str = "/sandbox",
         vertex_project_id: str = "",
         vertex_region: str = "us-east5",
         vertex_enabled: bool = False,
+        gcloud_config_mount: str | None = None,
+        gcloud_config_container_path: str = OPENSHELL_GCLOUD_CONTAINER_PATH,
         agent_turn_timeout_seconds: float = 1000.0,
         agent_max_turns: int = 500,
         api_base_url: str = "http://api:8000",
         gateway_name: str = "kartograph",
         gateway_url: str = "https://localhost:17670",
         provider_name: str = "kartograph-gma",
-        runtime_host: str = "host.docker.internal",
+        runtime_host: str = "127.0.0.1",
         forward_port_base: int = 18787,
         policy_dir: str | None = None,
         policy_enforcement: str = "soft",
@@ -70,6 +77,8 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
         self._vertex_project_id = vertex_project_id
         self._vertex_region = vertex_region
         self._vertex_enabled = vertex_enabled
+        self._gcloud_config_mount = gcloud_config_mount
+        self._gcloud_config_container_path = gcloud_config_container_path.rstrip("/")
         self._agent_turn_timeout_seconds = agent_turn_timeout_seconds
         self._agent_max_turns = agent_max_turns
         self._api_base_url = api_base_url
@@ -236,6 +245,18 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             gateway_name=self._gateway_name,
             gateway_url=self._gateway_url,
         )
+        apply_openshell_gateway_env(
+            gateway_name=self._gateway_name,
+            gateway_url=self._gateway_url,
+        )
+        if self._vertex_enabled:
+            ensure_vertex_provider(
+                provider_name=self._provider_name,
+                project_id=self._vertex_project_id,
+                region=self._vertex_region,
+                gcloud_config_mount=self._gcloud_config_mount,
+                auth_mode="vertex",
+            )
         sandbox_name = _sanitize_sandbox_name(session_id)
         forward_port = _forward_port(session_id=session_id, base=self._forward_port_base)
         runtime_auth_token = issue_runtime_auth_token()
@@ -267,9 +288,9 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
         )
 
         if bootstrap is not None:
-            openshell_sandbox.upload_path(
+            openshell_sandbox.upload_directory_contents(
                 sandbox_name=sandbox_name,
-                local_path=bootstrap.host_session_work_dir,
+                local_dir=bootstrap.host_session_work_dir,
                 dest=self._container_work_mount,
             )
 
@@ -279,6 +300,7 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             workload="gma",
             policy_dir=self._policy_dir,
             api_host=_api_host_from_base_url(bootstrap.api_base_url if bootstrap else self._api_base_url),
+            vertex_region=self._vertex_region if self._vertex_enabled else None,
             policy_enforcement=self._policy_enforcement,
             probe=self._probe,
         )
@@ -295,12 +317,16 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             sandbox_name=sandbox_name,
             env=env,
             command=(
-                "/runtime/.venv/bin/python",
+                "/app/.venv/bin/python",
                 "-m",
                 "kartograph_agent_runtime",
             ),
         )
-        openshell_sandbox.start_forward(sandbox_name=sandbox_name, port=forward_port)
+        openshell_sandbox.start_forward(
+            sandbox_name=sandbox_name,
+            port=forward_port,
+            target_port=self._sticky_service_port,
+        )
         openshell_sandbox.emit_lifecycle(
             sandbox_name=sandbox_name,
             action="started",
@@ -351,12 +377,7 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 }
             )
         if self._vertex_enabled:
-            env.update(
-                build_vertex_container_env(
-                    project_id=self._vertex_project_id,
-                    region=self._vertex_region,
-                )
-            )
+            env.update(build_openshell_inference_container_env())
         return env
 
     def _terminate_sandbox(self, lease: StickySessionRuntimeLease) -> None:

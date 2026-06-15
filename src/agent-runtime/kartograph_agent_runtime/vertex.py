@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
+
+VertexEffortLevel = Literal["low", "medium", "high", "max"]
+
+# Vertex AI (direct or via OpenShell inference.local) rejects xhigh effort levels.
+VERTEX_COMPATIBLE_EFFORT: VertexEffortLevel = "high"
 
 
 def is_truthy_env(value: str | None) -> bool:
@@ -17,8 +23,13 @@ def vertex_enabled_from_env() -> bool:
 
 
 def build_claude_agent_env(settings) -> dict[str, str]:
-    """Build Claude Agent SDK env for Vertex or direct Anthropic API."""
+    """Build Claude Agent SDK env for Vertex, OpenShell inference.local, or Anthropic API."""
     env: dict[str, str] = {}
+    if getattr(settings, "openshell_inference_enabled", lambda: False)():
+        env["ANTHROPIC_BASE_URL"] = "https://inference.local"
+        env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key.strip() or "unused"
+        env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
+        return env
     if settings.vertex_enabled():
         env["CLAUDE_CODE_USE_VERTEX"] = "1"
         if settings.vertex_project_id.strip():

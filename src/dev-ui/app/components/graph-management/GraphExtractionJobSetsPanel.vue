@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
-import { Loader2, Save, Layers, FolderSearch, Network, Sparkles } from 'lucide-vue-next'
+import { Loader2, Save, Layers, FolderSearch, Network, Sparkles, Pencil } from 'lucide-vue-next'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const props = withDefaults(
   defineProps<{
@@ -53,6 +61,23 @@ const loading = ref(true)
 const saving = ref(false)
 const doc = ref<ExtractionJobsDocument | null>(null)
 const entityTypeOptions = ref<EntityTypeOption[]>([])
+const descriptionEditorOpen = ref(false)
+const descriptionEditorIndex = ref<number | null>(null)
+
+const descriptionEditorJobSet = computed(() => {
+  if (!doc.value || descriptionEditorIndex.value === null) return null
+  return doc.value.job_sets[descriptionEditorIndex.value] ?? null
+})
+
+function openDescriptionEditor(index: number) {
+  descriptionEditorIndex.value = index
+  descriptionEditorOpen.value = true
+}
+
+function closeDescriptionEditor() {
+  descriptionEditorOpen.value = false
+  descriptionEditorIndex.value = null
+}
 
 function cloneDoc(d: ExtractionJobsDocument): ExtractionJobsDocument {
   return JSON.parse(JSON.stringify(d)) as ExtractionJobsDocument
@@ -315,7 +340,19 @@ defineExpose({ refresh: load })
             </template>
 
             <div class="space-y-1.5">
-              <label class="text-xs font-medium">Per-instance extraction description</label>
+              <div class="flex items-center justify-between gap-2">
+                <label class="text-xs font-medium">Per-instance extraction description</label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  class="h-7 shrink-0 px-2 text-xs"
+                  @click="openDescriptionEditor(idx)"
+                >
+                  <Pencil class="mr-1 size-3" />
+                  Edit
+                </Button>
+              </div>
               <textarea
                 v-model="js.description"
                 rows="3"
@@ -339,5 +376,28 @@ defineExpose({ refresh: load })
         </CardFooter>
       </Card>
     </template>
+
+    <Dialog :open="descriptionEditorOpen" @update:open="(open) => { if (!open) closeDescriptionEditor() }">
+      <DialogContent class="flex max-h-[90dvh] flex-col gap-0 overflow-hidden sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Edit per-instance description</DialogTitle>
+          <DialogDescription v-if="descriptionEditorJobSet">
+            Job set: {{ descriptionEditorJobSet.name }}
+          </DialogDescription>
+        </DialogHeader>
+        <div class="min-h-0 flex-1 overflow-y-auto py-4">
+          <textarea
+            v-if="descriptionEditorJobSet"
+            v-model="descriptionEditorJobSet.description"
+            rows="18"
+            class="min-h-[min(60dvh,28rem)] w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed"
+            placeholder="Describe what to extract for each instance in this job set."
+          />
+        </div>
+        <DialogFooter>
+          <Button type="button" @click="closeDescriptionEditor">Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

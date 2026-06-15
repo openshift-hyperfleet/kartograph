@@ -8,6 +8,7 @@ from pathlib import Path
 from extraction.infrastructure.extraction_job_mutation_metrics import (
     metrics_from_mutation_jsonl,
     metrics_from_mutation_workdir,
+    reconcile_mutation_metrics,
 )
 
 
@@ -81,3 +82,42 @@ def test_metrics_from_mutation_workdir_reads_latest_jsonl(tmp_path: Path) -> Non
 
     assert metrics["relationships_modified"] == 1
     assert metrics["write_ops"] == 1
+
+
+def test_reconcile_mutation_metrics_prefers_workdir_jsonl(tmp_path: Path) -> None:
+    mutations = tmp_path / "mutations"
+    mutations.mkdir()
+    (mutations / "batch.jsonl").write_text(
+        json.dumps(
+            {
+                "op": "UPDATE",
+                "type": "node",
+                "id": "adapter:1",
+                "label": "Adapter",
+                "set_properties": {"description": "updated"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    metrics = reconcile_mutation_metrics(
+        {"write_ops": 0},
+        workdir=tmp_path,
+        operations_applied=5,
+    )
+
+    assert metrics["entities_modified"] == 1
+    assert metrics["write_ops"] == 1
+    assert metrics["applied_mutations_jsonl"]
+
+
+def test_reconcile_mutation_metrics_falls_back_to_operations_applied(tmp_path: Path) -> None:
+    metrics = reconcile_mutation_metrics(
+        {"write_ops": 0},
+        workdir=tmp_path,
+        operations_applied=3,
+    )
+
+    assert metrics["entities_modified"] == 3
+    assert metrics["write_ops"] == 3

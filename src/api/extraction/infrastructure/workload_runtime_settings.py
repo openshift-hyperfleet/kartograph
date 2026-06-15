@@ -9,7 +9,10 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from extraction.infrastructure.vertex_runtime_env import vertex_enabled_from_env
+from extraction.infrastructure.vertex_runtime_env import (
+    OPENSHELL_GCLOUD_CONTAINER_PATH,
+    vertex_enabled_from_env,
+)
 
 
 class ExtractionWorkloadRuntimeSettings(BaseSettings):
@@ -50,9 +53,29 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     worker_command: tuple[str, ...] = Field(default=("sleep", "3600"))
     sticky_service_port: int = Field(default=8787, ge=1024, le=65535)
     container_work_mount: str = Field(default="/workspace")
+    openshell_container_work_mount: str = Field(
+        default="/sandbox",
+        description=(
+            "In-sandbox workspace path for OpenShell backends. "
+            "Must be writable under OpenShell Landlock defaults (/sandbox, /tmp)."
+        ),
+    )
+    openshell_gcloud_container_path: str = Field(
+        default=OPENSHELL_GCLOUD_CONTAINER_PATH,
+        description=(
+            "In-sandbox path for uploaded gcloud ADC when using OpenShell backends."
+        ),
+    )
     session_ttl_minutes: int = Field(default=60, ge=1, le=24 * 60)
     job_package_work_dir: str = Field(default="/tmp/kartograph/job_packages")
     api_base_url: str = Field(default="http://api:8000")
+    openshell_api_base_url: str = Field(
+        default="http://host.docker.internal:8000",
+        description=(
+            "API base URL reachable from OpenShell sandboxes on the host. "
+            "Docker service names like api:8000 do not resolve outside the compose network."
+        ),
+    )
     workload_token_signing_key: str = Field(
         default="",
         description=(
@@ -80,6 +103,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
         default=("/tmp:rw,noexec,nosuid,size=512m",),
     )
     openshell_gateway_name: str = Field(default="openshell")
+    openshell_xdg_config_home: str = Field(
+        default="",
+        description=(
+            "XDG config root for openshell CLI (compose dev: /root/.config when "
+            "host ~/.config/openshell is mounted there)."
+        ),
+    )
     openshell_gateway_url: str = Field(
         default="https://127.0.0.1:17670",
         description=(
@@ -87,12 +117,25 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             "Use https://host.docker.internal:17670 when the API runs inside compose."
         ),
     )
-    openshell_provider_name: str = Field(default="kartograph-gma")
+    openshell_provider_name: str = Field(
+        default="kartograph-gma",
+        description=(
+            "OpenShell google-vertex-ai provider shared by GMA sticky sessions and "
+            "batch extraction jobs. Injects Vertex credentials into sandboxes."
+        ),
+    )
+    openshell_extraction_image: str = Field(
+        default="quay.io/aipcc/agentic-ci/claude-sandbox:latest",
+        description=(
+            "OpenShell sandbox image for batch extraction jobs. "
+            "Must include the sandbox user and /usr/local/bin/claude (agentic-ci claude-sandbox)."
+        ),
+    )
     openshell_runtime_host: str = Field(
-        default="host.docker.internal",
+        default="127.0.0.1",
         description=(
             "Host reachable from the API process for OpenShell port forwards. "
-            "Use host.docker.internal in compose dev; 127.0.0.1 when API runs on host."
+            "Use 127.0.0.1 when the OpenShell CLI runs in the same process/container as the API."
         ),
     )
     openshell_forward_port_base: int = Field(default=18787, ge=1024, le=65000)
@@ -107,6 +150,16 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()
+
+    def sandbox_reachable_api_base_url(self) -> str:
+        """API URL workload sandboxes use for Kartograph workload endpoints."""
+        if self.backend == "openshell" or self.job_runner == "openshell":
+            return self.openshell_api_base_url.rstrip("/")
+        return self.api_base_url.rstrip("/")
+
+    def openshell_extraction_sandbox_image(self) -> str:
+        """Container image for OpenShell batch extraction sandboxes (agentic-ci claude-sandbox)."""
+        return self.openshell_extraction_image
 
     @model_validator(mode="after")
     def _apply_vertex_env_aliases(self) -> "ExtractionWorkloadRuntimeSettings":

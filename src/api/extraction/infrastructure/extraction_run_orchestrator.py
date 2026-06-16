@@ -51,14 +51,26 @@ class ExtractionRunOrchestrator:
         worker_count: int,
     ) -> None:
         async with self._lock:
+            requested = max(1, worker_count)
             existing = self._active.get(knowledge_graph_id)
             if existing and not existing.stop_event.is_set():
+                if existing.worker_count < requested:
+                    self._spawn_workers(existing, target_count=requested)
+                    async with self._session_factory() as session:
+                        repo = ExtractionJobRepository(session)
+                        await repo.upsert_run(
+                            knowledge_graph_id=knowledge_graph_id,
+                            status=ExtractionRunStatus.RUNNING,
+                            worker_count=requested,
+                            pause_requested=False,
+                        )
+                        await session.commit()
                 return
 
             state = _OrchestratorState(
                 knowledge_graph_id=knowledge_graph_id,
                 tenant_id=tenant_id,
-                worker_count=max(1, worker_count),
+                worker_count=requested,
             )
             self._active[knowledge_graph_id] = state
 
@@ -75,10 +87,16 @@ class ExtractionRunOrchestrator:
                 )
                 await session.commit()
 
-            for index in range(state.worker_count):
-                state.tasks.append(
-                    asyncio.create_task(self._worker_loop(state, worker_index=index + 1))
-                )
+            self._spawn_workers(state, target_count=state.worker_count)
+
+    def _spawn_workers(self, state: _OrchestratorState, *, target_count: int) -> None:
+        """Start worker tasks until the pool reaches target_count."""
+        while len(state.tasks) < target_count:
+            worker_index = len(state.tasks) + 1
+            state.tasks.append(
+                asyncio.create_task(self._worker_loop(state, worker_index=worker_index))
+            )
+        state.worker_count = target_count
 
     async def request_pause(self, *, knowledge_graph_id: str) -> None:
         async with self._session_factory() as session:

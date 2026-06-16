@@ -16,6 +16,7 @@ from agentic_ci import otel
 from agentic_ci.harness import create_harness
 
 from extraction.domain.extraction_job import ExtractionJobRecord
+from extraction.domain.prepared_extraction_job_run import PreparedExtractionJobRun
 from extraction.infrastructure.extraction_job_activity import (
     activity_log_path,
     append_activity_line,
@@ -90,7 +91,12 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         self._harness = create_harness(self._settings.agentic_ci_harness)
         self._probe = LoggingOpenShellRuntimeProbe()
 
-    async def run(self, job: ExtractionJobRecord, *, tenant_id: str) -> dict[str, Any]:
+    async def prepare_for_run(
+        self,
+        job: ExtractionJobRecord,
+        *,
+        tenant_id: str,
+    ) -> PreparedExtractionJobRun:
         if self._workdir_materializer is None:
             raise RuntimeError("OpenShellExtractionJobRunner requires a workdir materializer")
         credentials = get_workload_credential_issuer().issue(
@@ -105,7 +111,23 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         )
         _patch_job_context_api_base(workdir, self._settings.sandbox_reachable_api_base_url())
         prompt = build_extraction_job_prompt(job=job)
-        return await self._run_in_sandbox(job=job, workdir=workdir, prompt=prompt)
+        return PreparedExtractionJobRun(workdir=workdir, prompt=prompt)
+
+    async def run_prepared(
+        self,
+        job: ExtractionJobRecord,
+        *,
+        prepared: PreparedExtractionJobRun,
+    ) -> dict[str, Any]:
+        return await self._run_in_sandbox(
+            job=job,
+            workdir=prepared.workdir,
+            prompt=prepared.prompt,
+        )
+
+    async def run(self, job: ExtractionJobRecord, *, tenant_id: str) -> dict[str, Any]:
+        prepared = await self.prepare_for_run(job, tenant_id=tenant_id)
+        return await self.run_prepared(job, prepared=prepared)
 
     async def _run_in_sandbox(
         self,

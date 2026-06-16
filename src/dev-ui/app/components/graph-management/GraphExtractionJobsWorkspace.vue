@@ -79,13 +79,14 @@ interface ExtractionRunState {
 
 const MAX_WORKERS = 50
 
-type RecentJobStatusFilter = 'all' | 'pending' | 'in_progress' | 'archived'
+type RecentJobStatusFilter = 'all' | 'pending' | 'in_progress' | 'archived' | 'failed'
 
 const RECENT_JOB_STATUS_FILTERS: Array<{ value: RecentJobStatusFilter; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'in_progress', label: 'In progress' },
   { value: 'archived', label: 'Archived' },
+  { value: 'failed', label: 'Failed' },
 ]
 
 const selectedOntologyTab = ref<OntologyTab>('entities')

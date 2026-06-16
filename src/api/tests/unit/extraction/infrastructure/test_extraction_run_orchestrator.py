@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from extraction.domain.extraction_job import ExtractionRunStatus
 from extraction.infrastructure.extraction_run_orchestrator import (
     ExtractionRunOrchestrator,
     _OrchestratorState,
@@ -32,28 +31,16 @@ async def test_maybe_finish_run_advances_extraction_baselines_for_kg() -> None:
         worker_count=2,
     )
 
-    repo = AsyncMock()
-    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0}
-
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_orchestrator.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_orchestrator.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-        ) as advance_baselines,
-    ):
+    with patch(
+        "extraction.infrastructure.extraction_run_orchestrator.reconcile_quiescent_extraction_run",
+        new_callable=AsyncMock,
+        return_value=(True, True),
+    ) as reconcile:
         await orchestrator._maybe_finish_run(state)
 
-    repo.upsert_run.assert_awaited_once()
-    assert repo.upsert_run.await_args.kwargs["status"] == ExtractionRunStatus.IDLE
-    advance_baselines.assert_awaited_once_with(
-        session=session,
-        knowledge_graph_id="kg-001",
-    )
-    session.commit.assert_awaited_once()
+    reconcile.assert_awaited_once()
+    assert state.stop_event.is_set()
+    assert "kg-001" not in orchestrator._active
 
 
 @pytest.mark.asyncio

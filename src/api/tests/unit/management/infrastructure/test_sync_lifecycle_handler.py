@@ -212,6 +212,65 @@ class TestIngestionPreparedTransition:
         assert ds.last_prepared_commit == "abc123"
         assert ds.last_extraction_baseline_commit == "existing-baseline"
 
+    async def test_ingestion_prepared_seeds_unset_baselines_for_sibling_sources(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting", ds_id="ds-a")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        now = datetime.now(UTC)
+        prepared_ds = DataSource(
+            id=DataSourceId(value="ds-a"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Prepared",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "prepared"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        sibling_ds = DataSource(
+            id=DataSourceId(value="ds-b"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Sibling",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "sibling"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            last_prepared_commit="sibling-prepared",
+            clone_head_commit="sibling-prepared",
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = prepared_ds
+        mock_ds_repo.find_by_knowledge_graph.return_value = [prepared_ds, sibling_ds]
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+                prepared_commit_sha="prepared-a",
+                prepared_file_count=12,
+            ),
+        )
+
+        assert prepared_ds.last_extraction_baseline_commit == "prepared-a"
+        assert sibling_ds.last_extraction_baseline_commit == "sibling-prepared"
+        assert mock_ds_repo.save.await_count == 2
+
 
 @pytest.mark.asyncio
 class TestJobPackageProducedTransition:

@@ -24,6 +24,9 @@ from typing import TYPE_CHECKING, Any
 
 from management.domain.entities import MutationLogRunMetadata
 from management.domain.value_objects import DataSourceId
+from management.infrastructure.extraction_baseline_updater import (
+    seed_unset_extraction_baselines_for_knowledge_graph,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -263,3 +266,8 @@ class SyncLifecycleHandler:
         )
         ds.maybe_seed_extraction_baseline_from_prepare(prepared_commit=commit)
         await self._ds_repo.save(ds)
+        await seed_unset_extraction_baselines_for_knowledge_graph(
+            session=self._session,
+            knowledge_graph_id=ds.knowledge_graph_id,
+            data_source_repository=self._ds_repo,
+        )

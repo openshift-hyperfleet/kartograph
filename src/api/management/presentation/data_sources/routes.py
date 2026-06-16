@@ -5,12 +5,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.database.dependencies import get_write_session
+from infrastructure.management.extraction_jobs_dependencies import get_write_sessionmaker
+from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
+from extraction.infrastructure.extraction_run_reconciliation import (
+    reconcile_quiescent_extraction_run,
+)
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
@@ -268,6 +273,7 @@ async def list_all_data_sources(
     status_code=status.HTTP_200_OK,
 )
 async def list_data_sources(
+    request: Request,
     kg_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
@@ -291,6 +297,14 @@ async def list_data_sources(
         HTTPException: 500 for unexpected errors
     """
     try:
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=get_write_sessionmaker(request),
+        )
+        await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id=kg_id,
+            orchestrator=orchestrator,
+        )
         data_sources = await service.list_for_knowledge_graph(
             user_id=current_user.user_id.value,
             kg_id=kg_id,

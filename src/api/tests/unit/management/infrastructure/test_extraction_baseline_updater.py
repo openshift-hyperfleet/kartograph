@@ -11,6 +11,7 @@ from management.domain.aggregates import DataSource
 from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
 from management.infrastructure.extraction_baseline_updater import (
     advance_extraction_baselines_for_knowledge_graph,
+    seed_unset_extraction_baselines_for_knowledge_graph,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -76,3 +77,39 @@ async def test_advance_extraction_baselines_skips_sources_without_ingested_head(
     assert updated == 0
     assert ds.last_extraction_baseline_commit == "keep-me"
     mock_repo.save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_seed_unset_extraction_baselines_sets_only_null_baselines() -> None:
+    ds_prepared = _make_ds(
+        ds_id="ds-a",
+        last_extraction_baseline_commit=None,
+        last_prepared_commit="prepared-a",
+    )
+    ds_unprepared = _make_ds(
+        ds_id="ds-b",
+        last_extraction_baseline_commit=None,
+    )
+    ds_already_set = _make_ds(
+        ds_id="ds-c",
+        last_extraction_baseline_commit="existing",
+        clone_head_commit="prepared-c",
+    )
+    mock_repo = AsyncMock()
+    mock_repo.find_by_knowledge_graph.return_value = [
+        ds_prepared,
+        ds_unprepared,
+        ds_already_set,
+    ]
+
+    updated = await seed_unset_extraction_baselines_for_knowledge_graph(
+        session=AsyncMock(),
+        knowledge_graph_id="kg-001",
+        data_source_repository=mock_repo,
+    )
+
+    assert updated == 1
+    assert ds_prepared.last_extraction_baseline_commit == "prepared-a"
+    assert ds_unprepared.last_extraction_baseline_commit is None
+    assert ds_already_set.last_extraction_baseline_commit == "existing"
+    mock_repo.save.assert_awaited_once_with(ds_prepared)

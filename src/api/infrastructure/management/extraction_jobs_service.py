@@ -19,6 +19,9 @@ from extraction.infrastructure.extraction_job_container import (
     stop_extraction_job_runtimes,
 )
 from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
+from extraction.infrastructure.extraction_run_reconciliation import (
+    reconcile_quiescent_extraction_run,
+)
 from extraction.domain.extraction_job import ExtractionJobStatus, ExtractionRunStatus
 from extraction.infrastructure.extraction_job_activity import (
     job_workdir,
@@ -336,6 +339,13 @@ class ExtractionJobsService:
         if kg is None:
             return None
 
+        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        await reconcile_quiescent_extraction_run(
+            session=self._session,
+            knowledge_graph_id=kg_id,
+            orchestrator=orchestrator,
+        )
+
         counts = await self._extraction_job_repository.count_by_status(knowledge_graph_id=kg_id)
         jobs_by_set = await self._extraction_job_repository.count_by_job_set(
             knowledge_graph_id=kg_id
@@ -440,8 +450,14 @@ class ExtractionJobsService:
         if kg is None:
             return None
 
-        run = await self._extraction_job_repository.get_run(knowledge_graph_id=kg_id)
         orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        await reconcile_quiescent_extraction_run(
+            session=self._session,
+            knowledge_graph_id=kg_id,
+            orchestrator=orchestrator,
+        )
+
+        run = await self._extraction_job_repository.get_run(knowledge_graph_id=kg_id)
         live = orchestrator.is_live(knowledge_graph_id=kg_id)
         if run is None:
             return {

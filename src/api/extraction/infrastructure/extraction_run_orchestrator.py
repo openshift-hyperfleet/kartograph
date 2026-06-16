@@ -12,10 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from extraction.infrastructure.extraction_job_executor import ExtractionJobExecutor
 from extraction.domain.extraction_job import ExtractionRunStatus
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from management.infrastructure.extraction_baseline_updater import (
-    advance_extraction_baselines_for_knowledge_graph,
+from extraction.infrastructure.extraction_run_reconciliation import (
+    reconcile_quiescent_extraction_run,
 )
+from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
 
 logger = logging.getLogger(__name__)
 
@@ -216,25 +216,23 @@ class ExtractionRunOrchestrator:
 
     async def _maybe_finish_run(self, state: _OrchestratorState) -> None:
         async with self._session_factory() as session:
-            repo = ExtractionJobRepository(session)
-            counts = await repo.count_by_status(knowledge_graph_id=state.knowledge_graph_id)
-            pending = counts.get("pending", 0)
-            in_progress = counts.get("in_progress", 0)
-            if pending == 0 and in_progress == 0:
-                await repo.upsert_run(
-                    knowledge_graph_id=state.knowledge_graph_id,
-                    status=ExtractionRunStatus.IDLE,
-                    worker_count=state.worker_count,
-                    pause_requested=False,
-                    completed_at=datetime.now(UTC),
-                )
-                await advance_extraction_baselines_for_knowledge_graph(
-                    session=session,
-                    knowledge_graph_id=state.knowledge_graph_id,
-                )
-                await session.commit()
+            _, run_was_active = await reconcile_quiescent_extraction_run(
+                session=session,
+                knowledge_graph_id=state.knowledge_graph_id,
+            )
+            if run_was_active:
                 state.stop_event.set()
                 self._active.pop(state.knowledge_graph_id, None)
+
+    def stop_active_run(self, *, knowledge_graph_id: str) -> None:
+        """Stop in-memory workers for a knowledge graph run."""
+        state = self._active.get(knowledge_graph_id)
+        if state is None:
+            return
+        state.stop_event.set()
+        for task in state.tasks:
+            task.cancel()
+        self._active.pop(knowledge_graph_id, None)
 
     def is_live(self, *, knowledge_graph_id: str) -> bool:
         state = self._active.get(knowledge_graph_id)

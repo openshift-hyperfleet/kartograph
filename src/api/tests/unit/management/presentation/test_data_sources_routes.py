@@ -114,6 +114,27 @@ def mock_write_session() -> AsyncMock:
     return session
 
 
+@pytest.fixture(autouse=True)
+def _noop_reconcile_quiescent_extraction_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """List data sources reconciles extraction runs; unit tests skip that path."""
+
+    async def _noop(**_kwargs: object) -> tuple[bool, bool]:
+        return False, False
+
+    monkeypatch.setattr(
+        "management.presentation.data_sources.routes.reconcile_quiescent_extraction_run",
+        _noop,
+    )
+    monkeypatch.setattr(
+        "management.presentation.data_sources.routes.get_extraction_run_orchestrator",
+        lambda **_kwargs: MagicMock(),
+    )
+    monkeypatch.setattr(
+        "management.presentation.data_sources.routes.get_write_sessionmaker",
+        lambda _request: MagicMock(),
+    )
+
+
 @pytest.fixture
 def test_client(
     mock_ds_service: AsyncMock,

@@ -114,6 +114,8 @@ const scheduleTime = ref('02:00')
 const scheduleTimezone = ref('UTC')
 const scheduleSaving = ref(false)
 
+const MAX_MAINTENANCE_WORKERS = 50
+
 const workers = ref(8)
 const filesPerJob = ref(2)
 const checkingCommits = ref(false)
@@ -376,6 +378,12 @@ async function runMaintenanceNow() {
 
 async function startExtractionJobs() {
   startingExtraction.value = true
+  const requested = Math.floor(Number(workers.value) || 1)
+  if (requested > MAX_MAINTENANCE_WORKERS) {
+    workers.value = MAX_MAINTENANCE_WORKERS
+    toast.info(`Worker concurrency capped at ${MAX_MAINTENANCE_WORKERS}`)
+  }
+  const workerTotal = Math.min(MAX_MAINTENANCE_WORKERS, Math.max(1, requested))
   try {
     try {
       await applyFilesPerJobToJobSets()
@@ -388,7 +396,7 @@ async function startExtractionJobs() {
       `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs/start`,
       {
         method: 'POST',
-        body: { workers: Math.max(1, Math.floor(workers.value)) },
+        body: { workers: workerTotal },
       },
     )
     toast.success('Extraction started', { description: res.message })
@@ -602,7 +610,6 @@ onUnmounted(() => {
                   v-model.number="workers"
                   type="number"
                   min="1"
-                  max="32"
                 />
               </div>
             </div>

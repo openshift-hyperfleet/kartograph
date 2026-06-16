@@ -40,6 +40,7 @@ from extraction.infrastructure.extraction_job_workdir_materializer import (
 from extraction.infrastructure.openshell.extraction_sandbox_pool import (
     resolve_extraction_sandbox_assignment,
 )
+from extraction.infrastructure.openshell import gateway as openshell_gateway
 from extraction.infrastructure.openshell import sandbox as openshell_sandbox
 from extraction.infrastructure.openshell.audit import LoggingOpenShellRuntimeProbe
 from extraction.infrastructure.openshell.inference_env import (

@@ -320,14 +320,11 @@ class ExtractionJobRepository:
         self,
         *,
         knowledge_graph_id: str,
-        limit: int = 20,
+        limit: int = 50,
     ) -> list[ExtractionJobRecord]:
         stmt = (
             select(ExtractionJobModel)
-            .where(
-                ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
-                ExtractionJobModel.status != ExtractionJobStatus.ARCHIVED.value,
-            )
+            .where(ExtractionJobModel.knowledge_graph_id == knowledge_graph_id)
             .order_by(
                 ExtractionJobModel.updated_at.desc(),
                 ExtractionJobModel.order_index.asc(),

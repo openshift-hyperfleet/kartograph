@@ -25,6 +25,12 @@ def test_openshell_extraction_sandbox_image_uses_agentic_ci_claude_sandbox() -> 
     assert settings.openshell_extraction_sandbox_image() != settings.agentic_ci_image
 
 
+def test_openshell_extraction_job_runner_imports_gateway() -> None:
+    import extraction.infrastructure.openshell_extraction_job_runner as module
+
+    assert hasattr(module, "openshell_gateway")
+
+
 def test_run_agent_uses_harness_claude_binary() -> None:
     runner = OpenShellExtractionJobRunner()
 

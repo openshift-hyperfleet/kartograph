@@ -342,7 +342,7 @@ class ExtractionJobsService:
         )
         recent_jobs = await self._extraction_job_repository.list_recent_jobs(
             knowledge_graph_id=kg_id,
-            limit=20,
+            limit=50,
         )
         active_workers = await self._extraction_job_repository.list_active_workers(
             knowledge_graph_id=kg_id
@@ -450,7 +450,6 @@ class ExtractionJobsService:
                 "workerCount": 0,
                 "pauseRequested": False,
             }
-        runtime_settings = get_extraction_workload_runtime_settings()
         payload = {
             "live": live or run.status in {ExtractionRunStatus.RUNNING, ExtractionRunStatus.PAUSING},
             "status": run.status.value,
@@ -460,8 +459,6 @@ class ExtractionJobsService:
             "completedAt": run.completed_at.isoformat() if run.completed_at else None,
             "orchestratorPid": run.orchestrator_pid,
         }
-        if runtime_settings.job_runner == "openshell" and run.worker_count > 0:
-            payload["sandboxSlotCount"] = run.worker_count
         return payload
 
     async def get_extraction_plan_summary(

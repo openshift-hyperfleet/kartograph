@@ -75,8 +75,18 @@ interface ExtractionRunState {
   status: string
   workerCount: number
   pauseRequested: boolean
-  sandboxSlotCount?: number
 }
+
+const MAX_WORKERS = 50
+
+type RecentJobStatusFilter = 'all' | 'pending' | 'in_progress' | 'archived'
+
+const RECENT_JOB_STATUS_FILTERS: Array<{ value: RecentJobStatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'archived', label: 'Archived' },
+]
 
 const selectedOntologyTab = ref<OntologyTab>('entities')
 const jobSetsReloadNonce = ref(0)
@@ -99,6 +109,7 @@ const optimisticLiveUntilMs = ref<number | null>(null)
 const nowMs = ref(Date.now())
 const lastStatusRefreshMs = ref<number | null>(null)
 const recentJobEvents = ref<RecentJobEvent[]>([])
+const recentJobStatusFilter = ref<RecentJobStatusFilter>('all')
 const watchJobId = ref<string | null>(null)
 const watchDialogOpen = ref(false)
 const cancellingJobId = ref<string | null>(null)
@@ -180,7 +191,10 @@ async function refreshAll(options?: { background?: boolean }) {
   ])
 }
 
-const workerCount = computed(() => Math.max(1, Math.floor(Number(workers.value) || 1)))
+const workerCount = computed(() => {
+  const raw = Math.floor(Number(workers.value) || 1)
+  return Math.min(MAX_WORKERS, Math.max(1, raw))
+})
 const pendingJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.pending || 0))
 const inProgressJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.in_progress || 0))
 const completedJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.completed || 0))
@@ -200,9 +214,21 @@ const extractionProgressPercent = computed(() => {
   if (total <= 0) return 0
   return Math.round(((completedJobsCount.value + failedJobsCount.value) / total) * 100)
 })
-const recentJobs = computed(() =>
-  recentJobEvents.value.filter((event) => event.status !== 'archived'),
-)
+const recentJobs = computed(() => {
+  if (recentJobStatusFilter.value === 'all') return recentJobEvents.value
+  return recentJobEvents.value.filter((event) => event.status === recentJobStatusFilter.value)
+})
+const recentJobsEmptyMessage = computed(() => {
+  if (startingExtraction.value || showOptimisticLiveActivity.value) {
+    return 'Starting extraction workers. Job events will appear as jobs are claimed and completed.'
+  }
+  if (recentJobEvents.value.length === 0) return 'No job events yet.'
+  const filterLabel = RECENT_JOB_STATUS_FILTERS.find(
+    (option) => option.value === recentJobStatusFilter.value,
+  )?.label
+  if (recentJobStatusFilter.value === 'all') return 'No job events yet.'
+  return `No ${filterLabel?.toLowerCase() ?? recentJobStatusFilter.value} job events in the recent window.`
+})
 const activeWorkerCount = computed(() => dbStatus.value?.activeWorkers?.length || 0)
 const idleWorkerCount = computed(() => Math.max(0, workerCount.value - activeWorkerCount.value))
 const statusAgeSeconds = computed(() => {
@@ -216,15 +242,12 @@ const showOptimisticLiveActivity = computed(
 function mergeRecentJobEvents(status: DbStatus) {
   const incoming = status.recentJobs || []
   const now = Date.now()
-  const activeIncoming = incoming.filter((job) => job.status !== 'archived')
   const activeWorkerJobIds = new Set((status.activeWorkers || []).map((worker) => worker.jobId))
   const inProgressCount = Number(status.jobsByStatus?.in_progress || 0)
   const existingByJobId = new Map(
-    recentJobEvents.value
-      .filter((event) => event.status !== 'archived')
-      .map((event) => [event.jobId, event] as const),
+    recentJobEvents.value.map((event) => [event.jobId, event] as const),
   )
-  for (const job of activeIncoming) {
+  for (const job of incoming) {
     existingByJobId.set(job.jobId, { ...job, eventKey: job.jobId, seenAtMs: now })
   }
   const maxAgeMs = 15 * 60 * 1000
@@ -255,6 +278,7 @@ function recentJobBadgeVariant(status: string): 'default' | 'outline' | 'seconda
   if (status === 'in_progress') return 'default'
   if (status === 'failed') return 'destructive'
   if (status === 'completed') return 'success'
+  if (status === 'archived') return 'secondary'
   return 'outline'
 }
 
@@ -282,6 +306,11 @@ function formatCompactNumber(value: number): string {
 async function startExtraction() {
   startingExtraction.value = true
   optimisticLiveUntilMs.value = Date.now() + 30000
+  const requested = Math.floor(Number(workers.value) || 1)
+  if (requested > MAX_WORKERS) {
+    workers.value = MAX_WORKERS
+    toast.info(`Worker concurrency capped at ${MAX_WORKERS}`)
+  }
   try {
     const res = await apiFetch<{ message?: string }>(`${basePath.value}/start`, {
       method: 'POST',
@@ -523,8 +552,8 @@ onUnmounted(() => {
           Run extraction
         </CardTitle>
         <CardDescription>
-          Launch parallel extraction workers. Each worker owns one OpenShell sandbox, claims jobs
-          from the queue until the run completes, and keeps per-job stats in Graph Writes History.
+          Launch parallel extraction workers that claim jobs from the queue until the run completes.
+          Per-job stats appear in Graph Writes History.
         </CardDescription>
       </CardHeader>
       <CardContent class="space-y-4">
@@ -535,7 +564,6 @@ onUnmounted(() => {
               v-model.number="workers"
               type="number"
               min="1"
-              max="32"
               class="h-10 w-24 rounded-lg border bg-background px-3 text-sm"
             />
           </div>
@@ -578,9 +606,6 @@ onUnmounted(() => {
               <Badge variant="outline" class="font-mono text-[11px]">
                 workers: {{ activeWorkerCount }}/{{ workerCount }}
               </Badge>
-              <Badge v-if="extractionRunState?.sandboxSlotCount" variant="outline" class="font-mono text-[11px]">
-                sandboxes: {{ extractionRunState.sandboxSlotCount }} (1 per worker)
-              </Badge>
               <Badge v-if="idleWorkerCount > 0" variant="outline" class="font-mono text-[11px]">
                 {{ idleWorkerCount }} idle
               </Badge>
@@ -596,24 +621,35 @@ onUnmounted(() => {
             />
           </div>
           <div class="space-y-2">
-            <div class="flex items-center justify-between gap-2">
-              <p class="text-xs font-medium text-foreground/90">Recent job events</p>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-xs font-medium text-foreground/90">Recent job events</p>
+                <div class="flex flex-wrap gap-1">
+                  <Button
+                    v-for="option in RECENT_JOB_STATUS_FILTERS"
+                    :key="option.value"
+                    variant="ghost"
+                    size="sm"
+                    class="h-7 px-2 text-[11px]"
+                    :class="recentJobStatusFilter === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+                    @click="recentJobStatusFilter = option.value"
+                  >
+                    {{ option.label }}
+                  </Button>
+                </div>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
                 class="h-7 px-2 text-[11px]"
-                :disabled="recentJobs.length === 0"
+                :disabled="recentJobEvents.length === 0"
                 @click="clearRecentJobEvents"
               >
                 Clear events
               </Button>
             </div>
             <div v-if="recentJobs.length === 0" class="text-xs text-muted-foreground">
-              {{
-                startingExtraction || showOptimisticLiveActivity
-                  ? 'Starting extraction workers. Job events will appear as jobs are claimed and completed.'
-                  : 'No job events yet.'
-              }}
+              {{ recentJobsEmptyMessage }}
             </div>
             <div v-else class="max-h-80 space-y-1 overflow-y-auto pr-1">
               <div

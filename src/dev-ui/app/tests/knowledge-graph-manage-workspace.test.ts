@@ -704,4 +704,13 @@ describe('KG-MANAGE-021 - unified in-place graph operations', () => {
     expect(graphManagementMutationAuthoringVue).toContain('getMergedEditorContent')
     expect(manageWorkspaceVue).not.toContain('navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)')
   })
+
+  it('filters recent job events by pending, in progress, and archived', () => {
+    expect(graphExtractionJobsWorkspaceVue).toContain('recentJobStatusFilter')
+    expect(graphExtractionJobsWorkspaceVue).toContain("'pending'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("'in_progress'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("'archived'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("status === 'archived'")
+    expect(graphExtractionJobsWorkspaceVue).not.toContain("filter((event) => event.status !== 'archived')")
+  })
 })

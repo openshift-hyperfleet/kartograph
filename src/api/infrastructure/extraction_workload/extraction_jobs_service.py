@@ -263,7 +263,7 @@ class GraphWorkloadExtractionJobsService:
         )
         recent_jobs = await self._extraction_job_repository.list_recent_jobs(
             knowledge_graph_id=knowledge_graph_id,
-            limit=20,
+            limit=50,
         )
         active_workers = await self._extraction_job_repository.list_active_workers(
             knowledge_graph_id=knowledge_graph_id

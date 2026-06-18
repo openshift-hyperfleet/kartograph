@@ -1425,12 +1425,15 @@ class TestKnowledgeGraphMaintenanceScheduling:
         kg_repo.seed(kg)
         await _grant_kg_manage(authz, kg.id.value, user_id)
 
-        ds_no_change = _make_ds(ds_id="ds-no-change", kg_id=kg.id.value, tenant_id=tenant_id)
-        ds_no_change.last_extraction_baseline_commit = "abc123"
-        ds_no_change.tracked_branch_head_commit = "abc123"
-        ds_repo.seed(ds_no_change)
+        expected = KnowledgeGraphMaintenanceRunRecord(
+            run_id="run-no-change",
+            triggered_at=datetime.now(UTC),
+            outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+            target_data_source_ids=("ds-no-change",),
+        )
+        pipeline = AsyncMock()
+        pipeline.trigger = AsyncMock(return_value=expected)
 
-        sync_run_repo = _InMemorySyncRunRepository()
         svc = KnowledgeGraphService(
             session=mock_session,
             knowledge_graph_repository=kg_repo,
@@ -1439,7 +1442,7 @@ class TestKnowledgeGraphMaintenanceScheduling:
             authz=authz,
             scope_to_tenant=tenant_id,
             probe=probe,
-            sync_run_repository=sync_run_repo,
+            maintenance_pipeline=pipeline,
         )
 
         run = await svc.trigger_maintenance_run(
@@ -1447,26 +1450,33 @@ class TestKnowledgeGraphMaintenanceScheduling:
             kg_id=kg.id.value,
         )
 
-        assert isinstance(run, KnowledgeGraphMaintenanceRunRecord)
-        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES
-        assert run.target_data_source_ids == ("ds-no-change",)
-        assert len(sync_run_repo.saved) == 0
+        assert run is expected
+        pipeline.trigger.assert_awaited_once_with(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            files_per_job=2,
+            worker_count=8,
+            start_extraction=True,
+        )
 
     @pytest.mark.asyncio
-    async def test_trigger_maintenance_run_records_started_and_creates_sync_runs(
+    async def test_trigger_maintenance_run_delegates_to_pipeline(
         self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
     ):
-        """When DS commit deltas exist, trigger records STARTED and enqueues sync runs."""
+        """Maintenance trigger delegates ingest orchestration to the pipeline service."""
         kg = _make_kg(kg_id="kg-maint-003", tenant_id=tenant_id)
         kg_repo.seed(kg)
         await _grant_kg_manage(authz, kg.id.value, user_id)
 
-        ds_changed = _make_ds(ds_id="ds-changed", kg_id=kg.id.value, tenant_id=tenant_id)
-        ds_changed.last_extraction_baseline_commit = "abc123"
-        ds_changed.tracked_branch_head_commit = "def456"
-        ds_repo.seed(ds_changed)
+        expected = KnowledgeGraphMaintenanceRunRecord(
+            run_id="run-ingest",
+            triggered_at=datetime.now(UTC),
+            outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
+            target_data_source_ids=("ds-changed",),
+        )
+        pipeline = AsyncMock()
+        pipeline.trigger = AsyncMock(return_value=expected)
 
-        sync_run_repo = _InMemorySyncRunRepository()
         svc = KnowledgeGraphService(
             session=mock_session,
             knowledge_graph_repository=kg_repo,
@@ -1475,17 +1485,25 @@ class TestKnowledgeGraphMaintenanceScheduling:
             authz=authz,
             scope_to_tenant=tenant_id,
             probe=probe,
-            sync_run_repository=sync_run_repo,
+            maintenance_pipeline=pipeline,
         )
 
         run = await svc.trigger_maintenance_run(
             user_id=user_id,
             kg_id=kg.id.value,
+            files_per_job=5,
+            worker_count=3,
+            start_extraction=False,
         )
 
-        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.STARTED
-        assert run.target_data_source_ids == ("ds-changed",)
-        assert len(sync_run_repo.saved) == 1
+        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED
+        pipeline.trigger.assert_awaited_once_with(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            files_per_job=5,
+            worker_count=3,
+            start_extraction=False,
+        )
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_kgs_in_workspace(

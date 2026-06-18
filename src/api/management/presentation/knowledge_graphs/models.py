@@ -193,6 +193,38 @@ class MaintenanceScheduleUpsertRequest(BaseModel):
         default="UTC",
         description="IANA timezone identifier used for schedule evaluation",
     )
+    files_per_job: int = Field(
+        default=2,
+        ge=1,
+        description="Number of changed files batched into each maintenance job",
+    )
+    worker_count: int = Field(
+        default=8,
+        ge=1,
+        description="Parallel OpenShell workers for maintenance extraction",
+    )
+
+
+class MaintenanceRunTriggerRequest(BaseModel):
+    """Request body for manual KG maintenance orchestration."""
+
+    files_per_job: int = Field(
+        default=2,
+        ge=1,
+        description="Number of changed files batched into each maintenance job",
+    )
+    worker_count: int = Field(
+        default=8,
+        ge=1,
+        description="Parallel OpenShell workers for maintenance extraction",
+    )
+    start_extraction: bool = Field(
+        default=True,
+        description=(
+            "When true, advance to extraction after ingest completes "
+            "(may return ingest-started if ingest is still running)"
+        ),
+    )
 
 
 class MaintenanceScheduleResponse(BaseModel):
@@ -202,6 +234,8 @@ class MaintenanceScheduleResponse(BaseModel):
     cron_expression: str
     timezone_name: str
     next_run_at: datetime | None
+    files_per_job: int
+    worker_count: int
 
     @classmethod
     def from_domain(
@@ -212,6 +246,8 @@ class MaintenanceScheduleResponse(BaseModel):
             cron_expression=schedule.cron_expression,
             timezone_name=schedule.timezone_name,
             next_run_at=schedule.next_run_at,
+            files_per_job=schedule.files_per_job,
+            worker_count=schedule.worker_count,
         )
 
 
@@ -223,6 +259,11 @@ class MaintenanceRunResponse(BaseModel):
     outcome: str
     message: str | None
     target_data_source_ids: list[str]
+    sync_run_ids: list[str] = Field(default_factory=list)
+    changed_file_count: int | None = None
+    jobs_materialized: int | None = None
+    files_per_job: int | None = None
+    worker_count: int | None = None
 
     @classmethod
     def from_domain(
@@ -234,6 +275,11 @@ class MaintenanceRunResponse(BaseModel):
             outcome=run.outcome.value,
             message=run.message,
             target_data_source_ids=list(run.target_data_source_ids),
+            sync_run_ids=list(run.sync_run_ids),
+            changed_file_count=run.changed_file_count,
+            jobs_materialized=run.jobs_materialized,
+            files_per_job=run.files_per_job,
+            worker_count=run.worker_count,
         )
 
 

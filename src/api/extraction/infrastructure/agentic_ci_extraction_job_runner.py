@@ -27,9 +27,9 @@ from extraction.infrastructure.extraction_job_activity import (
 from extraction.infrastructure.extraction_job_metrics import merge_extraction_job_metrics
 from extraction.infrastructure.extraction_job_prompt import (
     EXTRACTION_JOB_INVOKE_PROMPT,
-    build_extraction_job_prompt,
     write_extraction_prompt_file,
 )
+from extraction.infrastructure.maintenance_job_prompt import build_job_run_prompt
 from extraction.infrastructure.extraction_job_workdir_materializer import (
     ExtractionJobWorkdirMaterializer,
 )
@@ -103,7 +103,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             credentials=credentials,
         )
         _patch_job_context_api_base(workdir, self._settings.agentic_ci_api_base_url)
-        prompt = build_extraction_job_prompt(job=job)
+        prompt = build_job_run_prompt(job=job)
         return PreparedExtractionJobRun(workdir=workdir, prompt=prompt)
 
     async def run_prepared(

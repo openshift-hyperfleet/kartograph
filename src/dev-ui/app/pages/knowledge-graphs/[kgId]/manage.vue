@@ -89,7 +89,7 @@ import {
   type WorkspaceHubOverview,
   type WorkspaceHubSourceRow,
 } from '@/utils/kgManageWorkspaceHub'
-import { isIngestionPreparedAtHead, resolvePrepStatusLabel, resolveRepoUrl } from '@/utils/kgDataSourcesCommits'
+import { hasIngestionContextPrepared, resolvePrepStatusLabel, resolveRepoUrl } from '@/utils/kgDataSourcesCommits'
 import { latestSyncRun } from '@/utils/kgDataSourcesSync'
 import {
   appendLocalChatMessage,
@@ -601,7 +601,7 @@ async function loadOverviewMetrics() {
       } catch {
         // keep default status
       }
-      if (isIngestionPreparedAtHead(ds)) {
+      if (hasIngestionContextPrepared(ds)) {
         prepared += 1
         if (status === 'not prepared') {
           status = 'prepared'

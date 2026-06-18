@@ -94,6 +94,11 @@ export function isIngestionPreparedAtHead(ds: Parameters<typeof hasUnpulledCommi
   return !!tip && !!ingested && ingested === tip
 }
 
+/** True once initial ingestion prep has completed (new commits are a maintenance concern). */
+export function hasIngestionContextPrepared(ds: Parameters<typeof resolveIngestedHeadCommit>[0]): boolean {
+  return resolveIngestedHeadCommit(ds) !== null
+}
+
 export function formatPreparedFileCount(count: number | null | undefined): string {
   if (count === null || count === undefined) return '—'
   return count.toLocaleString()

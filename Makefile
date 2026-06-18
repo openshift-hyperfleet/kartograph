@@ -24,9 +24,14 @@ certs:
 dev: certs
 	@echo "🧰 [Development] Starting application containers..."
 	@./scripts/cleanup-openshell-sandboxes.sh
-	docker compose -f compose.yaml -f compose.dev.yaml --profile build-only build agent-runtime
-	docker compose -f compose.yaml build
-	HOST_UID=$$(id -u) HOST_GID=$$(id -g) docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile build-only build agent-runtime
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml build
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d --force-recreate api
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
 	@echo "Done."
 	@echo "----------------------------"
 	@echo "API Root: http://localhost:8000"

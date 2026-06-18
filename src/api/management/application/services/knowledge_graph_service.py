@@ -42,6 +42,7 @@ from management.ports.repositories import (
     IKnowledgeGraphRepository,
 )
 from management.ports.canonical_schema import ICanonicalSchemaRepository
+from management.ports.maintenance_pipeline import MaintenancePipelinePort
 from management.ports.secret_store import ISecretStoreRepository
 from shared_kernel.authorization.protocols import AuthorizationProvider
 from shared_kernel.authorization.types import (
@@ -71,6 +72,7 @@ class KnowledgeGraphService:
         sync_run_repository: IDataSourceSyncRunRepository | None = None,
         secret_store: ISecretStoreRepository | None = None,
         canonical_schema_repository: ICanonicalSchemaRepository | None = None,
+        maintenance_pipeline: MaintenancePipelinePort | None = None,
     ) -> None:
         """Initialize KnowledgeGraphService with dependencies.
 
@@ -93,6 +95,7 @@ class KnowledgeGraphService:
         self._sync_run_repo = sync_run_repository
         self._secret_store = secret_store
         self._canonical_schema_repo = canonical_schema_repository
+        self._maintenance_pipeline = maintenance_pipeline
 
     def _compute_next_run_at_utc(
         self,
@@ -170,6 +173,8 @@ class KnowledgeGraphService:
         cron_expression: str,
         timezone_name: str,
         enabled: bool,
+        files_per_job: int = 2,
+        worker_count: int = 8,
     ) -> KnowledgeGraphMaintenanceSchedule:
         """Create or update KG-level maintenance schedule configuration."""
         kg = await self._get_tenant_scoped_kg(
@@ -177,6 +182,9 @@ class KnowledgeGraphService:
             user_id=user_id,
             permission=Permission.MANAGE,
         )
+        existing = kg.maintenance_schedule
+        normalized_files_per_job = max(1, int(files_per_job))
+        normalized_workers = max(1, int(worker_count))
         next_run_at = (
             self._compute_next_run_at_utc(
                 cron_expression=cron_expression,
@@ -190,6 +198,8 @@ class KnowledgeGraphService:
             cron_expression=cron_expression,
             timezone_name=timezone_name,
             next_run_at=next_run_at,
+            files_per_job=normalized_files_per_job,
+            worker_count=normalized_workers,
         )
         kg.set_maintenance_schedule(schedule)
         await self._kg_repo.save(kg)
@@ -209,104 +219,24 @@ class KnowledgeGraphService:
         return list(kg.maintenance_run_history[-capped_limit:])[::-1]
 
     async def trigger_maintenance_run(
-        self, *, user_id: str, kg_id: str
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        files_per_job: int = 2,
+        worker_count: int = 8,
+        start_extraction: bool = True,
     ) -> KnowledgeGraphMaintenanceRunRecord:
-        """Trigger maintenance orchestration across all data sources in a KG."""
-        kg = await self._get_tenant_scoped_kg(
-            kg_id=kg_id,
+        """Trigger maintenance ingest and extraction jobs for a knowledge graph."""
+        if self._maintenance_pipeline is None:
+            raise ValueError("Maintenance pipeline is not configured")
+        return await self._maintenance_pipeline.trigger(
             user_id=user_id,
-            permission=Permission.MANAGE,
+            kg_id=kg_id,
+            files_per_job=files_per_job,
+            worker_count=worker_count,
+            start_extraction=start_extraction,
         )
-        if self._ds_repo is None:
-            raise ValueError("Data source repository is not configured")
-
-        data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
-        run_id = str(ULID())
-        now = datetime.now(UTC)
-
-        if not data_sources:
-            run = KnowledgeGraphMaintenanceRunRecord(
-                run_id=run_id,
-                triggered_at=now,
-                outcome=KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED,
-                message="No data sources connected to this knowledge graph",
-            )
-            kg.append_maintenance_run(run)
-            await self._kg_repo.save(kg)
-            await self._session.commit()
-            return run
-
-        changed_sources = [
-            ds
-            for ds in data_sources
-            if ds.tracked_branch_head_commit is not None
-            and ds.last_extraction_baseline_commit is not None
-            and ds.tracked_branch_head_commit != ds.last_extraction_baseline_commit
-        ]
-        target_data_source_ids = tuple(ds.id.value for ds in data_sources)
-
-        if not changed_sources:
-            run = KnowledgeGraphMaintenanceRunRecord(
-                run_id=run_id,
-                triggered_at=now,
-                outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
-                message="No source commit delta detected across connected data sources",
-                target_data_source_ids=target_data_source_ids,
-            )
-            kg.append_maintenance_run(run)
-            await self._kg_repo.save(kg)
-            await self._session.commit()
-            return run
-
-        if self._sync_run_repo is None:
-            run = KnowledgeGraphMaintenanceRunRecord(
-                run_id=run_id,
-                triggered_at=now,
-                outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
-                message="Sync run repository is not configured",
-                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
-            )
-            kg.append_maintenance_run(run)
-            await self._kg_repo.save(kg)
-            await self._session.commit()
-            return run
-
-        try:
-            for data_source in changed_sources:
-                sync_run_id = str(ULID())
-                sync_run = DataSourceSyncRun(
-                    id=sync_run_id,
-                    data_source_id=data_source.id.value,
-                    status="pending",
-                    started_at=now,
-                    completed_at=None,
-                    error=None,
-                    created_at=now,
-                )
-                await self._sync_run_repo.save(sync_run)
-                data_source.request_sync(sync_run_id=sync_run_id, requested_by=user_id)
-                await self._ds_repo.save(data_source)
-
-            run = KnowledgeGraphMaintenanceRunRecord(
-                run_id=run_id,
-                triggered_at=now,
-                outcome=KnowledgeGraphMaintenanceRunOutcome.STARTED,
-                message="Scheduled maintenance sync runs started",
-                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
-            )
-        except Exception as exc:
-            run = KnowledgeGraphMaintenanceRunRecord(
-                run_id=run_id,
-                triggered_at=now,
-                outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
-                message=f"Failed to launch maintenance syncs: {exc}",
-                target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
-            )
-
-        kg.append_maintenance_run(run)
-        await self._kg_repo.save(kg)
-        await self._session.commit()
-        return run
 
     async def _check_permission(
         self,

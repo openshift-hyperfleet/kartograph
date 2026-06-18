@@ -70,6 +70,26 @@ describe('kgManageWorkspaceHub', () => {
     }).label).toBe('Graph Management')
   })
 
+  it('keeps sources phase complete when maintenance is pending but ingestion was prepared', () => {
+    const input = {
+      ...baseInput,
+      dataSourceCount: 5,
+      preparedSourceCount: 5,
+      maintenanceReadyCount: 3,
+      workspaceStatus: {
+        ...baseStatus,
+        workspace_mode: 'extraction_operations' as const,
+      },
+    }
+    const sourcesTile = buildWorkspaceHubTiles(input).find((tile) => tile.key === 'data-sources')
+    const maintainTile = buildWorkspaceHubTiles(input).find((tile) => tile.key === 'maintain')
+    expect(sourcesTile?.done).toBe(true)
+    expect(sourcesTile?.subtitle).toContain('ingestion ready')
+    expect(sourcesTile?.tone).toBe('success')
+    expect(maintainTile?.tone).toBe('warning')
+    expect(maintainTile?.subtitle).toBe('3 sources need maintenance')
+  })
+
   it('builds a primary next-step CTA while sources phase is incomplete', () => {
     const next = buildWorkspaceHubNextStep(baseInput)
     expect(next.primaryPhase).toBe(true)

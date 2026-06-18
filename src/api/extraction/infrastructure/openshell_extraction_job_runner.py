@@ -30,9 +30,9 @@ from extraction.infrastructure.extraction_job_mutation_metrics import (
 )
 from extraction.infrastructure.extraction_job_prompt import (
     build_extraction_job_invoke_prompt,
-    build_extraction_job_prompt,
     write_extraction_prompt_file,
 )
+from extraction.infrastructure.maintenance_job_prompt import build_job_run_prompt
 from extraction.infrastructure.extraction_job_verdict import require_successful_apply
 from extraction.infrastructure.extraction_job_workdir_layout import mutation_result_path
 from extraction.infrastructure.extraction_job_workdir_materializer import (
@@ -110,7 +110,7 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
             credentials=credentials,
         )
         _patch_job_context_api_base(workdir, self._settings.sandbox_reachable_api_base_url())
-        prompt = build_extraction_job_prompt(job=job)
+        prompt = build_job_run_prompt(job=job)
         return PreparedExtractionJobRun(workdir=workdir, prompt=prompt)
 
     async def run_prepared(

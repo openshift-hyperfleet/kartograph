@@ -120,12 +120,14 @@ class GitDiffSummaryService:
             status = str(file.get("status", "modified"))
             if status in counts:
                 counts[status] += 1
-            files.append(
-                {
-                    "path": str(file.get("filename", "")),
-                    "status": status,
-                }
-            )
+            patch = file.get("patch")
+            entry: dict[str, str] = {
+                "path": str(file.get("filename", "")),
+                "status": status,
+            }
+            if isinstance(patch, str) and patch.strip():
+                entry["patch"] = patch[:32_000]
+            files.append(entry)
 
         files_truncated = len(files) > max_files
         visible_files = tuple(files[:max_files])

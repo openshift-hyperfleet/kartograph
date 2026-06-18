@@ -64,22 +64,13 @@ interface DataSourceRow {
   diff_summary?: DiffSummary | null
 }
 
-interface ExtractionJobSet {
-  name: string
-  strategy: string
-  enabled?: boolean
-  files_per_job?: number
-  file_patterns?: string[]
-  description?: string
-  entity_type?: string
-  instances_per_job?: number
-}
-
 interface MaintenanceSchedule {
   enabled: boolean
   cron_expression: string
   timezone_name: string
   next_run_at: string | null
+  files_per_job?: number
+  worker_count?: number
 }
 
 interface MaintenanceRun {
@@ -121,7 +112,6 @@ const filesPerJob = ref(2)
 const checkingCommits = ref(false)
 const updatingLocalCommits = ref(false)
 const runningMaintenance = ref(false)
-const startingExtraction = ref(false)
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 
@@ -197,6 +187,8 @@ async function loadSchedule() {
   scheduleEnabled.value = payload.enabled
   scheduleTimezone.value = payload.timezone_name || 'UTC'
   scheduleTime.value = cronToDailyTime(payload.cron_expression) || '02:00'
+  if (payload.files_per_job) filesPerJob.value = payload.files_per_job
+  if (payload.worker_count) workers.value = payload.worker_count
 }
 
 async function loadRunHistory() {
@@ -324,6 +316,11 @@ async function saveSchedule() {
           enabled: scheduleEnabled.value,
           cron_expression: cron,
           timezone_name: scheduleTimezone.value,
+          files_per_job: normalizedFilesPerJob.value,
+          worker_count: Math.min(
+            MAX_MAINTENANCE_WORKERS,
+            Math.max(1, Math.floor(Number(workers.value) || 1)),
+          ),
         },
       },
     )
@@ -335,35 +332,23 @@ async function saveSchedule() {
   }
 }
 
-async function applyFilesPerJobToJobSets() {
-  const perJob = normalizedFilesPerJob.value
-  const doc = await apiFetch<{ version?: string; job_sets: ExtractionJobSet[] }>(
-    `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`,
-  )
-  const hasByFiles = doc.job_sets.some((js) => js.strategy === 'by_files' && js.enabled !== false)
-  if (!hasByFiles) return
-  await apiFetch(
-    `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`,
-    {
-      method: 'PUT',
-      body: {
-        version: doc.version || '1.0',
-        job_sets: doc.job_sets.map((js) =>
-          js.strategy === 'by_files'
-            ? { ...js, files_per_job: perJob }
-            : js,
-        ),
-      },
-    },
-  )
-}
-
-async function runMaintenanceNow() {
+async function runMaintenanceNow(options?: { startExtraction?: boolean }) {
   runningMaintenance.value = true
+  const workerTotal = Math.min(
+    MAX_MAINTENANCE_WORKERS,
+    Math.max(1, Math.floor(Number(workers.value) || 1)),
+  )
   try {
     const run = await apiFetch<MaintenanceRun>(
       `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/maintenance-runs/trigger`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        body: {
+          files_per_job: normalizedFilesPerJob.value,
+          worker_count: workerTotal,
+          start_extraction: options?.startExtraction ?? false,
+        },
+      },
     )
     toast.success('Maintenance run recorded', {
       description: run.message || formatMaintenanceRunOutcome(run.outcome),
@@ -376,43 +361,8 @@ async function runMaintenanceNow() {
   }
 }
 
-async function startExtractionJobs() {
-  startingExtraction.value = true
-  const requested = Math.floor(Number(workers.value) || 1)
-  if (requested > MAX_MAINTENANCE_WORKERS) {
-    workers.value = MAX_MAINTENANCE_WORKERS
-    toast.info(`Worker concurrency capped at ${MAX_MAINTENANCE_WORKERS}`)
-  }
-  const workerTotal = Math.min(MAX_MAINTENANCE_WORKERS, Math.max(1, requested))
-  try {
-    try {
-      await applyFilesPerJobToJobSets()
-    } catch (e: unknown) {
-      toast.warning('Could not update files-per-job on job sets', {
-        description: resolveApiError(e),
-      })
-    }
-    const res = await apiFetch<{ message?: string }>(
-      `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs/start`,
-      {
-        method: 'POST',
-        body: { workers: workerTotal },
-      },
-    )
-    toast.success('Extraction started', { description: res.message })
-    await loadExtractionState()
-  } catch (e: unknown) {
-    toast.error('Failed to start extraction', { description: resolveApiError(e) })
-  } finally {
-    startingExtraction.value = false
-  }
-}
-
 async function runMaintenancePipeline() {
-  await runMaintenanceNow()
-  if (maintenanceReadySources.value.length > 0) {
-    await startExtractionJobs()
-  }
+  await runMaintenanceNow({ startExtraction: true })
 }
 
 function startAutoRefresh() {
@@ -637,17 +587,13 @@ onUnmounted(() => {
             </div>
 
             <div class="flex flex-wrap gap-2">
-              <Button :disabled="runningMaintenance" @click="runMaintenanceNow">
+              <Button :disabled="runningMaintenance" @click="runMaintenanceNow()">
                 <Loader2 v-if="runningMaintenance" class="mr-2 size-4 animate-spin" />
                 Sync changed sources
               </Button>
-              <Button variant="secondary" :disabled="startingExtraction" @click="startExtractionJobs">
-                <Loader2 v-if="startingExtraction" class="mr-2 size-4 animate-spin" />
-                Start extraction jobs
-              </Button>
               <Button
                 variant="outline"
-                :disabled="runningMaintenance || startingExtraction || maintenanceReadySources.length === 0"
+                :disabled="runningMaintenance || maintenanceReadySources.length === 0"
                 @click="runMaintenancePipeline"
               >
                 Run full pipeline

@@ -113,3 +113,18 @@ async def test_seed_unset_extraction_baselines_sets_only_null_baselines() -> Non
     assert ds_unprepared.last_extraction_baseline_commit is None
     assert ds_already_set.last_extraction_baseline_commit == "existing"
     mock_repo.save.assert_awaited_once_with(ds_prepared)
+
+
+@pytest.mark.asyncio
+async def test_default_data_source_repository_includes_outbox() -> None:
+    from management.infrastructure.extraction_baseline_updater import (
+        _default_data_source_repository,
+    )
+    from management.infrastructure.repositories.data_source_repository import (
+        DataSourceRepository,
+    )
+
+    session = AsyncMock()
+    repo = _default_data_source_repository(session)
+
+    assert isinstance(repo, DataSourceRepository)

@@ -16,9 +16,11 @@ from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultKnowledgeGraphServiceProbe
-from management.application.services.knowledge_graph_service import (
-    KnowledgeGraphService,
+from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from infrastructure.management.maintenance_pipeline_dependencies import (
+    get_maintenance_pipeline_service,
 )
+from management.ports.maintenance_pipeline import MaintenancePipelinePort
 from management.infrastructure.repositories import (
     DataSourceRepository,
     DataSourceSyncRunRepository,
@@ -35,6 +37,9 @@ def get_knowledge_graph_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    maintenance_pipeline: Annotated[
+        MaintenancePipelinePort, Depends(get_maintenance_pipeline_service)
+    ],
 ) -> KnowledgeGraphService:
     """Get KnowledgeGraphService instance.
 
@@ -66,4 +71,5 @@ def get_knowledge_graph_service(
         scope_to_tenant=current_user.tenant_id.value,
         probe=DefaultKnowledgeGraphServiceProbe(),
         canonical_schema_repository=GraphCanonicalSchemaRepository(session),
+        maintenance_pipeline=maintenance_pipeline,
     )

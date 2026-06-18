@@ -178,6 +178,54 @@ class ExtractionJobRepository:
         )
         return generated, tuple(warnings)
 
+    async def sync_maintenance_pending_jobs(
+        self,
+        *,
+        knowledge_graph_id: str,
+        jobs: list[ExtractionJobRecord],
+        job_set_name: str,
+    ) -> int:
+        """Replace pending jobs for one maintenance job set."""
+        from infrastructure.management.maintenance_job_materializer import (
+            MAINTENANCE_JOB_SET_NAME,
+        )
+
+        if job_set_name != MAINTENANCE_JOB_SET_NAME:
+            raise ValueError(f"Unsupported maintenance job set: {job_set_name}")
+        in_progress = await self.count_in_progress_for_job_set(
+            knowledge_graph_id=knowledge_graph_id,
+            job_set_name=job_set_name,
+        )
+        if in_progress > 0:
+            raise RuntimeError(
+                f"Cannot refresh maintenance jobs while {in_progress} job(s) are running"
+            )
+        await self._delete_pending_for_job_set(
+            knowledge_graph_id=knowledge_graph_id,
+            job_set_name=job_set_name,
+        )
+        for job in jobs:
+            if job.job_set_name != job_set_name:
+                continue
+            self._session.add(
+                ExtractionJobModel(
+                    id=job.id,
+                    knowledge_graph_id=job.knowledge_graph_id,
+                    job_id=job.job_id,
+                    job_set_name=job.job_set_name,
+                    strategy=job.strategy,
+                    status=job.status.value,
+                    order_index=job.order_index,
+                    description=job.description,
+                    target_instances=[],
+                    target_files=[
+                        target_file.to_dict() for target_file in job.target_files
+                    ],
+                )
+            )
+        await self._session.flush()
+        return len(jobs)
+
     async def _delete_pending_for_job_set(
         self,
         *,

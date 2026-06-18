@@ -467,6 +467,9 @@ async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
     """
     from infrastructure.outbox.repository import OutboxRepository
     from management.application.services.sync_scheduler import SyncSchedulerService
+    from infrastructure.management.maintenance_pipeline_dependencies import (
+        build_maintenance_pipeline_for_background,
+    )
     from management.infrastructure.repositories.data_source_repository import (
         DataSourceRepository,
     )
@@ -485,6 +488,15 @@ async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
                     sync_run_repository=sync_run_repo,
                 )
                 await scheduler.check_and_trigger_due_syncs()
+                await session.commit()
+
+            async with session_factory() as session:
+                maintenance = build_maintenance_pipeline_for_background(
+                    session_factory=session_factory,
+                    session=session,
+                )
+                await maintenance.check_scheduled_triggers()
+                await maintenance.advance_pending_pipelines()
                 await session.commit()
         except asyncio.CancelledError:
             break

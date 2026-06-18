@@ -25,6 +25,7 @@ from management.presentation.knowledge_graphs.models import (
     KnowledgeGraphWorkspaceStatusResponse,
     MaintenanceRunListResponse,
     MaintenanceRunResponse,
+    MaintenanceRunTriggerRequest,
     MaintenanceScheduleResponse,
     MaintenanceScheduleUpsertRequest,
     OntologyConfigRequest,
@@ -95,6 +96,8 @@ async def upsert_knowledge_graph_maintenance_schedule(
             cron_expression=request.cron_expression,
             timezone_name=request.timezone_name,
             enabled=request.enabled,
+            files_per_job=request.files_per_job,
+            worker_count=request.worker_count,
         )
         return MaintenanceScheduleResponse.from_domain(schedule)
     except UnauthorizedError:
@@ -164,6 +167,7 @@ async def list_knowledge_graph_maintenance_runs(
 )
 async def trigger_knowledge_graph_maintenance_run(
     kg_id: str,
+    request: MaintenanceRunTriggerRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
 ) -> MaintenanceRunResponse:
@@ -172,6 +176,9 @@ async def trigger_knowledge_graph_maintenance_run(
         run = await service.trigger_maintenance_run(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
+            files_per_job=request.files_per_job,
+            worker_count=request.worker_count,
+            start_extraction=request.start_extraction,
         )
         return MaintenanceRunResponse.from_domain(run)
     except UnauthorizedError:

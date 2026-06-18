@@ -28,7 +28,7 @@ from management.infrastructure.git_commit_reference_service import (
 )
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
-from management.ports.exceptions import UnauthorizedError
+from management.ports.exceptions import DuplicateDataSourceNameError, UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from shared_kernel.job_package.archive_availability import (
     job_package_archive_exists,
@@ -398,6 +398,11 @@ async def create_data_source(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except DuplicateDataSourceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
     except Exception:

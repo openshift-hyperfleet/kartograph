@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
+  hasIngestionContextPrepared,
   hasUnpulledCommits,
   isIngestionPreparedAtHead,
   needsIngestionPrepare,
@@ -109,6 +110,13 @@ describe('kgDataSourcesCommits helpers', () => {
     expect(needsIngestionPrepare({ tracked_branch_head_commit: 'abc', last_prepared_commit: null })).toBe(true)
     expect(hasUnpulledCommits({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(false)
     expect(isIngestionPreparedAtHead({ tracked_branch_head_commit: 'abc', clone_head_commit: 'abc' })).toBe(true)
+    expect(
+      hasIngestionContextPrepared({
+        tracked_branch_head_commit: 'new-remote',
+        clone_head_commit: 'old-local',
+      }),
+    ).toBe(true)
+    expect(hasIngestionContextPrepared({ tracked_branch_head_commit: 'abc' })).toBe(false)
   })
 })
 

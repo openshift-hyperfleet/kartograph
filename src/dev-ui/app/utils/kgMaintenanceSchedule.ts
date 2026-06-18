@@ -32,6 +32,12 @@ export function formatMaintenanceRunOutcome(outcome: string): string {
   switch (outcome) {
     case 'started':
       return 'Started'
+    case 'ingest-started':
+      return 'Ingest started'
+    case 'extraction-started':
+      return 'Extraction started'
+    case 'ingest-failed':
+      return 'Ingest failed'
     case 'no-changes':
       return 'No changes'
     case 'preflight-failed':
@@ -48,11 +54,14 @@ export function maintenanceRunOutcomeVariant(
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' {
   switch (outcome) {
     case 'started':
+    case 'ingest-started':
+    case 'extraction-started':
       return 'success'
     case 'no-changes':
       return 'secondary'
     case 'preflight-failed':
     case 'launch-failed':
+    case 'ingest-failed':
       return 'destructive'
     default:
       return 'outline'

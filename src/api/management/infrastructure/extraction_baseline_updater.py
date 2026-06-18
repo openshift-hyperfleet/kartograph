@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from management.ports.repositories import IDataSourceRepository
 
 
+def _default_data_source_repository(session: AsyncSession) -> IDataSourceRepository:
+    from infrastructure.outbox.repository import OutboxRepository
+    from management.infrastructure.repositories.data_source_repository import (
+        DataSourceRepository,
+    )
+
+    outbox = OutboxRepository(session=session)
+    return DataSourceRepository(session=session, outbox=outbox)
+
+
 async def advance_extraction_baselines_for_knowledge_graph(
     *,
     session: AsyncSession,
@@ -18,11 +28,7 @@ async def advance_extraction_baselines_for_knowledge_graph(
 ) -> int:
     """Advance extraction baselines for every prepared source on a knowledge graph."""
     if data_source_repository is None:
-        from management.infrastructure.repositories.data_source_repository import (
-            DataSourceRepository,
-        )
-
-        data_source_repository = DataSourceRepository(session)
+        data_source_repository = _default_data_source_repository(session)
 
     data_sources = await data_source_repository.find_by_knowledge_graph(knowledge_graph_id)
     updated = 0
@@ -44,11 +50,7 @@ async def seed_unset_extraction_baselines_for_knowledge_graph(
 ) -> int:
     """Seed NULL extraction baselines from each source's ingested head on a KG."""
     if data_source_repository is None:
-        from management.infrastructure.repositories.data_source_repository import (
-            DataSourceRepository,
-        )
-
-        data_source_repository = DataSourceRepository(session)
+        data_source_repository = _default_data_source_repository(session)
 
     data_sources = await data_source_repository.find_by_knowledge_graph(knowledge_graph_id)
     updated = 0

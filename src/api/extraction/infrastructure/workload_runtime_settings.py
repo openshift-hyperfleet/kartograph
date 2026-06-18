@@ -209,6 +209,13 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
                     break
         return self
 
+    @field_validator("container_run_uid", "container_run_gid", mode="before")
+    @classmethod
+    def _empty_container_run_id_to_none(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
     @field_validator("sticky_command", "worker_command", "container_tmpfs_mounts", mode="before")
     @classmethod
     def _parse_command(cls, value: object) -> tuple[str, ...]:

@@ -178,6 +178,12 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         self._probe.knowledge_graphs_listed(tenant_id, len(kgs))
         return kgs
 
+    async def find_all(self) -> list[KnowledgeGraph]:
+        stmt = select(KnowledgeGraphModel)
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_domain(model) for model in models]
+
     async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
         stmt = select(KnowledgeGraphModel).where(
             KnowledgeGraphModel.id == knowledge_graph.id.value

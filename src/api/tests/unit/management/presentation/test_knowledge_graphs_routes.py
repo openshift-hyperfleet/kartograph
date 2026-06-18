@@ -427,6 +427,8 @@ class TestKnowledgeGraphMaintenanceRoutes:
             cron_expression="30 8 * * *",
             timezone_name="America/New_York",
             enabled=True,
+            files_per_job=2,
+            worker_count=8,
         )
 
     def test_list_maintenance_runs_returns_200(
@@ -471,22 +473,26 @@ class TestKnowledgeGraphMaintenanceRoutes:
             KnowledgeGraphMaintenanceRunRecord(
                 run_id="01JTRIGGER1234567890ABCDE",
                 triggered_at=datetime.now(UTC),
-                outcome=KnowledgeGraphMaintenanceRunOutcome.STARTED,
+                outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
                 message="Scheduled maintenance launched",
                 target_data_source_ids=("ds-1", "ds-2"),
             )
         )
 
         response = test_client.post(
-            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/trigger"
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/trigger",
+            json={"files_per_job": 4, "worker_count": 6, "start_extraction": True},
         )
 
         assert response.status_code == status.HTTP_201_CREATED
         payload = response.json()
-        assert payload["outcome"] == "started"
+        assert payload["outcome"] == "ingest-started"
         mock_kg_service.trigger_maintenance_run.assert_called_once_with(
             user_id=mock_current_user.user_id.value,
             kg_id=sample_knowledge_graph.id.value,
+            files_per_job=4,
+            worker_count=6,
+            start_extraction=True,
         )
 
 

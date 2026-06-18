@@ -141,6 +141,16 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('Files per job')
     expect(graphMaintenanceWorkspaceVue).toContain('estimatedJobsFromFiles')
   })
+
+  it('explains by-file maintenance and hybrid run controls', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('by-file')
+    expect(graphMaintenanceWorkspaceVue).toContain('Run maintenance')
+    expect(graphMaintenanceWorkspaceVue).toContain('Schedule recurring maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('Live maintenance activity')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Maintenance run history')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Sync changed sources only')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Run maintenance jobs now')
+  })
 })
 
 describe('KG-MANAGE-012 - archived graph writes grouping', () => {

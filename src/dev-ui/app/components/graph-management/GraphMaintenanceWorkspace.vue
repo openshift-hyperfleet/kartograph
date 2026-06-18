@@ -1,21 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
   Calendar,
+  Eye,
   GitBranch,
   Loader2,
   Play,
   RefreshCw,
   Settings,
-  ArrowRight,
+  XCircle,
 } from 'lucide-vue-next'
+import GraphExtractionJobWatchDialog from '@/components/graph-management/GraphExtractionJobWatchDialog.vue'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
-import { buildGraphManagementStepUrl } from '@/utils/kgGraphManagement'
 import {
   commitStatusClass,
   formatFilesOnDisk,
@@ -31,9 +32,20 @@ import {
   cronToDailyTime,
   dailyTimeToCron,
   formatMaintenanceRunOutcome,
-  maintenanceRunOutcomeVariant,
   MAINTENANCE_TIMEZONE_OPTIONS,
 } from '@/utils/kgMaintenanceSchedule'
+
+const MAINTENANCE_JOB_SET = 'maintenance'
+
+type RecentJobStatusFilter = 'all' | 'pending' | 'in_progress' | 'archived' | 'failed'
+
+const RECENT_JOB_STATUS_FILTERS: Array<{ value: RecentJobStatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'failed', label: 'Failed' },
+]
 
 const props = defineProps<{
   kgId: string
@@ -90,15 +102,53 @@ interface ExtractionRunState {
 
 interface DbStatus {
   jobsByStatus: Record<string, number>
+  jobsBySet?: Record<string, { pending: number; in_progress: number; completed: number; failed: number; total: number }>
+  recentJobs: Array<{
+    jobId: string
+    jobSet: string
+    status: string
+    workerId: string | null
+    startedAt: string | null
+    completedAt: string | null
+    inputTokens: number
+    outputTokens: number
+    writeOps: number
+    entitiesCreated?: number
+    entitiesModified?: number
+    relationshipsCreated?: number
+    errorMessage?: string | null
+  }>
+  activeWorkers?: Array<{
+    workerId: string
+    jobId: string
+    jobSet: string
+    strategy: string
+    instanceCount: number
+    startedAt: string | null
+  }>
+}
+
+type RecentJobEvent = DbStatus['recentJobs'][number] & {
+  eventKey: string
+  seenAtMs: number
 }
 
 const loading = ref(true)
 const refreshing = ref(false)
 const dataSources = ref<DataSourceRow[]>([])
 const schedule = ref<MaintenanceSchedule | null>(null)
-const runHistory = ref<MaintenanceRun[]>([])
 const extractionRunState = ref<ExtractionRunState | null>(null)
 const dbStatus = ref<DbStatus | null>(null)
+const pausingExtraction = ref(false)
+const killingExtraction = ref(false)
+const optimisticLiveUntilMs = ref<number | null>(null)
+const nowMs = ref(Date.now())
+const lastStatusRefreshMs = ref<number | null>(null)
+const recentJobEvents = ref<RecentJobEvent[]>([])
+const recentJobStatusFilter = ref<RecentJobStatusFilter>('all')
+const watchJobId = ref<string | null>(null)
+const watchDialogOpen = ref(false)
+const cancellingJobId = ref<string | null>(null)
 
 const scheduleEnabled = ref(false)
 const scheduleTime = ref('02:00')
@@ -114,6 +164,11 @@ const updatingLocalCommits = ref(false)
 const runningMaintenance = ref(false)
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
+let clockInterval: ReturnType<typeof setInterval> | null = null
+
+const extractionJobsBasePath = computed(
+  () => `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`,
+)
 
 const maintenanceReadySources = computed(() =>
   dataSources.value.filter((ds) => isMaintenanceReady(ds)),
@@ -137,15 +192,66 @@ const estimatedJobsFromFiles = computed(() => {
   return Math.ceil(total / normalizedFilesPerJob.value)
 })
 
-const pendingJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.pending || 0))
-const inProgressJobsCount = computed(() => Number(dbStatus.value?.jobsByStatus?.in_progress || 0))
-const extractionLive = computed(() =>
-  Boolean(extractionRunState.value?.live || inProgressJobsCount.value > 0),
+const workerCount = computed(() =>
+  Math.min(MAX_MAINTENANCE_WORKERS, Math.max(1, Math.floor(Number(workers.value) || 1))),
 )
-
-const extractionJobsUrl = computed(() =>
-  buildGraphManagementStepUrl(props.kgId, 'extraction-jobs'),
+const maintenanceSetStats = computed(
+  () => dbStatus.value?.jobsBySet?.[MAINTENANCE_JOB_SET] ?? {
+    pending: 0,
+    in_progress: 0,
+    completed: 0,
+    failed: 0,
+    total: 0,
+  },
 )
+const pendingJobsCount = computed(() => maintenanceSetStats.value.pending)
+const inProgressJobsCount = computed(() => maintenanceSetStats.value.in_progress)
+const completedJobsCount = computed(() => maintenanceSetStats.value.completed)
+const failedJobsCount = computed(() => maintenanceSetStats.value.failed)
+const remainingJobsCount = computed(() => pendingJobsCount.value + inProgressJobsCount.value)
+const activeQueueJobsTotal = computed(
+  () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value,
+)
+const extractionRunLive = computed(() => {
+  if (optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value) return true
+  return Boolean(extractionRunState.value?.live)
+})
+const hasRunningJobs = computed(() => inProgressJobsCount.value > 0)
+const extractionLive = computed(() => extractionRunLive.value || hasRunningJobs.value)
+const maintenanceProgressPercent = computed(() => {
+  const total = activeQueueJobsTotal.value
+  if (total <= 0) return 0
+  return Math.round(((completedJobsCount.value + failedJobsCount.value) / total) * 100)
+})
+const maintenanceRecentJobs = computed(() => {
+  const maintenanceOnly = recentJobEvents.value.filter((event) => event.jobSet === MAINTENANCE_JOB_SET)
+  if (recentJobStatusFilter.value === 'all') return maintenanceOnly
+  return maintenanceOnly.filter((event) => event.status === recentJobStatusFilter.value)
+})
+const activeWorkerCount = computed(
+  () => (dbStatus.value?.activeWorkers || []).filter((worker) => worker.jobSet === MAINTENANCE_JOB_SET).length,
+)
+const idleWorkerCount = computed(() => Math.max(0, workerCount.value - activeWorkerCount.value))
+const statusAgeSeconds = computed(() => {
+  if (!lastStatusRefreshMs.value) return null
+  return Math.max(0, Math.floor((nowMs.value - lastStatusRefreshMs.value) / 1000))
+})
+const showOptimisticLiveActivity = computed(
+  () => Boolean(optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value),
+)
+const recentJobsEmptyMessage = computed(() => {
+  if (runningMaintenance.value || showOptimisticLiveActivity.value) {
+    return 'Starting maintenance workers. Job events will appear as jobs are claimed and completed.'
+  }
+  if (recentJobEvents.value.filter((event) => event.jobSet === MAINTENANCE_JOB_SET).length === 0) {
+    return 'No maintenance job events yet. Run maintenance to materialize by-file jobs and start workers.'
+  }
+  const filterLabel = RECENT_JOB_STATUS_FILTERS.find(
+    (option) => option.value === recentJobStatusFilter.value,
+  )?.label
+  if (recentJobStatusFilter.value === 'all') return 'No maintenance job events yet.'
+  return `No ${filterLabel?.toLowerCase() ?? recentJobStatusFilter.value} maintenance job events in the recent window.`
+})
 
 function resolveApiError(e: unknown): string {
   const err = e as { data?: { detail?: unknown }; message?: string }
@@ -191,24 +297,140 @@ async function loadSchedule() {
   if (payload.worker_count) workers.value = payload.worker_count
 }
 
-async function loadRunHistory() {
-  const payload = await apiFetch<{ runs: MaintenanceRun[] }>(
-    `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/maintenance-runs?limit=20`,
-  )
-  runHistory.value = payload.runs || []
-}
-
 async function loadExtractionState() {
-  const base = `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs`
+  const base = extractionJobsBasePath.value
   try {
     extractionRunState.value = await apiFetch<ExtractionRunState>(`${base}/run-state`)
   } catch {
     extractionRunState.value = null
   }
   try {
-    dbStatus.value = await apiFetch<DbStatus>(`${base}/database-status`)
+    const status = await apiFetch<DbStatus>(`${base}/database-status`)
+    dbStatus.value = status
+    mergeRecentJobEvents(status)
+    lastStatusRefreshMs.value = Date.now()
   } catch {
     dbStatus.value = null
+  }
+}
+
+function mergeRecentJobEvents(status: DbStatus) {
+  const incoming = (status.recentJobs || []).filter((job) => job.jobSet === MAINTENANCE_JOB_SET)
+  const now = Date.now()
+  const activeWorkerJobIds = new Set(
+    (status.activeWorkers || [])
+      .filter((worker) => worker.jobSet === MAINTENANCE_JOB_SET)
+      .map((worker) => worker.jobId),
+  )
+  const inProgressCount = Number(status.jobsBySet?.[MAINTENANCE_JOB_SET]?.in_progress || 0)
+  const existingByJobId = new Map(
+    recentJobEvents.value.map((event) => [event.jobId, event] as const),
+  )
+  for (const job of incoming) {
+    existingByJobId.set(job.jobId, { ...job, eventKey: job.jobId, seenAtMs: now })
+  }
+  const maxAgeMs = 15 * 60 * 1000
+  let merged = Array.from(existingByJobId.values()).filter((event) => now - event.seenAtMs <= maxAgeMs)
+  if (inProgressCount === 0) {
+    merged = merged.filter(
+      (event) => event.status !== 'in_progress' || activeWorkerJobIds.has(event.jobId),
+    )
+  }
+  merged.sort((a, b) => {
+    const aTs = Date.parse(a.completedAt || a.startedAt || '') || a.seenAtMs
+    const bTs = Date.parse(b.completedAt || b.startedAt || '') || b.seenAtMs
+    return bTs - aTs
+  })
+  recentJobEvents.value = merged.slice(0, 80)
+}
+
+function clearRecentJobEvents() {
+  recentJobEvents.value = []
+}
+
+function openWatch(jobId: string) {
+  watchJobId.value = jobId
+  watchDialogOpen.value = true
+}
+
+function recentJobBadgeVariant(status: string): 'default' | 'outline' | 'secondary' | 'destructive' | 'success' {
+  if (status === 'in_progress') return 'default'
+  if (status === 'failed') return 'destructive'
+  if (status === 'completed') return 'success'
+  if (status === 'archived') return 'secondary'
+  return 'outline'
+}
+
+function formatRecentWhen(startedAt: string | null, completedAt: string | null): string {
+  if (completedAt && startedAt) {
+    const startMs = Date.parse(startedAt)
+    const endMs = Date.parse(completedAt)
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
+      const deltaSec = Math.max(0, Math.floor((endMs - startMs) / 1000))
+      if (deltaSec < 60) return `${deltaSec}s`
+      const mins = Math.floor(deltaSec / 60)
+      const secs = deltaSec % 60
+      if (mins < 60) return `${mins}m ${secs}s`
+      const hours = Math.floor(mins / 60)
+      return `${hours}h ${mins % 60}m`
+    }
+  }
+  return completedAt || startedAt || '—'
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function canCancelJob(status: string): boolean {
+  return status === 'pending' || status === 'in_progress'
+}
+
+async function pauseExtractionWorkers() {
+  pausingExtraction.value = true
+  try {
+    const res = await apiFetch<{ message?: string }>(`${extractionJobsBasePath.value}/pause`, {
+      method: 'POST',
+    })
+    toast.success('Pause requested', { description: res.message })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Failed to pause workers', { description: resolveApiError(e) })
+  } finally {
+    pausingExtraction.value = false
+  }
+}
+
+async function killExtractionWorkers() {
+  killingExtraction.value = true
+  try {
+    const res = await apiFetch<{ message?: string }>(`${extractionJobsBasePath.value}/halt`, {
+      method: 'POST',
+    })
+    toast.success('Workers stopped', { description: res.message })
+    optimisticLiveUntilMs.value = null
+    stopFastAutoRefresh()
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Failed to stop workers', { description: resolveApiError(e) })
+  } finally {
+    killingExtraction.value = false
+  }
+}
+
+async function cancelJob(jobId: string) {
+  cancellingJobId.value = jobId
+  try {
+    const res = await apiFetch<{ message?: string }>(
+      `${extractionJobsBasePath.value}/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: 'POST' },
+    )
+    toast.success('Job cancelled', { description: res.message })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Cancel failed', { description: resolveApiError(e) })
+  } finally {
+    cancellingJobId.value = null
   }
 }
 
@@ -220,7 +442,6 @@ async function refreshAll(options?: { background?: boolean }) {
     await Promise.all([
       loadDataSources(),
       loadSchedule(),
-      loadRunHistory(),
       loadExtractionState(),
     ])
   } catch (e: unknown) {
@@ -362,12 +583,19 @@ async function runMaintenanceNow(options?: { startExtraction?: boolean }) {
 }
 
 async function runMaintenancePipeline() {
+  optimisticLiveUntilMs.value = Date.now() + 30000
   await runMaintenanceNow({ startExtraction: true })
+  startFastAutoRefresh()
 }
 
 function startAutoRefresh() {
   if (refreshInterval) return
   refreshInterval = setInterval(() => { void refreshAll({ background: true }) }, 3000)
+}
+
+function startFastAutoRefresh() {
+  stopAutoRefresh()
+  refreshInterval = setInterval(() => { void refreshAll({ background: true }) }, 1500)
 }
 
 function stopAutoRefresh() {
@@ -376,22 +604,45 @@ function stopAutoRefresh() {
   refreshInterval = null
 }
 
+function stopFastAutoRefresh() {
+  stopAutoRefresh()
+  startAutoRefresh()
+}
+
 onMounted(async () => {
   await refreshAll()
   startAutoRefresh()
+  clockInterval = setInterval(() => { nowMs.value = Date.now() }, 1000)
 })
+
+watch(
+  () => extractionRunLive.value || hasRunningJobs.value,
+  (active) => {
+    if (active) startFastAutoRefresh()
+    else if (!optimisticLiveUntilMs.value) stopFastAutoRefresh()
+  },
+  { immediate: true },
+)
 
 onUnmounted(() => {
   stopAutoRefresh()
+  if (clockInterval) clearInterval(clockInterval)
 })
 </script>
 
 <template>
   <div class="space-y-6">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <div class="space-y-1">
+      <div class="max-w-3xl space-y-2">
         <p class="text-sm text-muted-foreground">
-          Schedule and run incremental maintenance: sync changed sources, then execute extraction jobs.
+          Maintenance jobs keep your knowledge graph aligned with upstream repository changes.
+          Each job is <span class="font-medium text-foreground">by-file</span>: changed files since
+          the last extraction baseline are batched and processed so the graph reflects what is on
+          disk for those paths.
+        </p>
+        <p class="text-sm text-muted-foreground">
+          Run maintenance manually below when you are ready, or schedule recurring maintenance jobs
+          to sync and extract on a daily cadence. Completed runs appear in Graph Writes History.
         </p>
       </div>
       <Button variant="outline" size="sm" :disabled="refreshing || loading" @click="refreshAll({ background: true })">
@@ -531,15 +782,16 @@ onUnmounted(() => {
         </CardContent>
       </Card>
 
-      <div class="grid gap-6 lg:grid-cols-2">
+      <div class="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle class="flex items-center gap-2 text-base">
               <Play class="size-4 text-primary" />
-              Run maintenance jobs
+              Run maintenance
             </CardTitle>
             <CardDescription>
-              Set files per job and worker concurrency, then run maintenance across all data sources.
+              Materialize by-file maintenance jobs from changed sources, then run parallel workers
+              until the queue drains. Per-job results appear in Graph Writes History.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -554,7 +806,7 @@ onUnmounted(() => {
                 />
               </div>
               <div class="space-y-1.5">
-                <label for="maintain-workers" class="text-sm font-medium">Parallel workers</label>
+                <label for="maintain-workers" class="text-sm font-medium">Worker concurrency</label>
                 <Input
                   id="maintain-workers"
                   v-model.number="workers"
@@ -565,47 +817,156 @@ onUnmounted(() => {
             </div>
 
             <div class="rounded-lg border bg-muted/20 p-3">
-              <p class="text-xs font-medium text-foreground/90">Maintain run preview</p>
-              <div class="mt-2 grid gap-2 sm:grid-cols-3">
+              <p class="text-xs font-medium text-foreground/90">Run preview</p>
+              <div class="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <div class="rounded-md border bg-background px-3 py-2">
                   <p class="text-[11px] uppercase tracking-wide text-muted-foreground">Changed files</p>
                   <p class="text-lg font-semibold tabular-nums">{{ totalChangedFiles }}</p>
                 </div>
                 <div class="rounded-md border bg-background px-3 py-2">
-                  <p class="text-[11px] uppercase tracking-wide text-muted-foreground">Files per job</p>
-                  <p class="text-lg font-semibold tabular-nums">{{ normalizedFilesPerJob }}</p>
-                </div>
-                <div class="rounded-md border bg-background px-3 py-2">
                   <p class="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated jobs</p>
                   <p class="text-lg font-semibold tabular-nums">{{ estimatedJobsFromFiles }}</p>
                 </div>
+                <div class="rounded-md border bg-background px-3 py-2">
+                  <p class="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining jobs</p>
+                  <p class="text-lg font-semibold tabular-nums">{{ remainingJobsCount }}</p>
+                </div>
               </div>
               <p class="mt-2 text-xs text-muted-foreground">
-                Extraction queue: {{ pendingJobsCount }} ready · {{ inProgressJobsCount }} running
+                Maintenance queue: {{ pendingJobsCount }} ready · {{ inProgressJobsCount }} running
                 <span v-if="extractionLive"> · live</span>
               </p>
             </div>
 
-            <div class="flex flex-wrap gap-2">
-              <Button :disabled="runningMaintenance" @click="runMaintenanceNow()">
-                <Loader2 v-if="runningMaintenance" class="mr-2 size-4 animate-spin" />
-                Sync changed sources
-              </Button>
+            <div class="flex flex-wrap items-end gap-2">
               <Button
-                variant="outline"
                 :disabled="runningMaintenance || maintenanceReadySources.length === 0"
                 @click="runMaintenancePipeline"
               >
-                Run full pipeline
+                <Loader2 v-if="runningMaintenance" class="mr-2 size-4 animate-spin" />
+                Run maintenance
+              </Button>
+              <Button size="sm" variant="outline" :disabled="pausingExtraction" @click="pauseExtractionWorkers">
+                Pause
+              </Button>
+              <Button size="sm" variant="destructive" :disabled="killingExtraction" @click="killExtractionWorkers">
+                Kill
               </Button>
             </div>
 
-            <Button as-child variant="link" class="h-auto px-0 text-xs">
-              <NuxtLink :to="extractionJobsUrl" class="inline-flex items-center gap-1">
-                Configure job sets and monitor workers
-                <ArrowRight class="size-3.5" />
-              </NuxtLink>
-            </Button>
+            <div class="grid gap-3 sm:grid-cols-2 text-sm">
+              <div class="rounded-lg border bg-muted/30 p-3">
+                <p class="text-xs text-muted-foreground">Remaining maintenance jobs</p>
+                <p class="text-lg font-semibold">{{ remainingJobsCount }}</p>
+              </div>
+              <div class="rounded-lg border bg-muted/30 p-3">
+                <p class="text-xs text-muted-foreground">Progress</p>
+                <p class="text-lg font-semibold">{{ maintenanceProgressPercent }}%</p>
+              </div>
+            </div>
+
+            <div class="rounded-lg border bg-card p-3">
+              <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p class="text-xs font-medium text-foreground/90">Live maintenance activity</p>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" class="font-mono text-[11px]">
+                    {{ completedJobsCount }} completed · {{ inProgressJobsCount }} running · {{ pendingJobsCount }} ready
+                  </Badge>
+                  <Badge variant="outline" class="font-mono text-[11px]">
+                    workers: {{ activeWorkerCount }}/{{ workerCount }}
+                  </Badge>
+                  <Badge v-if="idleWorkerCount > 0" variant="outline" class="font-mono text-[11px]">
+                    {{ idleWorkerCount }} idle
+                  </Badge>
+                  <Badge v-if="statusAgeSeconds !== null" variant="outline" class="font-mono text-[11px]">
+                    updated {{ statusAgeSeconds }}s ago
+                  </Badge>
+                </div>
+              </div>
+              <div class="mb-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-full bg-primary/80 transition-all"
+                  :style="{ width: `${maintenanceProgressPercent}%` }"
+                />
+              </div>
+              <div class="space-y-2">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="text-xs font-medium text-foreground/90">Recent maintenance jobs</p>
+                    <div class="flex flex-wrap gap-1">
+                      <Button
+                        v-for="option in RECENT_JOB_STATUS_FILTERS"
+                        :key="option.value"
+                        variant="ghost"
+                        size="sm"
+                        class="h-7 px-2 text-[11px]"
+                        :class="recentJobStatusFilter === option.value ? 'bg-muted text-foreground' : 'text-muted-foreground'"
+                        @click="recentJobStatusFilter = option.value"
+                      >
+                        {{ option.label }}
+                      </Button>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-7 px-2 text-[11px]"
+                    :disabled="maintenanceRecentJobs.length === 0"
+                    @click="clearRecentJobEvents"
+                  >
+                    Clear events
+                  </Button>
+                </div>
+                <div v-if="maintenanceRecentJobs.length === 0" class="text-xs text-muted-foreground">
+                  {{ recentJobsEmptyMessage }}
+                </div>
+                <div v-else class="max-h-64 space-y-1 overflow-y-auto pr-1">
+                  <div
+                    v-for="job in maintenanceRecentJobs"
+                    :key="`recent-${job.jobId}`"
+                    class="rounded-md border bg-muted/10 px-2 py-1.5"
+                  >
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <Badge :variant="recentJobBadgeVariant(job.status)" class="font-mono">{{ job.status }}</Badge>
+                        <span class="font-mono text-muted-foreground">{{ job.jobId }}</span>
+                      </div>
+                      <div class="flex flex-wrap items-center gap-2 text-muted-foreground">
+                        <span v-if="job.workerId" class="font-mono">{{ job.workerId }}</span>
+                        <span>{{ formatRecentWhen(job.startedAt, job.completedAt) }}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class="h-6 px-2 text-[10px]"
+                          @click="openWatch(job.jobId)"
+                        >
+                          <Eye class="mr-1 size-3" />
+                          Watch
+                        </Button>
+                        <Button
+                          v-if="canCancelJob(job.status)"
+                          variant="ghost"
+                          size="sm"
+                          class="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+                          :disabled="cancellingJobId === job.jobId"
+                          @click="cancelJob(job.jobId)"
+                        >
+                          <Loader2 v-if="cancellingJobId === job.jobId" class="mr-1 size-3 animate-spin" />
+                          <XCircle v-else class="mr-1 size-3" />
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                      <span class="font-mono">
+                        tokens {{ formatCompactNumber(job.inputTokens) }} in / {{ formatCompactNumber(job.outputTokens) }} out
+                      </span>
+                      <span class="font-mono">writes {{ job.writeOps }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -613,16 +974,16 @@ onUnmounted(() => {
           <CardHeader>
             <CardTitle class="flex items-center gap-2 text-base">
               <Calendar class="size-4 text-primary" />
-              Scheduled maintenance
+              Schedule recurring maintenance jobs
             </CardTitle>
             <CardDescription>
-              Daily cron schedule for automatic maintenance orchestration (sync changed sources).
+              Daily schedule to sync changed sources and run maintenance extraction automatically.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
             <label class="flex items-center gap-2 text-sm">
               <input v-model="scheduleEnabled" type="checkbox" class="size-4 rounded border" />
-              Enable scheduled maintenance
+              Enable recurring maintenance schedule
             </label>
 
             <div class="grid gap-3 sm:grid-cols-2">
@@ -665,35 +1026,11 @@ onUnmounted(() => {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">Maintenance run history</CardTitle>
-          <CardDescription>Recent manual and scheduled maintenance orchestration attempts.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div v-if="runHistory.length === 0" class="text-sm text-muted-foreground">
-            No maintenance runs recorded yet.
-          </div>
-          <div v-else class="space-y-2">
-            <div
-              v-for="run in runHistory"
-              :key="run.run_id"
-              class="rounded-lg border p-3 text-sm"
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <Badge :variant="maintenanceRunOutcomeVariant(run.outcome)" class="font-mono text-[11px]">
-                  {{ formatMaintenanceRunOutcome(run.outcome) }}
-                </Badge>
-                <span class="font-mono text-xs text-muted-foreground">{{ formatWhen(run.triggered_at) }}</span>
-                <span v-if="run.target_data_source_ids.length" class="text-xs text-muted-foreground">
-                  · {{ run.target_data_source_ids.length }} source(s)
-                </span>
-              </div>
-              <p v-if="run.message" class="mt-1 text-xs text-muted-foreground">{{ run.message }}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <GraphExtractionJobWatchDialog
+        v-model:open="watchDialogOpen"
+        :kg-id="kgId"
+        :job-id="watchJobId"
+      />
     </template>
   </div>
 </template>

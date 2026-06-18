@@ -571,7 +571,7 @@ onUnmounted(() => {
           <div class="flex flex-wrap gap-2">
             <Button size="sm" :disabled="startingExtraction" @click="startExtraction">
               <Loader2 v-if="startingExtraction" class="mr-1.5 size-3.5 animate-spin" />
-              Start
+              Run extraction
             </Button>
             <Button size="sm" variant="outline" :disabled="pausingExtraction" @click="pauseExtraction">
               Pause

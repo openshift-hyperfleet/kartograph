@@ -646,7 +646,12 @@ class ExtractionJobsService:
             "runStartedAt": job.run_started_at.isoformat() if job.run_started_at else None,
             "archivedAt": job.archived_at.isoformat() if job.archived_at else None,
             "jsonl": job.applied_mutations_jsonl or "",
+            "instanceChanges": job.applied_instance_changes_jsonl or "",
             "writeOps": job.write_ops(),
+            "entitiesCreated": job.entities_created,
+            "entitiesModified": job.entities_modified,
+            "relationshipsCreated": job.relationships_created,
+            "relationshipsModified": job.relationships_modified,
         }
 
     async def reset_completed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:

@@ -10,6 +10,7 @@ from extraction.infrastructure.extraction_job_mutation_metrics import (
     applied_mutation_jsonl_from_workdir,
     metrics_from_mutation_workdir,
 )
+from extraction.infrastructure.job_mutation_artifact_store import read_instance_changes_from_workdir
 
 
 def merge_extraction_job_metrics(
@@ -34,6 +35,9 @@ def merge_extraction_job_metrics(
     applied_jsonl = applied_mutation_jsonl_from_workdir(workdir)
     if applied_jsonl:
         metrics["applied_mutations_jsonl"] = applied_jsonl
+    instance_changes_jsonl = read_instance_changes_from_workdir(workdir)
+    if instance_changes_jsonl:
+        metrics["applied_instance_changes_jsonl"] = instance_changes_jsonl
     return metrics
 
 

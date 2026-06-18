@@ -23,6 +23,7 @@ class WorkloadAuthContext:
     tenant_id: str
     knowledge_graph_id: str
     session_id: str | None = None
+    job_id: str | None = None
 
 
 def get_workload_auth_context(
@@ -67,10 +68,15 @@ def get_workload_auth_context(
         (scope.removeprefix("session:") for scope in credentials.scopes if scope.startswith("session:")),
         None,
     )
+    job_scope = next(
+        (scope.removeprefix("job:") for scope in credentials.scopes if scope.startswith("job:")),
+        None,
+    )
 
     return WorkloadAuthContext(
         credentials=credentials,
         tenant_id=tenant_scope,
         knowledge_graph_id=kg_scope,
         session_id=session_scope,
+        job_id=job_scope,
     )

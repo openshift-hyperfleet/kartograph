@@ -250,6 +250,62 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
                     existing.add(str(row[0]))
         return existing
 
+    def find_nodes_by_ids(
+        self,
+        node_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> dict[str, NodeRecord]:
+        """Return node snapshots keyed by application id."""
+        if not node_ids:
+            return {}
+        snapshots: dict[str, NodeRecord] = {}
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(node_ids), chunk_size):
+            chunk = node_ids[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(node_id)}'" for node_id in chunk)
+            query = f"""
+                MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}})
+                WHERE n.id IN [{literals}]
+                RETURN n
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if not row or row[0] is None:
+                    continue
+                node = self._vertex_to_node_record(row[0])
+                snapshots[node.id] = node
+        return snapshots
+
+    def find_edges_by_ids(
+        self,
+        edge_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> dict[str, EdgeRecord]:
+        """Return edge snapshots keyed by application id."""
+        if not edge_ids:
+            return {}
+        snapshots: dict[str, EdgeRecord] = {}
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(edge_ids), chunk_size):
+            chunk = edge_ids[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk)
+            query = f"""
+                MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}}]->()
+                WHERE r.id IN [{literals}]
+                RETURN r
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if not row or row[0] is None:
+                    continue
+                edge = self._edge_to_edge_record(row[0])
+                snapshots[edge.id] = edge
+        return snapshots
+
     def find_existing_slugs_for_entity_type(
         self,
         entity_type: str,

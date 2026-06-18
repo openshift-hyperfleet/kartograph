@@ -280,10 +280,27 @@ async def workload_apply_mutations(
     remaining_relationship_gaps: list[str] = []
     if result.get("applied"):
         applied_jsonl = str(result.get("applied_jsonl") or "").strip()
+        instance_changes_jsonl = str(result.get("instance_changes_jsonl") or "").strip()
         if auth.session_id and applied_jsonl:
             await session_journal.append_applied_jsonl(
                 session_id=auth.session_id,
                 applied_jsonl=applied_jsonl,
+            )
+        if auth.session_id and instance_changes_jsonl:
+            await session_journal.append_instance_changes(
+                session_id=auth.session_id,
+                instance_changes_jsonl=instance_changes_jsonl,
+            )
+        if auth.job_id and (applied_jsonl or instance_changes_jsonl):
+            from extraction.infrastructure.job_mutation_artifact_store import (
+                append_job_mutation_artifacts,
+            )
+
+            append_job_mutation_artifacts(
+                knowledge_graph_id=auth.knowledge_graph_id,
+                job_id=auth.job_id,
+                applied_jsonl=applied_jsonl or None,
+                instance_changes_jsonl=instance_changes_jsonl or None,
             )
 
         from infrastructure.extraction_workload.workspace_readiness import (

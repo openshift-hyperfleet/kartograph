@@ -308,3 +308,78 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
         existing_sorted = sorted(existing)
         missing_sorted = sorted(slug for slug in slugs if slug not in existing)
         return existing_sorted, missing_sorted
+
+    async def fetch_nodes_by_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        node_ids: tuple[str, ...],
+    ) -> dict[str, WorkloadGraphNode]:
+        if not node_ids:
+            return {}
+
+        def _query() -> dict[str, WorkloadGraphNode]:
+            client = self._connect_for_tenant(tenant_id)
+            try:
+                repository = GraphExtractionReadOnlyRepository(
+                    client=client,
+                    graph_id=client.graph_name,
+                )
+                nodes = repository.find_nodes_by_ids(
+                    list(node_ids),
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+                return {
+                    node.id: WorkloadGraphNode(
+                        id=node.id,
+                        entity_type=node.label,
+                        slug=node.properties.get("slug"),
+                        properties=dict(node.properties),
+                    )
+                    for node in nodes.values()
+                }
+            finally:
+                client.disconnect()
+
+        return await asyncio.to_thread(_query)
+
+    async def fetch_edges_by_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        edge_ids: tuple[str, ...],
+    ) -> dict[str, WorkloadGraphRelationship]:
+        if not edge_ids:
+            return {}
+
+        def _query() -> dict[str, WorkloadGraphRelationship]:
+            client = self._connect_for_tenant(tenant_id)
+            try:
+                repository = GraphExtractionReadOnlyRepository(
+                    client=client,
+                    graph_id=client.graph_name,
+                )
+                edges = repository.find_edges_by_ids(
+                    list(edge_ids),
+                    knowledge_graph_id=knowledge_graph_id,
+                )
+                return {
+                    edge.id: WorkloadGraphRelationship(
+                        id=edge.id,
+                        relationship_type=edge.label,
+                        start_id=edge.start_id,
+                        end_id=edge.end_id,
+                        source_slug=None,
+                        target_slug=None,
+                        source_entity_type="",
+                        target_entity_type="",
+                        properties=dict(edge.properties),
+                    )
+                    for edge in edges.values()
+                }
+            finally:
+                client.disconnect()
+
+        return await asyncio.to_thread(_query)

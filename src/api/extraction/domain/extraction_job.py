@@ -107,6 +107,7 @@ class ExtractionJobRecord:
     run_started_at: datetime | None = None
     archived_at: datetime | None = None
     applied_mutations_jsonl: str | None = None
+    applied_instance_changes_jsonl: str | None = None
 
     def write_ops(self) -> int:
         return (

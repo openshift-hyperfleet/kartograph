@@ -53,6 +53,7 @@ def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
         run_started_at=model.run_started_at,
         archived_at=model.archived_at,
         applied_mutations_jsonl=model.applied_mutations_jsonl,
+        applied_instance_changes_jsonl=model.applied_instance_changes_jsonl,
     )
 
 
@@ -423,6 +424,9 @@ class ExtractionJobRepository:
         applied_jsonl = metrics.get("applied_mutations_jsonl")
         if isinstance(applied_jsonl, str) and applied_jsonl.strip():
             values["applied_mutations_jsonl"] = applied_jsonl
+        instance_changes_jsonl = metrics.get("applied_instance_changes_jsonl")
+        if isinstance(instance_changes_jsonl, str) and instance_changes_jsonl.strip():
+            values["applied_instance_changes_jsonl"] = instance_changes_jsonl
         result = await self._session.execute(
             update(ExtractionJobModel)
             .where(
@@ -530,6 +534,9 @@ class ExtractionJobRepository:
             applied_jsonl = payload.get("applied_mutations_jsonl")
             if isinstance(applied_jsonl, str) and applied_jsonl.strip():
                 values["applied_mutations_jsonl"] = applied_jsonl
+            instance_changes_jsonl = payload.get("applied_instance_changes_jsonl")
+            if isinstance(instance_changes_jsonl, str) and instance_changes_jsonl.strip():
+                values["applied_instance_changes_jsonl"] = instance_changes_jsonl
         await self._session.execute(
             update(ExtractionJobModel)
             .where(
@@ -642,6 +649,7 @@ class ExtractionJobRepository:
                 run_started_at=job.run_started_at,
                 archived_at=job.archived_at,
                 applied_mutations_jsonl=job.applied_mutations_jsonl,
+                applied_instance_changes_jsonl=job.applied_instance_changes_jsonl,
                 input_tokens=job.input_tokens,
                 output_tokens=job.output_tokens,
                 cache_read_tokens=job.cache_read_tokens,

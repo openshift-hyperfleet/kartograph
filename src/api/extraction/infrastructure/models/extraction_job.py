@@ -43,6 +43,7 @@ class ExtractionJobModel(Base, TimestampMixin):
     run_started_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     applied_mutations_jsonl: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    applied_instance_changes_jsonl: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
 
 
 class ExtractionRunModel(Base, TimestampMixin):

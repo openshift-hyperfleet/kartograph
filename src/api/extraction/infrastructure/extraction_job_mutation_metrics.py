@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
+from extraction.infrastructure.job_mutation_artifact_store import read_instance_changes_from_workdir
 
 __all__ = [
     "applied_mutation_jsonl_from_workdir",
@@ -63,6 +64,9 @@ def reconcile_mutation_metrics(
         applied_jsonl = applied_mutation_jsonl_from_workdir(workdir)
         if applied_jsonl:
             merged["applied_mutations_jsonl"] = applied_jsonl
+        instance_changes_jsonl = read_instance_changes_from_workdir(workdir)
+        if instance_changes_jsonl:
+            merged["applied_instance_changes_jsonl"] = instance_changes_jsonl
         return merged
 
     if operations_applied > 0:

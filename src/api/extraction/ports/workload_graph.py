@@ -134,3 +134,23 @@ class IWorkloadGraphReader(Protocol):
     ) -> tuple[list[str], list[str]]:
         """Return (existing_slugs, missing_slugs) sorted for one entity type."""
         ...
+
+    async def fetch_nodes_by_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        node_ids: tuple[str, ...],
+    ) -> dict[str, WorkloadGraphNode]:
+        """Return node snapshots keyed by application id."""
+        ...
+
+    async def fetch_edges_by_ids(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        edge_ids: tuple[str, ...],
+    ) -> dict[str, WorkloadGraphRelationship]:
+        """Return edge snapshots keyed by application id."""
+        ...

@@ -12,6 +12,22 @@ const props = defineProps<{
 
 const { apiFetch } = useApiClient()
 
+interface PropertyChange {
+  key: string
+  before: unknown
+  after: unknown
+}
+
+interface InstanceChangeRecord {
+  op: string
+  type: string
+  id: string
+  label?: string | null
+  start_id?: string | null
+  end_id?: string | null
+  property_changes?: PropertyChange[]
+}
+
 interface ArchivedJob {
   jobId: string
   jobSet: string
@@ -32,6 +48,7 @@ interface ArchivedJob {
   writeOps: number
   instanceCount: number
   hasMutations: boolean
+  hasInstanceChanges?: boolean
 }
 
 interface ArchivedJobSetGroup {
@@ -56,20 +73,50 @@ interface ArchivedHistoryPayload {
   runs: ArchivedRunGroup[]
 }
 
+interface ArchivedJobDetail {
+  jsonl: string
+  instanceChanges: string
+  entitiesCreated?: number
+  entitiesModified?: number
+  relationshipsCreated?: number
+  relationshipsModified?: number
+}
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 const payload = ref<ArchivedHistoryPayload | null>(null)
 const selectedRunIndex = ref(0)
 const selectedJobSetIndex = ref(0)
 const selectedJobId = ref<string | null>(null)
-const mutationJsonl = ref<string | null>(null)
-const mutationLoading = ref(false)
+const jobDetail = ref<ArchivedJobDetail | null>(null)
+const detailLoading = ref(false)
 
 const selectedRun = computed(() => payload.value?.runs[selectedRunIndex.value] ?? null)
 const selectedJobSet = computed(() => selectedRun.value?.jobSets[selectedJobSetIndex.value] ?? null)
 const selectedJob = computed(
   () => selectedJobSet.value?.jobs.find((job) => job.jobId === selectedJobId.value) ?? null,
 )
+
+const instanceChanges = computed<InstanceChangeRecord[]>(() => {
+  const raw = jobDetail.value?.instanceChanges?.trim()
+  if (!raw) return []
+  return raw.split('\n').flatMap((line) => {
+    const trimmed = line.trim()
+    if (!trimmed) return []
+    try {
+      return [JSON.parse(trimmed) as InstanceChangeRecord]
+    } catch {
+      return []
+    }
+  })
+})
+
+const detailMetrics = computed(() => ({
+  entitiesCreated: jobDetail.value?.entitiesCreated ?? selectedJob.value?.entitiesCreated ?? 0,
+  entitiesModified: jobDetail.value?.entitiesModified ?? selectedJob.value?.entitiesModified ?? 0,
+  relationshipsCreated: jobDetail.value?.relationshipsCreated ?? selectedJob.value?.relationshipsCreated ?? 0,
+  relationshipsModified: jobDetail.value?.relationshipsModified ?? selectedJob.value?.relationshipsModified ?? 0,
+}))
 
 async function loadHistory() {
   loading.value = true
@@ -81,7 +128,7 @@ async function loadHistory() {
     selectedRunIndex.value = 0
     selectedJobSetIndex.value = 0
     selectedJobId.value = payload.value?.runs[0]?.jobSets[0]?.jobs[0]?.jobId ?? null
-    await loadSelectedMutations()
+    await loadSelectedDetail()
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : 'Failed to load graph writes history'
     payload.value = null
@@ -90,19 +137,18 @@ async function loadHistory() {
   }
 }
 
-async function loadSelectedMutations() {
-  mutationJsonl.value = null
+async function loadSelectedDetail() {
+  jobDetail.value = null
   if (!selectedJobId.value) return
-  mutationLoading.value = true
+  detailLoading.value = true
   try {
-    const detail = await apiFetch<{ jsonl: string }>(
+    jobDetail.value = await apiFetch<ArchivedJobDetail>(
       `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/extraction-jobs/jobs/${encodeURIComponent(selectedJobId.value)}/archived-mutations`,
     )
-    mutationJsonl.value = detail.jsonl || ''
   } catch {
-    mutationJsonl.value = null
+    jobDetail.value = null
   } finally {
-    mutationLoading.value = false
+    detailLoading.value = false
   }
 }
 
@@ -110,18 +156,18 @@ function selectRun(index: number) {
   selectedRunIndex.value = index
   selectedJobSetIndex.value = 0
   selectedJobId.value = payload.value?.runs[index]?.jobSets[0]?.jobs[0]?.jobId ?? null
-  void loadSelectedMutations()
+  void loadSelectedDetail()
 }
 
 function selectJobSet(index: number) {
   selectedJobSetIndex.value = index
   selectedJobId.value = selectedRun.value?.jobSets[index]?.jobs[0]?.jobId ?? null
-  void loadSelectedMutations()
+  void loadSelectedDetail()
 }
 
 function selectJob(jobId: string) {
   selectedJobId.value = jobId
-  void loadSelectedMutations()
+  void loadSelectedDetail()
 }
 
 function formatWhen(value: string | null | undefined): string {
@@ -136,12 +182,23 @@ function formatCost(value: number | null | undefined): string {
   return `$${amount.toFixed(2)}`
 }
 
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
 function jobKindLabel(job: ArchivedJob): string {
   return job.strategy === 'graph_management_session' ? 'GMA session' : 'Extraction job'
 }
 
 function jobKindVariant(job: ArchivedJob): 'secondary' | 'outline' {
   return job.strategy === 'graph_management_session' ? 'secondary' : 'outline'
+}
+
+function instanceTitle(change: InstanceChangeRecord): string {
+  const label = change.label ? `${change.label} · ` : ''
+  return `${change.op} ${change.type} · ${label}${change.id}`
 }
 
 watch(
@@ -246,17 +303,15 @@ watch(
           </div>
 
           <div v-if="selectedJob" class="rounded border p-3 text-xs">
-            <div class="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{{ selectedJob.status }}</Badge>
-              <Badge :variant="jobKindVariant(selectedJob)">{{ jobKindLabel(selectedJob) }}</Badge>
-              <span v-if="selectedJob.workerId" class="font-mono text-muted-foreground">{{ selectedJob.workerId }}</span>
+            <div v-if="selectedJob.workerId" class="font-mono text-muted-foreground">
+              Worker {{ selectedJob.workerId }}
             </div>
-            <Separator class="my-2" />
+            <Separator v-if="selectedJob.workerId" class="my-2" />
             <div class="grid gap-1 text-muted-foreground sm:grid-cols-2">
-              <p>{{ selectedJob.entitiesCreated }} entities created</p>
-              <p>{{ selectedJob.entitiesModified }} entities modified</p>
-              <p>{{ selectedJob.relationshipsCreated }} relationships created</p>
-              <p>{{ selectedJob.relationshipsModified }} relationships modified</p>
+              <p>{{ detailMetrics.entitiesCreated }} entities created</p>
+              <p>{{ detailMetrics.entitiesModified }} entities modified</p>
+              <p>{{ detailMetrics.relationshipsCreated }} relationships created</p>
+              <p>{{ detailMetrics.relationshipsModified }} relationships modified</p>
               <p class="font-medium text-foreground sm:col-span-2">
                 {{ selectedJob.writeOps }} total write ops · {{ formatCost(selectedJob.costUsd) }}
               </p>
@@ -265,18 +320,59 @@ watch(
 
           <div class="rounded border">
             <div class="border-b px-3 py-2">
-              <p class="text-xs font-medium text-muted-foreground">Applied mutations (JSONL)</p>
+              <p class="text-xs font-medium text-muted-foreground">Instance changes</p>
             </div>
-            <div v-if="mutationLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
+            <div v-if="detailLoading" class="flex items-center gap-2 px-3 py-4 text-xs text-muted-foreground">
               <Loader2 class="size-3.5 animate-spin" />
-              Loading mutations...
+              Loading instance changes...
             </div>
-            <pre
-              v-else-if="mutationJsonl"
-              class="max-h-64 overflow-auto p-3 font-mono text-[10px] leading-relaxed whitespace-pre-wrap break-all"
-            >{{ mutationJsonl }}</pre>
+            <div v-else-if="instanceChanges.length" class="max-h-96 space-y-3 overflow-auto p-3">
+              <div
+                v-for="change in instanceChanges"
+                :key="`${change.id}-${change.op}`"
+                class="rounded border p-2"
+              >
+                <p class="font-medium">{{ instanceTitle(change) }}</p>
+                <p
+                  v-if="change.start_id || change.end_id"
+                  class="mt-1 font-mono text-[10px] text-muted-foreground"
+                >
+                  {{ change.start_id || '—' }} → {{ change.end_id || '—' }}
+                </p>
+                <div v-if="change.property_changes?.length" class="mt-2 overflow-x-auto">
+                  <table class="w-full text-[10px]">
+                    <thead>
+                      <tr class="text-left text-muted-foreground">
+                        <th class="pb-1 pr-2 font-medium">Property</th>
+                        <th class="pb-1 pr-2 font-medium">Before</th>
+                        <th class="pb-1 font-medium">After</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="row in change.property_changes"
+                        :key="`${change.id}-${row.key}`"
+                        class="border-t border-border/60"
+                      >
+                        <td class="py-1 pr-2 align-top font-mono">{{ row.key }}</td>
+                        <td class="py-1 pr-2 align-top text-red-600 dark:text-red-400">
+                          {{ formatValue(row.before) }}
+                        </td>
+                        <td class="py-1 align-top text-green-600 dark:text-green-400">
+                          {{ formatValue(row.after) }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-else class="mt-2 text-[10px] text-muted-foreground">
+                  No property-level diff recorded for this instance.
+                </p>
+              </div>
+            </div>
             <p v-else class="px-3 py-4 text-xs text-muted-foreground">
-              No stored mutation JSONL for this entry (token-only GMA session or no graph writes).
+              No stored instance change history for this entry. New extraction and maintenance jobs
+              capture before/after snapshots automatically when graph writes are applied.
             </p>
           </div>
         </div>

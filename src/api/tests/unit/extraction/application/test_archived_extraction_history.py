@@ -72,4 +72,6 @@ def test_serialize_archived_job_includes_camel_case_metrics() -> None:
     assert payload["inputTokens"] == 1200
     assert payload["outputTokens"] == 400
     assert payload["costUsd"] == 0.45
+    assert payload["entitiesCreated"] == 0
+    assert payload["entitiesModified"] == 2
     assert payload["strategy"] == "graph_management_session"

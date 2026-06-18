@@ -95,7 +95,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         credentials = get_workload_credential_issuer().issue(
             tenant_id=tenant_id,
             knowledge_graph_id=job.knowledge_graph_id,
-            extra_scopes=("workload:chat",),
+            extra_scopes=("workload:chat", f"job:{job.job_id}"),
         )
         workdir = await self._workdir_materializer.prepare(
             job=job,

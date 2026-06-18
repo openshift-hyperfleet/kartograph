@@ -78,6 +78,21 @@ def append_applied_jsonl_to_session(
     session.runtime_context["mutation_journal"] = journal
 
 
+def append_instance_changes_to_session(
+    session: ExtractionAgentSession,
+    *,
+    instance_changes_jsonl: str,
+) -> None:
+    chunk = instance_changes_jsonl.strip()
+    if not chunk:
+        return
+    journal = _ensure_journal(session)
+    previous = str(journal.get("instance_changes_jsonl") or "").strip()
+    combined = "\n".join(part for part in (previous, chunk) if part)
+    journal["instance_changes_jsonl"] = combined
+    session.runtime_context["mutation_journal"] = journal
+
+
 def append_turn_usage_to_session(
     session: ExtractionAgentSession,
     *,
@@ -117,10 +132,26 @@ class GraphManagementSessionJournalService:
         append_applied_jsonl_to_session(session, applied_jsonl=applied_jsonl)
         await self._session_repository.save(session)
 
+    async def append_instance_changes(
+        self,
+        *,
+        session_id: str,
+        instance_changes_jsonl: str,
+    ) -> None:
+        session = await self._session_repository.get_by_id(session_id)
+        if session is None or not session.is_active:
+            return
+        append_instance_changes_to_session(
+            session,
+            instance_changes_jsonl=instance_changes_jsonl,
+        )
+        await self._session_repository.save(session)
+
     async def archive_session_mutations(self, session: ExtractionAgentSession) -> None:
         """Write one ARCHIVED extraction job row for the full GMA session."""
         journal = session.runtime_context.get("mutation_journal") or {}
         jsonl = str(journal.get("jsonl") or "").strip()
+        instance_changes_jsonl = str(journal.get("instance_changes_jsonl") or "").strip()
         metrics = metrics_from_mutation_jsonl(jsonl) if jsonl else {}
         write_ops = int(metrics.get("write_ops") or 0)
         if write_ops <= 0:
@@ -152,6 +183,7 @@ class GraphManagementSessionJournalService:
             completed_at=now,
             archived_at=now,
             applied_mutations_jsonl=jsonl or None,
+            applied_instance_changes_jsonl=instance_changes_jsonl or None,
             input_tokens=int(journal.get("input_tokens") or 0),
             output_tokens=int(journal.get("output_tokens") or 0),
             cache_read_tokens=int(journal.get("cache_read_tokens") or 0),

@@ -17,12 +17,17 @@ from infrastructure.extraction_workload.mutation_preflight import (
     prepare_mutation_operations,
     validate_mutation_jsonl,
 )
+from infrastructure.extraction_workload.instance_change_journal import (
+    capture_before_snapshots,
+    merge_instance_change_records,
+)
 from infrastructure.extraction_workload.workspace_readiness import (
     sync_prepopulated_instance_counts,
 )
 from graph.domain.value_objects import EntityType
 from management.domain.value_objects import OntologyConfig
 from management.ports.exceptions import CanonicalSchemaMutationError
+from extraction.domain.instance_change_record import instance_changes_to_jsonl
 
 
 class GraphWorkloadSchemaService:
@@ -129,7 +134,13 @@ class GraphWorkloadSchemaService:
             return {"applied": False, "errors": [str(exc)]}
 
         if not define_ops and not instance_ops:
-            return {"applied": True, "errors": [], "operations_applied": 0, "applied_jsonl": ""}
+            return {
+                "applied": True,
+                "errors": [],
+                "operations_applied": 0,
+                "applied_jsonl": "",
+                "instance_changes_jsonl": "",
+            }
 
         errors: list[str] = []
         operations_applied = 0
@@ -145,6 +156,15 @@ class GraphWorkloadSchemaService:
                 errors.append(str(exc))
 
         if instance_ops and not errors:
+            nodes_before = {}
+            edges_before = {}
+            if self._graph_reader is not None:
+                nodes_before, edges_before = await capture_before_snapshots(
+                    tenant_id=tenant_id,
+                    knowledge_graph_id=knowledge_graph_id,
+                    operations=instance_ops,
+                    graph_reader=self._graph_reader,
+                )
             instance_result = await self._mutation_writer.apply_instance_operations(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -154,6 +174,9 @@ class GraphWorkloadSchemaService:
                 errors.extend(str(item) for item in instance_result.get("errors", []))
             else:
                 operations_applied = int(instance_result.get("operations_applied", 0))
+        else:
+            nodes_before = {}
+            edges_before = {}
 
         if errors:
             await self._session.rollback()
@@ -176,9 +199,21 @@ class GraphWorkloadSchemaService:
             json.dumps(operation.model_dump(mode="json"), separators=(",", ":"))
             for operation in applied_operations
         )
+        instance_changes_jsonl = ""
+        if instance_ops and self._graph_reader is not None:
+            change_records = await merge_instance_change_records(
+                tenant_id=tenant_id,
+                knowledge_graph_id=knowledge_graph_id,
+                operations=instance_ops,
+                graph_reader=self._graph_reader,
+                nodes_before=nodes_before,
+                edges_before=edges_before,
+            )
+            instance_changes_jsonl = instance_changes_to_jsonl(change_records)
         return {
             "applied": True,
             "errors": [],
             "operations_applied": operations_applied,
             "applied_jsonl": applied_jsonl,
+            "instance_changes_jsonl": instance_changes_jsonl,
         }

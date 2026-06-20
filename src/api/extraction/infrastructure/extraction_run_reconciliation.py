@@ -29,6 +29,9 @@ async def reconcile_quiescent_extraction_run(
 ) -> tuple[bool, bool]:
     """Finish active runs and advance baselines when the job queue has drained.
 
+    Baselines advance only after an active extraction run quiesces with no failed
+    jobs remaining. Idle polls with an already-idle run do not move baselines.
+
     Returns:
         A tuple of (reconciled, run_was_active). ``reconciled`` is True when the
         database was updated. ``run_was_active`` is True when an active run row
@@ -42,27 +45,26 @@ async def reconcile_quiescent_extraction_run(
 
     run = await repo.get_run(knowledge_graph_id=knowledge_graph_id)
     run_was_active = run is not None and run.status != ExtractionRunStatus.IDLE
+    if not run_was_active:
+        return False, False
 
-    if run_was_active:
-        await repo.upsert_run(
-            knowledge_graph_id=knowledge_graph_id,
-            status=ExtractionRunStatus.IDLE,
-            worker_count=run.worker_count,
-            pause_requested=False,
-            completed_at=datetime.now(UTC),
-        )
-
-    baselines_updated = await advance_extraction_baselines_for_knowledge_graph(
-        session=session,
+    await repo.upsert_run(
         knowledge_graph_id=knowledge_graph_id,
+        status=ExtractionRunStatus.IDLE,
+        worker_count=run.worker_count,
+        pause_requested=False,
+        completed_at=datetime.now(UTC),
     )
 
-    if not run_was_active and baselines_updated <= 0:
-        return False, False
+    if counts.get("failed", 0) == 0:
+        await advance_extraction_baselines_for_knowledge_graph(
+            session=session,
+            knowledge_graph_id=knowledge_graph_id,
+        )
 
     await session.commit()
 
-    if orchestrator is not None and run_was_active:
+    if orchestrator is not None:
         orchestrator.stop_active_run(knowledge_graph_id=knowledge_graph_id)
 
     return True, run_was_active

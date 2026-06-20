@@ -37,7 +37,7 @@ async def test_reconcile_skips_when_jobs_remain() -> None:
 async def test_reconcile_finishes_active_run_and_advances_baselines() -> None:
     session = AsyncMock()
     repo = AsyncMock()
-    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0}
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
     repo.get_run.return_value = ExtractionRunRecord(
         id="run-001",
         knowledge_graph_id="kg-001",
@@ -80,10 +80,10 @@ async def test_reconcile_finishes_active_run_and_advances_baselines() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_advances_baselines_when_run_already_idle() -> None:
+async def test_reconcile_does_not_advance_baselines_when_run_already_idle() -> None:
     session = AsyncMock()
     repo = AsyncMock()
-    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0}
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
     repo.get_run.return_value = ExtractionRunRecord(
         id="run-001",
         knowledge_graph_id="kg-001",
@@ -103,46 +103,7 @@ async def test_reconcile_advances_baselines_when_run_already_idle() -> None:
         patch(
             "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
             new_callable=AsyncMock,
-            return_value=1,
-        ),
-    ):
-        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
-            session=session,
-            knowledge_graph_id="kg-001",
-        )
-
-    assert reconciled is True
-    assert run_was_active is False
-    repo.upsert_run.assert_not_awaited()
-    session.commit.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_reconcile_noop_when_queue_and_baselines_are_current() -> None:
-    session = AsyncMock()
-    repo = AsyncMock()
-    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0}
-    repo.get_run.return_value = ExtractionRunRecord(
-        id="run-001",
-        knowledge_graph_id="kg-001",
-        status=ExtractionRunStatus.IDLE,
-        worker_count=0,
-        pause_requested=False,
-        started_at=None,
-        completed_at=None,
-        orchestrator_pid=None,
-    )
-
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-            return_value=0,
-        ),
+        ) as advance_baselines,
     ):
         reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
@@ -151,4 +112,47 @@ async def test_reconcile_noop_when_queue_and_baselines_are_current() -> None:
 
     assert reconciled is False
     assert run_was_active is False
+    repo.upsert_run.assert_not_awaited()
+    advance_baselines.assert_not_awaited()
     session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_finishes_run_without_advancing_when_failed_jobs_remain() -> None:
+    session = AsyncMock()
+    repo = AsyncMock()
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 2}
+    repo.get_run.return_value = ExtractionRunRecord(
+        id="run-001",
+        knowledge_graph_id="kg-001",
+        status=ExtractionRunStatus.RUNNING,
+        worker_count=4,
+        pause_requested=False,
+        started_at=None,
+        completed_at=None,
+        orchestrator_pid=None,
+    )
+    orchestrator = MagicMock()
+
+    with (
+        patch(
+            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+            return_value=repo,
+        ),
+        patch(
+            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
+            new_callable=AsyncMock,
+        ) as advance_baselines,
+    ):
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id="kg-001",
+            orchestrator=orchestrator,
+        )
+
+    assert reconciled is True
+    assert run_was_active is True
+    repo.upsert_run.assert_awaited_once()
+    advance_baselines.assert_not_awaited()
+    session.commit.assert_awaited_once()
+    orchestrator.stop_active_run.assert_called_once_with(knowledge_graph_id="kg-001")

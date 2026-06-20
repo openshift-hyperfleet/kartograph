@@ -12,10 +12,10 @@ from extraction.infrastructure.extraction_run_reconciliation import (
 
 
 @pytest.mark.asyncio
-async def test_reconcile_uses_data_source_repository_with_outbox() -> None:
+async def test_reconcile_skips_baseline_advance_when_no_active_run() -> None:
     session = AsyncMock()
     repo = AsyncMock()
-    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0}
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
     repo.get_run.return_value = None
 
     with (
@@ -26,15 +26,14 @@ async def test_reconcile_uses_data_source_repository_with_outbox() -> None:
         patch(
             "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
             new_callable=AsyncMock,
-            return_value=0,
         ) as advance_baselines,
     ):
-        await reconcile_quiescent_extraction_run(
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
             knowledge_graph_id="kg-001",
         )
 
-    advance_baselines.assert_awaited_once_with(
-        session=session,
-        knowledge_graph_id="kg-001",
-    )
+    assert reconciled is False
+    assert run_was_active is False
+    advance_baselines.assert_not_awaited()
+    session.commit.assert_not_awaited()

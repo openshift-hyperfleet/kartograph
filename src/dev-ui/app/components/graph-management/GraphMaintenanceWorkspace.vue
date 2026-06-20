@@ -2,7 +2,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import {
+  Archive,
   Calendar,
+  ClipboardList,
   Eye,
   GitBranch,
   Loader2,
@@ -16,6 +18,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
 import {
   commitStatusClass,
@@ -102,7 +105,14 @@ interface ExtractionRunState {
 
 interface DbStatus {
   jobsByStatus: Record<string, number>
-  jobsBySet?: Record<string, { pending: number; in_progress: number; completed: number; failed: number; total: number }>
+  jobsBySet?: Record<string, {
+    pending: number
+    in_progress: number
+    completed: number
+    failed: number
+    archived?: number
+    total: number
+  }>
   recentJobs: Array<{
     jobId: string
     jobSet: string
@@ -112,6 +122,7 @@ interface DbStatus {
     completedAt: string | null
     inputTokens: number
     outputTokens: number
+    costUsd?: number
     writeOps: number
     entitiesCreated?: number
     entitiesModified?: number
@@ -139,8 +150,14 @@ const dataSources = ref<DataSourceRow[]>([])
 const schedule = ref<MaintenanceSchedule | null>(null)
 const extractionRunState = ref<ExtractionRunState | null>(null)
 const dbStatus = ref<DbStatus | null>(null)
+const dbError = ref<string | null>(null)
 const pausingExtraction = ref(false)
 const killingExtraction = ref(false)
+const resettingRunning = ref(false)
+const resettingCompleted = ref(false)
+const resettingFailed = ref(false)
+const resettingAll = ref(false)
+const archivingCompleted = ref(false)
 const optimisticLiveUntilMs = ref<number | null>(null)
 const nowMs = ref(Date.now())
 const lastStatusRefreshMs = ref<number | null>(null)
@@ -159,6 +176,7 @@ const MAX_MAINTENANCE_WORKERS = 50
 
 const workers = ref(8)
 const filesPerJob = ref(2)
+const runControlsInitialized = ref(false)
 const checkingCommits = ref(false)
 const updatingLocalCommits = ref(false)
 const runningMaintenance = ref(false)
@@ -201,6 +219,7 @@ const maintenanceSetStats = computed(
     in_progress: 0,
     completed: 0,
     failed: 0,
+    archived: 0,
     total: 0,
   },
 )
@@ -208,7 +227,25 @@ const pendingJobsCount = computed(() => maintenanceSetStats.value.pending)
 const inProgressJobsCount = computed(() => maintenanceSetStats.value.in_progress)
 const completedJobsCount = computed(() => maintenanceSetStats.value.completed)
 const failedJobsCount = computed(() => maintenanceSetStats.value.failed)
-const remainingJobsCount = computed(() => pendingJobsCount.value + inProgressJobsCount.value)
+const archivedJobsCount = computed(() => Number(maintenanceSetStats.value.archived || 0))
+const readyJobsCount = computed(() => {
+  if (pendingJobsCount.value > 0) return pendingJobsCount.value
+  if (totalChangedFiles.value > 0 && estimatedJobsFromFiles.value > 0) {
+    return estimatedJobsFromFiles.value
+  }
+  return 0
+})
+const readyJobsAreEstimated = computed(
+  () => pendingJobsCount.value === 0 && readyJobsCount.value > 0,
+)
+const remainingJobsCount = computed(() => {
+  const queued = pendingJobsCount.value + inProgressJobsCount.value
+  if (queued > 0) return queued
+  if (totalChangedFiles.value > 0 && estimatedJobsFromFiles.value > 0) {
+    return estimatedJobsFromFiles.value
+  }
+  return 0
+})
 const activeQueueJobsTotal = computed(
   () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value,
 )
@@ -252,6 +289,14 @@ const recentJobsEmptyMessage = computed(() => {
   if (recentJobStatusFilter.value === 'all') return 'No maintenance job events yet.'
   return `No ${filterLabel?.toLowerCase() ?? recentJobStatusFilter.value} maintenance job events in the recent window.`
 })
+const maintenanceRunTotals = computed(() => {
+  const jobs = (dbStatus.value?.recentJobs || []).filter((job) => job.jobSet === MAINTENANCE_JOB_SET)
+  return {
+    inputTokens: jobs.reduce((sum, job) => sum + Number(job.inputTokens || 0), 0),
+    outputTokens: jobs.reduce((sum, job) => sum + Number(job.outputTokens || 0), 0),
+    costUsd: jobs.reduce((sum, job) => sum + Number(job.costUsd || 0), 0),
+  }
+})
 
 function resolveApiError(e: unknown): string {
   const err = e as { data?: { detail?: unknown }; message?: string }
@@ -290,11 +335,14 @@ async function loadSchedule() {
     `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/maintenance-schedule`,
   )
   schedule.value = payload
-  scheduleEnabled.value = payload.enabled
-  scheduleTimezone.value = payload.timezone_name || 'UTC'
-  scheduleTime.value = cronToDailyTime(payload.cron_expression) || '02:00'
-  if (payload.files_per_job) filesPerJob.value = payload.files_per_job
-  if (payload.worker_count) workers.value = payload.worker_count
+  if (!runControlsInitialized.value) {
+    scheduleEnabled.value = payload.enabled
+    scheduleTimezone.value = payload.timezone_name || 'UTC'
+    scheduleTime.value = cronToDailyTime(payload.cron_expression) || '02:00'
+    if (payload.files_per_job) filesPerJob.value = payload.files_per_job
+    if (payload.worker_count) workers.value = payload.worker_count
+    runControlsInitialized.value = true
+  }
 }
 
 async function loadExtractionState() {
@@ -309,8 +357,10 @@ async function loadExtractionState() {
     dbStatus.value = status
     mergeRecentJobEvents(status)
     lastStatusRefreshMs.value = Date.now()
-  } catch {
+    dbError.value = null
+  } catch (e: unknown) {
     dbStatus.value = null
+    dbError.value = resolveApiError(e)
   }
 }
 
@@ -431,6 +481,48 @@ async function cancelJob(jobId: string) {
     toast.error('Cancel failed', { description: resolveApiError(e) })
   } finally {
     cancellingJobId.value = null
+  }
+}
+
+async function resetByKind(kind: 'stale' | 'completed' | 'failed' | 'all') {
+  const map = {
+    stale: { ref: resettingRunning, path: 'reset-stale' },
+    completed: { ref: resettingCompleted, path: 'reset-completed' },
+    failed: { ref: resettingFailed, path: 'reset-failed' },
+    all: { ref: resettingAll, path: 'reset' },
+  } as const
+  map[kind].ref.value = true
+  try {
+    const res = await apiFetch<{ message?: string; reset_count?: number; containers_stopped?: number }>(
+      `${extractionJobsBasePath.value}/${map[kind].path}`,
+      { method: 'POST' },
+    )
+    toast.success(kind === 'stale' ? 'Running jobs reset' : 'Jobs reset', {
+      description: res.message || (res.reset_count !== undefined ? `${res.reset_count} job(s) reset` : undefined),
+    })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Reset failed', { description: resolveApiError(e) })
+  } finally {
+    map[kind].ref.value = false
+  }
+}
+
+async function archiveCompletedJobs() {
+  archivingCompleted.value = true
+  try {
+    const res = await apiFetch<{ message?: string; archived_count?: number }>(
+      `${extractionJobsBasePath.value}/archive-completed`,
+      { method: 'POST' },
+    )
+    toast.success('Completed jobs archived', {
+      description: res.message || (res.archived_count !== undefined ? `${res.archived_count} job(s) archived` : undefined),
+    })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Archive failed', { description: resolveApiError(e) })
+  } finally {
+    archivingCompleted.value = false
   }
 }
 
@@ -571,9 +663,20 @@ async function runMaintenanceNow(options?: { startExtraction?: boolean }) {
         },
       },
     )
-    toast.success('Maintenance run recorded', {
-      description: run.message || formatMaintenanceRunOutcome(run.outcome),
-    })
+    const description = run.message || formatMaintenanceRunOutcome(run.outcome)
+    if (run.outcome === 'extraction-started') {
+      toast.success('Maintenance started', { description })
+    } else if (
+      run.outcome === 'ingest-failed'
+      || run.outcome === 'launch-failed'
+      || run.outcome === 'preflight-failed'
+    ) {
+      toast.error('Maintenance failed', { description })
+    } else if (run.outcome === 'no-changes') {
+      toast.message('No maintenance work', { description })
+    } else {
+      toast.success('Maintenance run recorded', { description })
+    }
     await refreshAll({ background: true })
   } catch (e: unknown) {
     toast.error('Maintenance run failed', { description: resolveApiError(e) })
@@ -833,7 +936,9 @@ onUnmounted(() => {
                 </div>
               </div>
               <p class="mt-2 text-xs text-muted-foreground">
-                Maintenance queue: {{ pendingJobsCount }} ready · {{ inProgressJobsCount }} running
+                Maintenance queue: {{ readyJobsCount }} ready
+                <span v-if="readyJobsAreEstimated"> (estimated)</span>
+                · {{ inProgressJobsCount }} running
                 <span v-if="extractionLive"> · live</span>
               </p>
             </div>
@@ -870,7 +975,8 @@ onUnmounted(() => {
                 <p class="text-xs font-medium text-foreground/90">Live maintenance activity</p>
                 <div class="flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" class="font-mono text-[11px]">
-                    {{ completedJobsCount }} completed · {{ inProgressJobsCount }} running · {{ pendingJobsCount }} ready
+                    {{ completedJobsCount }} completed · {{ inProgressJobsCount }} running · {{ readyJobsCount }} ready
+                    <span v-if="readyJobsAreEstimated"> (est.)</span>
                   </Badge>
                   <Badge variant="outline" class="font-mono text-[11px]">
                     workers: {{ activeWorkerCount }}/{{ workerCount }}
@@ -1025,6 +1131,92 @@ onUnmounted(() => {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2 text-base">
+            <ClipboardList class="size-4" />
+            Job Status
+            <Loader2 v-if="refreshing" class="size-3.5 animate-spin text-muted-foreground" />
+          </CardTitle>
+          <CardDescription>Maintenance job metrics and queue maintenance actions.</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <div v-if="loading && !dbStatus" class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="size-4 animate-spin" />
+            Loading job status...
+          </div>
+          <div v-else-if="dbError && !dbStatus" class="text-sm text-destructive">{{ dbError }}</div>
+          <template v-else-if="dbStatus">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div class="rounded-lg border p-3 text-center">
+                <p class="text-xs text-muted-foreground">
+                  Ready
+                  <span v-if="readyJobsAreEstimated" class="block text-[10px] normal-case">(estimated)</span>
+                </p>
+                <p class="text-xl font-semibold">{{ readyJobsCount }}</p>
+              </div>
+              <div class="rounded-lg border p-3 text-center">
+                <p class="text-xs text-muted-foreground">Running</p>
+                <p class="text-xl font-semibold">{{ inProgressJobsCount }}</p>
+              </div>
+              <div class="rounded-lg border p-3 text-center">
+                <p class="text-xs text-muted-foreground">Completed</p>
+                <p class="text-xl font-semibold">{{ completedJobsCount }}</p>
+              </div>
+              <div class="rounded-lg border p-3 text-center">
+                <p class="text-xs text-muted-foreground">Failed</p>
+                <p class="text-xl font-semibold">{{ failedJobsCount }}</p>
+              </div>
+              <div class="rounded-lg border p-3 text-center">
+                <p class="text-xs text-muted-foreground">Archived</p>
+                <p class="text-xl font-semibold">{{ archivedJobsCount }}</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div class="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" :disabled="resettingRunning" @click="resetByKind('stale')">
+                Reset Running
+              </Button>
+              <Button size="sm" variant="outline" :disabled="resettingCompleted" @click="resetByKind('completed')">
+                Reset Completed
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="archivingCompleted || completedJobsCount === 0"
+                @click="archiveCompletedJobs"
+              >
+                <Archive class="mr-1.5 size-3.5" />
+                Archive Completed
+              </Button>
+              <Button size="sm" variant="outline" :disabled="resettingFailed" @click="resetByKind('failed')">
+                Reset Failed
+              </Button>
+              <Button size="sm" variant="outline" :disabled="resettingAll" @click="resetByKind('all')">
+                Reset All Jobs
+              </Button>
+            </div>
+
+            <div class="rounded-lg border bg-muted/20 p-3 text-xs">
+              <p class="font-medium">{{ MAINTENANCE_JOB_SET }}</p>
+              <p class="text-muted-foreground">
+                ready {{ readyJobsCount }}<span v-if="readyJobsAreEstimated"> (estimated)</span>
+                · running {{ inProgressJobsCount }} · done {{ completedJobsCount }} · failed {{ failedJobsCount }} · archived {{ archivedJobsCount }}
+              </p>
+            </div>
+
+            <div class="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+              Run totals (recent maintenance jobs) —
+              input {{ maintenanceRunTotals.inputTokens.toLocaleString() }} ·
+              output {{ maintenanceRunTotals.outputTokens.toLocaleString() }} ·
+              cost ${{ maintenanceRunTotals.costUsd.toFixed(4) }}
+            </div>
+          </template>
+        </CardContent>
+      </Card>
 
       <GraphExtractionJobWatchDialog
         v-model:open="watchDialogOpen"

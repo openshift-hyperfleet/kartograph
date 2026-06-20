@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -48,6 +49,9 @@ if TYPE_CHECKING:
         IDataSourceSyncRunRepository,
         IKnowledgeGraphRepository,
     )
+
+_MAINTENANCE_INGEST_WAIT_TIMEOUT_SECONDS = 300.0
+_MAINTENANCE_INGEST_POLL_INTERVAL_SECONDS = 1.0
 
 
 class MaintenancePipelineService:
@@ -146,6 +150,9 @@ class MaintenancePipelineService:
             return run
 
         changed_sources = self._changed_sources(data_sources)
+        needs_ingest = [
+            ds for ds in changed_sources if self._source_needs_maintenance_ingest(ds)
+        ]
         target_ids = tuple(ds.id.value for ds in data_sources)
         if not changed_sources:
             run = self._record_run(
@@ -164,21 +171,32 @@ class MaintenancePipelineService:
             return run
 
         try:
-            sync_run_ids = await self._launch_ingest_only_syncs(
-                changed_sources=changed_sources,
-                requested_by=requested_by,
-                now=now,
-            )
+            sync_run_ids: tuple[str, ...] = ()
+            if needs_ingest:
+                sync_run_ids = await self._launch_ingest_only_syncs(
+                    changed_sources=needs_ingest,
+                    requested_by=requested_by,
+                    now=now,
+                )
+            if needs_ingest:
+                message = (
+                    "Maintenance ingest started for "
+                    f"{len(needs_ingest)} changed source(s)"
+                )
+                outcome = KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED
+            else:
+                message = (
+                    f"Materializing maintenance jobs for {len(changed_sources)} "
+                    "prepared source(s)"
+                )
+                outcome = KnowledgeGraphMaintenanceRunOutcome.STARTED
             run = self._record_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(
                     run_id=run_id,
                     triggered_at=now,
-                    outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
-                    message=(
-                        "Maintenance ingest started for "
-                        f"{len(changed_sources)} changed source(s)"
-                    ),
+                    outcome=outcome,
+                    message=message,
                     target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
                     sync_run_ids=sync_run_ids,
                     files_per_job=normalized_files_per_job,
@@ -186,13 +204,38 @@ class MaintenancePipelineService:
                 ),
             )
             await self._session.commit()
-            if start_extraction:
-                advanced = await self.advance_for_knowledge_graph(
-                    kg_id=kg_id,
-                    tenant_id=kg.tenant_id,
-                )
-                if advanced is not None:
-                    return advanced
+            if not start_extraction:
+                return run
+            if needs_ingest:
+                try:
+                    statuses = await self._wait_for_sync_runs(sync_run_ids)
+                except TimeoutError:
+                    return await self._fail_latest_run(
+                        kg_id=kg_id,
+                        outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
+                        message=(
+                            "Maintenance ingest did not complete within "
+                            f"{int(_MAINTENANCE_INGEST_WAIT_TIMEOUT_SECONDS)} seconds"
+                        ),
+                    )
+                if any(status == "failed" for status in statuses):
+                    return await self._fail_latest_run(
+                        kg_id=kg_id,
+                        outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_FAILED,
+                        message="One or more maintenance ingest syncs failed",
+                    )
+                if not all(status == "ingested" for status in statuses):
+                    return await self._fail_latest_run(
+                        kg_id=kg_id,
+                        outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
+                        message="Maintenance ingest finished in an unexpected state",
+                    )
+            advanced = await self._materialize_and_start_extraction(
+                kg_id=kg_id,
+                tenant_id=kg.tenant_id,
+            )
+            if advanced is not None:
+                return advanced
             return run
         except Exception as exc:
             run = self._record_run(
@@ -313,6 +356,28 @@ class MaintenancePipelineService:
         if not all(status == "ingested" for status in statuses):
             return None
 
+        return await self._materialize_and_start_extraction(
+            kg_id=kg_id,
+            tenant_id=tenant_id,
+        )
+
+    async def _materialize_and_start_extraction(
+        self,
+        *,
+        kg_id: str,
+        tenant_id: str,
+    ) -> KnowledgeGraphMaintenanceRunRecord | None:
+        """Materialize pending maintenance jobs and start extraction workers."""
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or not kg.maintenance_run_history:
+            return None
+        latest = kg.maintenance_run_history[-1]
+        if latest.outcome not in {
+            KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
+            KnowledgeGraphMaintenanceRunOutcome.STARTED,
+        }:
+            return None
+
         data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
         changed_sources = [
             ds
@@ -378,6 +443,50 @@ class MaintenancePipelineService:
         await self._session.commit()
         return run
 
+    async def _fail_latest_run(
+        self,
+        *,
+        kg_id: str,
+        outcome: KnowledgeGraphMaintenanceRunOutcome,
+        message: str,
+    ) -> KnowledgeGraphMaintenanceRunRecord:
+        kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
+        if kg is None or not kg.maintenance_run_history:
+            raise ValueError(f"Knowledge graph {kg_id} has no maintenance run history")
+        latest = kg.maintenance_run_history[-1]
+        run = self._replace_latest_run(
+            kg=kg,
+            latest=latest,
+            outcome=outcome,
+            message=message,
+        )
+        await self._kg_repo.save(kg)
+        await self._session.commit()
+        return run
+
+    async def _wait_for_sync_runs(
+        self,
+        sync_run_ids: tuple[str, ...],
+        *,
+        timeout_seconds: float = _MAINTENANCE_INGEST_WAIT_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = _MAINTENANCE_INGEST_POLL_INTERVAL_SECONDS,
+    ) -> list[str]:
+        """Poll sync runs until all reach a terminal state or timeout."""
+        if not sync_run_ids:
+            return []
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            self._session.expire_all()
+            statuses = await self._sync_run_statuses(sync_run_ids)
+            if len(statuses) != len(sync_run_ids):
+                await asyncio.sleep(poll_interval_seconds)
+                continue
+            if any(status in {"pending", "ingesting"} for status in statuses):
+                await asyncio.sleep(poll_interval_seconds)
+                continue
+            return statuses
+        raise TimeoutError("Maintenance ingest sync runs did not finish in time")
+
     def _with_session(self, session: AsyncSession) -> MaintenancePipelineService:
         from extraction.infrastructure.repositories.extraction_job_repository import (
             ExtractionJobRepository,
@@ -434,6 +543,18 @@ class MaintenancePipelineService:
             and ds.last_extraction_baseline_commit is not None
             and ds.tracked_branch_head_commit != ds.last_extraction_baseline_commit
         ]
+
+    @staticmethod
+    def _source_needs_maintenance_ingest(data_source: DataSource) -> bool:
+        """True when local JobPackages must be refreshed before maintenance jobs run."""
+        from management.domain.commit_pull_state import (
+            has_unpulled_commits,
+            resolve_ingested_head_commit,
+        )
+
+        if resolve_ingested_head_commit(data_source) is None:
+            return True
+        return has_unpulled_commits(data_source)
 
     async def _launch_ingest_only_syncs(
         self,

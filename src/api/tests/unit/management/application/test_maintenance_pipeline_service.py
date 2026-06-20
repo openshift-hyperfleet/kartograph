@@ -197,13 +197,13 @@ async def test_trigger_starts_ingest_only_for_changed_sources(
         authz=authz,
     )
 
-    with patch.object(svc, "advance_for_knowledge_graph", AsyncMock(return_value=None)):
+    with patch.object(svc, "_wait_for_sync_runs", AsyncMock(return_value=["ingested"])):
         run = await svc.trigger(
             user_id="user-1",
             kg_id=kg.id.value,
             files_per_job=3,
             worker_count=4,
-            start_extraction=True,
+            start_extraction=False,
         )
 
     assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED
@@ -217,6 +217,95 @@ async def test_trigger_starts_ingest_only_for_changed_sources(
     assert len(events) == 1
     assert isinstance(events[0], SyncStarted)
     assert events[0].pipeline_mode == "ingest_only"
+
+
+@pytest.mark.asyncio
+async def test_trigger_skips_ingest_when_sources_already_prepared(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-prepared", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds.clone_head_commit = ds.tracked_branch_head_commit
+    ds.last_prepared_commit = ds.tracked_branch_head_commit
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+    )
+    expected = KnowledgeGraphMaintenanceRunRecord(
+        run_id="run-materialized",
+        triggered_at=datetime.now(UTC),
+        outcome=KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED,
+        message="Materialized 3 maintenance job(s) and started extraction workers",
+        jobs_materialized=3,
+    )
+
+    with patch.object(
+        svc,
+        "_materialize_and_start_extraction",
+        AsyncMock(return_value=expected),
+    ) as materialize:
+        run = await svc.trigger(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            start_extraction=True,
+        )
+
+    assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED
+    assert sync_run_repo.saved == {}
+    materialize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_trigger_waits_for_ingest_before_materializing(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-changed", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+    )
+    expected = KnowledgeGraphMaintenanceRunRecord(
+        run_id="run-materialized",
+        triggered_at=datetime.now(UTC),
+        outcome=KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED,
+        message="Materialized 1 maintenance job(s) and started extraction workers",
+        jobs_materialized=1,
+    )
+
+    with (
+        patch.object(svc, "_wait_for_sync_runs", AsyncMock(return_value=["ingested"])) as wait,
+        patch.object(
+            svc,
+            "_materialize_and_start_extraction",
+            AsyncMock(return_value=expected),
+        ) as materialize,
+    ):
+        run = await svc.trigger(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            start_extraction=True,
+        )
+
+    assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED
+    wait.assert_awaited_once()
+    materialize.assert_awaited_once()
 
 
 @pytest.mark.asyncio

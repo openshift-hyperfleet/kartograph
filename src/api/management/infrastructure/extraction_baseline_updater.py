@@ -26,7 +26,7 @@ async def advance_extraction_baselines_for_knowledge_graph(
     knowledge_graph_id: str,
     data_source_repository: IDataSourceRepository | None = None,
 ) -> int:
-    """Advance extraction baselines for every prepared source on a knowledge graph."""
+    """Advance extraction baselines to tracked branch head after a successful extraction run."""
     if data_source_repository is None:
         data_source_repository = _default_data_source_repository(session)
 
@@ -34,7 +34,7 @@ async def advance_extraction_baselines_for_knowledge_graph(
     updated = 0
     for data_source in data_sources:
         before = data_source.last_extraction_baseline_commit
-        data_source.advance_extraction_baseline_to_ingested_head()
+        data_source.advance_extraction_baseline_to_tracked_head()
         if data_source.last_extraction_baseline_commit == before:
             continue
         await data_source_repository.save(data_source)

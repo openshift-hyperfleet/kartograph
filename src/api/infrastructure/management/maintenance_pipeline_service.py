@@ -135,7 +135,7 @@ class MaintenancePipelineService:
         normalized_workers = max(1, int(worker_count))
 
         if not data_sources:
-            run = self._record_run(
+            return await self._persist_recorded_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(
                     run_id=run_id,
@@ -146,8 +146,6 @@ class MaintenancePipelineService:
                     worker_count=normalized_workers,
                 ),
             )
-            await self._session.commit()
-            return run
 
         changed_sources = self._changed_sources(data_sources)
         needs_ingest = [
@@ -155,7 +153,7 @@ class MaintenancePipelineService:
         ]
         target_ids = tuple(ds.id.value for ds in data_sources)
         if not changed_sources:
-            run = self._record_run(
+            return await self._persist_recorded_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(
                     run_id=run_id,
@@ -167,8 +165,6 @@ class MaintenancePipelineService:
                     worker_count=normalized_workers,
                 ),
             )
-            await self._session.commit()
-            return run
 
         try:
             sync_run_ids: tuple[str, ...] = ()
@@ -190,7 +186,7 @@ class MaintenancePipelineService:
                     "prepared source(s)"
                 )
                 outcome = KnowledgeGraphMaintenanceRunOutcome.STARTED
-            run = self._record_run(
+            run = await self._persist_recorded_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(
                     run_id=run_id,
@@ -203,7 +199,6 @@ class MaintenancePipelineService:
                     worker_count=normalized_workers,
                 ),
             )
-            await self._session.commit()
             if not start_extraction:
                 return run
             if needs_ingest:
@@ -238,7 +233,7 @@ class MaintenancePipelineService:
                 return advanced
             return run
         except Exception as exc:
-            run = self._record_run(
+            return await self._persist_recorded_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(
                     run_id=run_id,
@@ -250,8 +245,6 @@ class MaintenancePipelineService:
                     worker_count=normalized_workers,
                 ),
             )
-            await self._session.commit()
-            return run
 
     async def advance_pending_pipelines(self) -> int:
         """Advance in-flight maintenance pipelines for all knowledge graphs."""
@@ -423,6 +416,8 @@ class MaintenancePipelineService:
             jobs=jobs,
             job_set_name=MAINTENANCE_JOB_SET_NAME,
         )
+        await self._session.commit()
+
         orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
         await orchestrator.start(
             tenant_id=tenant_id,
@@ -601,6 +596,18 @@ class MaintenancePipelineService:
         run: KnowledgeGraphMaintenanceRunRecord,
     ) -> KnowledgeGraphMaintenanceRunRecord:
         kg.append_maintenance_run(run)
+        return run
+
+    async def _persist_recorded_run(
+        self,
+        *,
+        kg: KnowledgeGraph,
+        run: KnowledgeGraphMaintenanceRunRecord,
+    ) -> KnowledgeGraphMaintenanceRunRecord:
+        """Append a maintenance run record and flush it to PostgreSQL."""
+        self._record_run(kg=kg, run=run)
+        await self._kg_repo.save(kg)
+        await self._session.commit()
         return run
 
     def _replace_latest_run(

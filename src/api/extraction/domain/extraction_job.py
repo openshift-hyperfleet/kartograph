@@ -35,13 +35,29 @@ class ExtractionTargetFile:
     path: str
     repository_folder: str
     package_id: str
+    baseline_commit: str | None = None
+    head_commit: str | None = None
+    change_status: str | None = None
+    patch: str | None = None
+    data_source_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "path": self.path,
             "repository_folder": self.repository_folder,
             "package_id": self.package_id,
         }
+        if self.baseline_commit is not None:
+            payload["baseline_commit"] = self.baseline_commit
+        if self.head_commit is not None:
+            payload["head_commit"] = self.head_commit
+        if self.change_status is not None:
+            payload["change_status"] = self.change_status
+        if self.patch is not None:
+            payload["patch"] = self.patch
+        if self.data_source_id is not None:
+            payload["data_source_id"] = self.data_source_id
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExtractionTargetFile:
@@ -49,6 +65,15 @@ class ExtractionTargetFile:
             path=str(data.get("path") or ""),
             repository_folder=str(data.get("repository_folder") or ""),
             package_id=str(data.get("package_id") or ""),
+            baseline_commit=(
+                str(data["baseline_commit"]) if data.get("baseline_commit") else None
+            ),
+            head_commit=str(data["head_commit"]) if data.get("head_commit") else None,
+            change_status=str(data["change_status"]) if data.get("change_status") else None,
+            patch=str(data["patch"]) if data.get("patch") is not None else None,
+            data_source_id=(
+                str(data["data_source_id"]) if data.get("data_source_id") else None
+            ),
         )
 
 

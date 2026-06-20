@@ -31,6 +31,8 @@ class ChangedMaintenanceFile:
     path: str
     status: str
     package_id: str
+    baseline_commit: str
+    head_commit: str
     patch: str | None = None
 
 
@@ -55,9 +57,14 @@ def _build_maintenance_description(changed_files: Sequence[ChangedMaintenanceFil
         [
             "",
             "## Scope",
-            "Inspect the assigned files under repository-files/, read the live graph via "
-            "workload-graph-read helpers, and emit JSONL mutations that keep every affected "
-            "entity and relationship accurate.",
+            "Each changed file is materialized under repository-files/ using commit-first paths:",
+            "- Baseline snapshot (last extraction): repository-files/{baseline_commit}/{repo}/{path}",
+            "- Current HEAD snapshot: repository-files/{head_commit}/{repo}/{path}",
+            "- Unified diff (when available): repository-files/diffs/{baseline}..{head}/{repo}/{path}.patch",
+            "Read job-context.json target_files for per-file commits and diff paths. Use the "
+            "baseline copy to understand prior graph context and the HEAD copy for the updated "
+            "source of truth. Read the live graph via workload-graph-read helpers, and emit "
+            "JSONL mutations that keep every affected entity and relationship accurate.",
         ]
     )
     return "\n".join(lines)
@@ -83,6 +90,11 @@ def materialize_maintenance_jobs(
                 path=item.path,
                 repository_folder=item.repository_folder,
                 package_id=item.package_id,
+                baseline_commit=item.baseline_commit,
+                head_commit=item.head_commit,
+                change_status=item.status,
+                patch=item.patch,
+                data_source_id=item.data_source_id,
             )
             for item in batch
         )

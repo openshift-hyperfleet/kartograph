@@ -25,6 +25,10 @@ class SqlPreparedJobPackageReader:
         self._session = session
         self._job_package_work_dir = job_package_work_dir
 
+    @property
+    def session(self) -> AsyncSession:
+        return self._session
+
     async def list_latest_for_knowledge_graph(
         self, *, knowledge_graph_id: str
     ) -> tuple[PreparedJobPackageSource, ...]:

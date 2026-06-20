@@ -21,12 +21,20 @@ from extraction.infrastructure.extraction_job_repository_files import (
     materialize_target_files,
     write_sources_index,
 )
+from extraction.infrastructure.maintenance_repository_files import (
+    materialize_maintenance_target_files,
+    write_maintenance_sources_index,
+)
 from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
 from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from infrastructure.extraction_workload.maintenance_baseline_fetcher import (
+    MaintenanceBaselineContentFetcher,
+)
 from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
 from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
 from extraction.ports.extraction_job_target_context import IExtractionJobTargetContextEnricher
 from extraction.ports.runtime import ScopedWorkloadCredentials
+from infrastructure.management.maintenance_job_materializer import MAINTENANCE_JOB_SET_NAME
 
 
 class ExtractionJobWorkdirMaterializer:
@@ -74,8 +82,9 @@ class ExtractionJobWorkdirMaterializer:
             knowledge_graph_id=job.knowledge_graph_id,
         )
         packages_by_id = {source.package_id: source for source in job_packages}
-        materialization = self._materialize_repository_files(
+        materialization = await self._materialize_repository_files(
             job=job,
+            tenant_id=tenant_id,
             repository_files_dir=repository_files_dir,
             job_packages=job_packages,
             packages_by_id=packages_by_id,
@@ -86,12 +95,21 @@ class ExtractionJobWorkdirMaterializer:
                     warnings=tuple(hydration_warnings),
                 )
             )
-        write_sources_index(
-            job_root=job_root,
-            knowledge_graph_id=job.knowledge_graph_id,
-            job_packages=job_packages,
-            materialization=materialization,
-        )
+        if job.job_set_name == MAINTENANCE_JOB_SET_NAME and job.target_files:
+            write_maintenance_sources_index(
+                job_root=job_root,
+                knowledge_graph_id=job.knowledge_graph_id,
+                job_packages=job_packages,
+                target_files=job.target_files,
+                materialization=materialization,
+            )
+        else:
+            write_sources_index(
+                job_root=job_root,
+                knowledge_graph_id=job.knowledge_graph_id,
+                job_packages=job_packages,
+                materialization=materialization,
+            )
         prepare_agentic_ci_workspace(
             job_root,
             container_run_uid=self._settings.container_run_uid,
@@ -148,14 +166,40 @@ class ExtractionJobWorkdirMaterializer:
             instances=job.target_instances,
         )
 
-    def _materialize_repository_files(
+    async def _materialize_repository_files(
         self,
         *,
         job: ExtractionJobRecord,
+        tenant_id: str,
         repository_files_dir: Path,
         job_packages: tuple[PreparedJobPackageSource, ...],
         packages_by_id: dict[str, PreparedJobPackageSource],
     ) -> RepositoryFilesMaterializationResult:
+        if job.job_set_name == MAINTENANCE_JOB_SET_NAME and job.target_files:
+            baseline_fetcher = MaintenanceBaselineContentFetcher(
+                session=self._prepared_job_package_reader.session,
+                tenant_id=tenant_id,
+            )
+
+            async def fetch_baseline_content(
+                data_source_id: str,
+                path: str,
+                ref: str,
+            ) -> bytes | None:
+                return await baseline_fetcher.fetch_file(
+                    data_source_id=data_source_id,
+                    path=path,
+                    ref=ref,
+                )
+
+            return await materialize_maintenance_target_files(
+                repository_files_dir=repository_files_dir,
+                job_package_work_dir=self._job_package_work_dir,
+                target_files=job.target_files,
+                packages_by_id=packages_by_id,
+                fetch_baseline_content=fetch_baseline_content,
+            )
+
         if job.target_files:
             return materialize_target_files(
                 repository_files_dir=repository_files_dir,

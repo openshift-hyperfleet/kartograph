@@ -9,13 +9,22 @@ from infrastructure.management.maintenance_job_materializer import (
 )
 
 
-def _changed(path: str, *, folder: str = "repo-a", status: str = "modified") -> ChangedMaintenanceFile:
+def _changed(
+    path: str,
+    *,
+    folder: str = "repo-a",
+    status: str = "modified",
+    baseline: str = "defc3afd",
+    head: str = "0b64088c",
+) -> ChangedMaintenanceFile:
     return ChangedMaintenanceFile(
         data_source_id="ds-a",
         repository_folder=folder,
         path=path,
         status=status,
         package_id="pkg-a",
+        baseline_commit=baseline,
+        head_commit=head,
         patch=f"diff for {path}",
     )
 
@@ -38,6 +47,9 @@ def test_materialize_maintenance_jobs_batches_across_sources() -> None:
     assert all(job.strategy == "by_files" for job in jobs)
     assert sum(len(job.target_files) for job in jobs) == 15
     assert "diff for a.txt" in jobs[0].description
+    assert jobs[0].target_files[0].baseline_commit == "defc3afd"
+    assert jobs[0].target_files[0].head_commit == "0b64088c"
+    assert jobs[0].target_files[0].change_status == "modified"
 
 
 def test_materialize_maintenance_jobs_returns_empty_for_no_changes() -> None:

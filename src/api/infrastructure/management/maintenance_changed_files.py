@@ -55,6 +55,10 @@ async def collect_changed_maintenance_files(
             target = matched_by_path.get(path)
             if target is None:
                 continue
+            baseline_commit = summary.baseline_commit
+            head_commit = summary.tracked_head_commit
+            if not baseline_commit or not head_commit:
+                continue
             changed.append(
                 ChangedMaintenanceFile(
                     data_source_id=data_source.id.value,
@@ -62,6 +66,8 @@ async def collect_changed_maintenance_files(
                     path=target.path,
                     status=str(entry.get("status", "modified")),
                     package_id=target.package_id,
+                    baseline_commit=baseline_commit,
+                    head_commit=head_commit,
                     patch=(
                         str(entry["patch"])
                         if entry.get("patch") is not None

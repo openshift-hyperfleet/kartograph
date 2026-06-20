@@ -309,6 +309,138 @@ async def test_trigger_waits_for_ingest_before_materializing(
 
 
 @pytest.mark.asyncio
+async def test_trigger_persists_run_history_before_materializing(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-prepared", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds.clone_head_commit = ds.tracked_branch_head_commit
+    ds.last_prepared_commit = ds.tracked_branch_head_commit
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+    )
+    expected = KnowledgeGraphMaintenanceRunRecord(
+        run_id="run-materialized",
+        triggered_at=datetime.now(UTC),
+        outcome=KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED,
+        message="Materialized 3 maintenance job(s) and started extraction workers",
+        jobs_materialized=3,
+    )
+
+    with patch.object(
+        svc,
+        "_materialize_and_start_extraction",
+        AsyncMock(return_value=expected),
+    ) as materialize:
+        run = await svc.trigger(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            start_extraction=True,
+        )
+
+    stored = await kg_repo.get_by_id(kg.id)
+    assert stored is not None
+    assert len(stored.maintenance_run_history) == 1
+    assert stored.maintenance_run_history[-1].outcome in {
+        KnowledgeGraphMaintenanceRunOutcome.STARTED,
+        KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED,
+    }
+    materialize.assert_awaited_once()
+    assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.EXTRACTION_STARTED
+
+
+@pytest.mark.asyncio
+async def test_materialize_commits_jobs_before_starting_orchestrator(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    now = datetime.now(UTC)
+    kg.maintenance_run_history = (
+        KnowledgeGraphMaintenanceRunRecord(
+            run_id="run-1",
+            triggered_at=now,
+            outcome=KnowledgeGraphMaintenanceRunOutcome.STARTED,
+            target_data_source_ids=("ds-prepared",),
+            files_per_job=2,
+            worker_count=4,
+        ),
+    )
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-prepared", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds.clone_head_commit = ds.tracked_branch_head_commit
+    ds.last_prepared_commit = ds.tracked_branch_head_commit
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.sync_maintenance_pending_jobs = AsyncMock(return_value=2)
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+
+    call_order: list[str] = []
+
+    async def track_commit() -> None:
+        call_order.append("commit")
+
+    job_repo.sync_maintenance_pending_jobs = AsyncMock(
+        side_effect=lambda **_kwargs: call_order.append("sync") or 2,
+    )
+    mock_session.commit = AsyncMock(side_effect=track_commit)
+
+    orchestrator = MagicMock()
+
+    async def track_start(**_kwargs) -> None:
+        call_order.append("start")
+
+    orchestrator.start = AsyncMock(side_effect=track_start)
+
+    with (
+        patch(
+            "infrastructure.management.maintenance_pipeline_service.collect_changed_maintenance_files",
+            AsyncMock(return_value=[MagicMock()]),
+        ),
+        patch(
+            "infrastructure.management.maintenance_pipeline_service.materialize_maintenance_jobs",
+            return_value=[MagicMock()],
+        ),
+        patch(
+            "infrastructure.management.maintenance_pipeline_service.get_extraction_run_orchestrator",
+            return_value=orchestrator,
+        ),
+        patch(
+            "infrastructure.management.maintenance_pipeline_service.SqlPreparedJobPackageReader",
+        ) as reader_cls,
+    ):
+        reader_cls.return_value.list_latest_for_knowledge_graph = AsyncMock(return_value=())
+        await svc._materialize_and_start_extraction(
+            kg_id=kg.id.value,
+            tenant_id=kg.tenant_id,
+        )
+
+    assert call_order.index("sync") < call_order.index("commit")
+    assert call_order.index("commit") < call_order.index("start")
+    orchestrator.start.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_advance_marks_ingest_failed_when_sync_fails(
     mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
 ):

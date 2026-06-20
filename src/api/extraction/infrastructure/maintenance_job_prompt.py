@@ -20,9 +20,10 @@ def build_maintenance_job_prompt(*, job: ExtractionJobRecord) -> str:
     return (
         f"{base}\n\n"
         "## Maintenance objective\n"
-        "These repository files changed since the last extraction baseline. Use the diff "
-        "sections above (when present) and the materialized files under repository-files/ "
-        "to update existing graph instances and relationships. Do not limit updates to "
-        "only the files' local entities — reconcile downstream references across the "
-        "entire knowledge graph schema."
+        "These repository files changed since the last extraction baseline. Compare the "
+        "baseline snapshot (last successful extraction commit) with the HEAD snapshot "
+        "(current branch tip). Read unified diffs under repository-files/diffs/ when "
+        "present. Use that evidence plus the live graph to update existing instances and "
+        "relationships. Do not limit updates to only the files' local entities — reconcile "
+        "downstream references across the entire knowledge graph schema."
     )

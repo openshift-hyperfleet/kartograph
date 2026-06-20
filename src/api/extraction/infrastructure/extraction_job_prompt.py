@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from extraction.domain.extraction_job import ExtractionJobRecord
+from infrastructure.management.maintenance_job_materializer import MAINTENANCE_JOB_SET_NAME
 
 EXTRACTION_PROMPT_FILENAME = "extraction_prompt.md"
 MUTATIONS_HELPER = "helpers/workload-mutations.sh"
@@ -14,7 +15,9 @@ MUTATION_EXAMPLES = "helpers/mutation-examples.jsonl"
 EXTRACTION_JOB_INVOKE_PROMPT = (
     "You are running a Kartograph extraction job in /workspace. "
     f"Read {EXTRACTION_PROMPT_FILENAME}, job-context.json, and sources-index.json, then follow "
-    "the instructions completely. Read job-context.json target_instances for graph_id and "
+    "the instructions completely. For maintenance jobs, sources-index.json layout.mode is "
+    "maintenance_commit_snapshots — read baseline/HEAD paths and diff paths from layout.target_files. "
+    "Read job-context.json target_instances for graph_id and "
     "properties_missing before querying the graph. For existing instances, fetch live properties "
     f"with `bash {GRAPH_READ_HELPER} search-by-slug <slug> --entity-type <Type> --out "
     "mutations/current_<slug>.json` before editing. Copy JSONL shapes from "
@@ -38,6 +41,42 @@ def write_extraction_prompt_file(*, workdir: Path, prompt: str) -> Path:
     path = workdir / EXTRACTION_PROMPT_FILENAME
     path.write_text(prompt.strip() + "\n", encoding="utf-8")
     return path
+
+
+def build_maintenance_target_files_prompt_section(*, job: ExtractionJobRecord) -> str:
+    """Describe commit-scoped repository-files layout for maintenance jobs."""
+    if not job.target_files:
+        return ""
+
+    lines = [
+        "## Maintenance repository layout",
+        "Changed files use commit-first directories under repository-files/:",
+        "- Baseline (last extraction): repository-files/{baseline_commit}/{repository_folder}/{path}",
+        "- HEAD (branch tip): repository-files/{head_commit}/{repository_folder}/{path}",
+        "- Unified diff: repository-files/diffs/{baseline_commit}..{head_commit}/{repository_folder}/{path}.patch",
+        "See sources-index.json layout.target_files for exact paths per assigned file.",
+        "",
+        "### Assigned files",
+    ]
+    for target_file in job.target_files:
+        baseline = target_file.baseline_commit or "<baseline>"
+        head = target_file.head_commit or "<head>"
+        status = target_file.change_status or "modified"
+        lines.append(
+            f"- [{status}] {target_file.repository_folder}/{target_file.path}"
+        )
+        lines.append(f"  - baseline: repository-files/{baseline}/{target_file.repository_folder}/{target_file.path}")
+        if status != "removed":
+            lines.append(
+                f"  - head: repository-files/{head}/{target_file.repository_folder}/{target_file.path}"
+            )
+        if target_file.patch and target_file.baseline_commit and target_file.head_commit:
+            lines.append(
+                "  - diff: "
+                f"repository-files/diffs/{target_file.baseline_commit}..{target_file.head_commit}/"
+                f"{target_file.repository_folder}/{target_file.path}.patch"
+            )
+    return "\n".join(lines)
 
 
 def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
@@ -74,19 +113,23 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
             lines.append(f"- {instance.entity_type}: {instance.slug}")
         lines.append("")
     if job.target_files:
-        lines.extend(
-            [
-                "## Target repository files",
-                "Inspect only the files materialized under repository-files/. Use their content to",
-                "extract entities and relationships, then emit JSONL mutations via the workload API.",
-                "",
-            ]
-        )
-        for target_file in job.target_files:
-            lines.append(
-                f"- {target_file.repository_folder}/{target_file.path} (package {target_file.package_id})"
+        if job.job_set_name == MAINTENANCE_JOB_SET_NAME:
+            lines.append(build_maintenance_target_files_prompt_section(job=job))
+            lines.append("")
+        else:
+            lines.extend(
+                [
+                    "## Target repository files",
+                    "Inspect only the files materialized under repository-files/. Use their content to",
+                    "extract entities and relationships, then emit JSONL mutations via the workload API.",
+                    "",
+                ]
             )
-        lines.append("")
+            for target_file in job.target_files:
+                lines.append(
+                    f"- {target_file.repository_folder}/{target_file.path} (package {target_file.package_id})"
+                )
+            lines.append("")
     lines.extend(
         [
             "## Repository files",

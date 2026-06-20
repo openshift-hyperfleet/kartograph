@@ -131,7 +131,6 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
   it('labels new files section and exposes commit refresh actions', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('New Files to Process')
     expect(graphMaintenanceWorkspaceVue).toContain('Check for new commits')
-    expect(graphMaintenanceWorkspaceVue).toContain('Get latest commit locally')
     expect(graphMaintenanceWorkspaceVue).toContain('last_extraction_baseline_commit')
     expect(graphMaintenanceWorkspaceVue).toContain('diff-summary')
   })
@@ -146,11 +145,15 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
 
   it('explains by-file maintenance and hybrid run controls', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('by-file')
-    expect(graphMaintenanceWorkspaceVue).toContain('Run maintenance')
+    expect(graphMaintenanceWorkspaceVue).toContain('Queue maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('Run ready maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('canRunReadyMaintenanceJobs')
     expect(graphMaintenanceWorkspaceVue).toContain('Schedule recurring maintenance jobs')
     expect(graphMaintenanceWorkspaceVue).toContain('Live maintenance activity')
     expect(graphMaintenanceWorkspaceVue).toContain('Job Status')
     expect(graphMaintenanceWorkspaceVue).toContain('Archive Completed')
+    expect(graphMaintenanceWorkspaceVue).toContain('Regenerate jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('regenerateMaintenanceJobs')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Maintenance run history')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Sync changed sources only')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Run maintenance jobs now')

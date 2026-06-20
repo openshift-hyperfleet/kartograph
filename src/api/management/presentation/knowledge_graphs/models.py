@@ -205,6 +205,44 @@ class MaintenanceScheduleUpsertRequest(BaseModel):
     )
 
 
+class MaintenanceStartReadyRequest(BaseModel):
+    """Request body for starting workers on queued maintenance jobs."""
+
+    worker_count: int = Field(
+        default=8,
+        ge=1,
+        description="Parallel OpenShell workers for ready maintenance jobs",
+    )
+
+
+class MaintenanceStartReadyResponse(BaseModel):
+    """Response after starting workers for ready maintenance jobs."""
+
+    success: bool
+    message: str
+    pending_jobs: int
+    in_progress_jobs: int
+    worker_count: int
+
+
+class MaintenanceRegenerateJobsRequest(BaseModel):
+    """Request body for regenerating pending maintenance jobs."""
+
+    files_per_job: int = Field(
+        default=2,
+        ge=1,
+        description="Number of changed files batched into each maintenance job",
+    )
+
+
+class MaintenanceRegenerateJobsResponse(BaseModel):
+    """Response after regenerating pending maintenance jobs."""
+
+    success: bool
+    message: str
+    generated_jobs: int
+
+
 class MaintenanceRunTriggerRequest(BaseModel):
     """Request body for manual KG maintenance orchestration."""
 

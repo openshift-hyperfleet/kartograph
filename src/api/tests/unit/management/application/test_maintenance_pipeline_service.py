@@ -539,3 +539,234 @@ async def test_check_scheduled_triggers_due_knowledge_graph(
     assert triggered == 1
     trigger_scheduled.assert_awaited_once()
     fake_repo.save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_start_ready_maintenance_jobs_requires_queued_jobs(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.count_by_job_set = AsyncMock(return_value={})
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+
+    with pytest.raises(ValueError, match="No maintenance jobs are ready"):
+        await svc.start_ready_maintenance_jobs(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            worker_count=4,
+        )
+
+
+@pytest.mark.asyncio
+async def test_start_ready_maintenance_jobs_starts_workers_for_pending_jobs(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.count_by_job_set = AsyncMock(
+        return_value={"maintenance": {"pending": 3, "in_progress": 0}}
+    )
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+    orchestrator = MagicMock()
+    orchestrator.start = AsyncMock()
+
+    with patch(
+        "infrastructure.management.maintenance_pipeline_service.get_extraction_run_orchestrator",
+        return_value=orchestrator,
+    ):
+        result = await svc.start_ready_maintenance_jobs(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            worker_count=4,
+        )
+
+    orchestrator.start.assert_awaited_once_with(
+        tenant_id=kg.tenant_id,
+        knowledge_graph_id=kg.id.value,
+        worker_count=4,
+    )
+    assert result["pending_jobs"] == 3
+    assert "Started 4 worker(s)" in str(result["message"])
+    mock_session.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_ready_maintenance_jobs_resumes_when_jobs_in_progress(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.count_by_job_set = AsyncMock(
+        return_value={"maintenance": {"pending": 0, "in_progress": 2}}
+    )
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+    orchestrator = MagicMock()
+    orchestrator.start = AsyncMock()
+
+    with patch(
+        "infrastructure.management.maintenance_pipeline_service.get_extraction_run_orchestrator",
+        return_value=orchestrator,
+    ):
+        result = await svc.start_ready_maintenance_jobs(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            worker_count=6,
+        )
+
+    orchestrator.start.assert_awaited_once()
+    assert result["in_progress_jobs"] == 2
+    assert "Resumed 6 worker(s)" in str(result["message"])
+
+
+@pytest.mark.asyncio
+async def test_regenerate_maintenance_jobs_replaces_pending_from_current_diff(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-1", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds.clone_head_commit = ds.tracked_branch_head_commit
+    ds.last_prepared_commit = ds.tracked_branch_head_commit
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.sync_maintenance_pending_jobs = AsyncMock(return_value=3)
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+
+    with (
+        patch.object(
+            svc,
+            "_build_maintenance_jobs",
+            AsyncMock(return_value=([MagicMock(), MagicMock(), MagicMock()], [MagicMock()])),
+        ),
+    ):
+        result = await svc.regenerate_maintenance_jobs(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            files_per_job=2,
+        )
+
+    job_repo.sync_maintenance_pending_jobs.assert_awaited_once()
+    mock_session.commit.assert_awaited()
+    assert result["generated_jobs"] == 3
+    assert "Regenerated 3 pending maintenance job(s)" in str(result["message"])
+
+
+@pytest.mark.asyncio
+async def test_regenerate_maintenance_jobs_requires_prepared_sources(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-1", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+        tenant_id=kg.tenant_id,
+    )
+
+    with pytest.raises(ValueError, match="ingest prepare"):
+        await svc.regenerate_maintenance_jobs(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            files_per_job=2,
+        )
+
+
+@pytest.mark.asyncio
+async def test_regenerate_maintenance_jobs_blocks_while_jobs_running(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-1", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds.clone_head_commit = ds.tracked_branch_head_commit
+    ds.last_prepared_commit = ds.tracked_branch_head_commit
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    job_repo = MagicMock()
+    job_repo.sync_maintenance_pending_jobs = AsyncMock(
+        side_effect=RuntimeError("Cannot refresh maintenance jobs while 1 job(s) are running")
+    )
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+    )
+
+    with patch.object(
+        svc,
+        "_build_maintenance_jobs",
+        AsyncMock(return_value=([MagicMock()], [MagicMock()])),
+    ):
+        with pytest.raises(RuntimeError, match="running"):
+            await svc.regenerate_maintenance_jobs(
+                user_id="user-1",
+                kg_id=kg.id.value,
+                files_per_job=2,
+            )

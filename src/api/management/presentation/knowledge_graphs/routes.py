@@ -26,6 +26,10 @@ from management.presentation.knowledge_graphs.models import (
     MaintenanceRunListResponse,
     MaintenanceRunResponse,
     MaintenanceRunTriggerRequest,
+    MaintenanceRegenerateJobsRequest,
+    MaintenanceRegenerateJobsResponse,
+    MaintenanceStartReadyRequest,
+    MaintenanceStartReadyResponse,
     MaintenanceScheduleResponse,
     MaintenanceScheduleUpsertRequest,
     OntologyConfigRequest,
@@ -200,6 +204,105 @@ async def trigger_knowledge_graph_maintenance_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to trigger maintenance run",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/start-ready",
+    response_model=MaintenanceStartReadyResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Start workers for queued maintenance jobs",
+)
+async def start_ready_maintenance_jobs(
+    kg_id: str,
+    request: MaintenanceStartReadyRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceStartReadyResponse:
+    """Start or resume extraction workers for pending maintenance jobs only."""
+    try:
+        result = await service.start_ready_maintenance_jobs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            worker_count=request.worker_count,
+        )
+        return MaintenanceStartReadyResponse(
+            success=bool(result.get("success")),
+            message=str(result.get("message") or ""),
+            pending_jobs=int(result.get("pending_jobs") or 0),
+            in_progress_jobs=int(result.get("in_progress_jobs") or 0),
+            worker_count=int(result.get("worker_count") or request.worker_count),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start ready maintenance jobs",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/regenerate-jobs",
+    response_model=MaintenanceRegenerateJobsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Regenerate pending maintenance jobs from current diffs",
+)
+async def regenerate_maintenance_jobs(
+    kg_id: str,
+    request: MaintenanceRegenerateJobsRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceRegenerateJobsResponse:
+    """Replace pending maintenance jobs using the current baseline-to-head diff."""
+    try:
+        result = await service.regenerate_maintenance_jobs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            files_per_job=request.files_per_job,
+        )
+        return MaintenanceRegenerateJobsResponse(
+            success=bool(result.get("success")),
+            message=str(result.get("message") or ""),
+            generated_jobs=int(result.get("generated_jobs") or 0),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate maintenance jobs",
         )
 
 

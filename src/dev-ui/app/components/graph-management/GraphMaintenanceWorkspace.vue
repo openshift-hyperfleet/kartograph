@@ -158,6 +158,7 @@ const resettingCompleted = ref(false)
 const resettingFailed = ref(false)
 const resettingAll = ref(false)
 const archivingCompleted = ref(false)
+const regeneratingJobs = ref(false)
 const optimisticLiveUntilMs = ref<number | null>(null)
 const nowMs = ref(Date.now())
 const lastStatusRefreshMs = ref<number | null>(null)
@@ -178,7 +179,6 @@ const workers = ref(8)
 const filesPerJob = ref(2)
 const runControlsInitialized = ref(false)
 const checkingCommits = ref(false)
-const updatingLocalCommits = ref(false)
 const runningMaintenance = ref(false)
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
@@ -238,6 +238,12 @@ const readyJobsCount = computed(() => {
 const readyJobsAreEstimated = computed(
   () => pendingJobsCount.value === 0 && readyJobsCount.value > 0,
 )
+const canRunReadyMaintenanceJobs = computed(
+  () => pendingJobsCount.value > 0 || (inProgressJobsCount.value > 0 && !extractionRunLive.value),
+)
+const canQueueMaintenanceJobs = computed(
+  () => maintenanceReadySources.value.length > 0 && inProgressJobsCount.value === 0,
+)
 const remainingJobsCount = computed(() => {
   const queued = pendingJobsCount.value + inProgressJobsCount.value
   if (queued > 0) return queued
@@ -281,7 +287,7 @@ const recentJobsEmptyMessage = computed(() => {
     return 'Starting maintenance workers. Job events will appear as jobs are claimed and completed.'
   }
   if (recentJobEvents.value.filter((event) => event.jobSet === MAINTENANCE_JOB_SET).length === 0) {
-    return 'No maintenance job events yet. Run maintenance to materialize by-file jobs and start workers.'
+    return 'No maintenance job events yet. Queue maintenance jobs from changed sources, then run ready jobs to start workers.'
   }
   const filterLabel = RECENT_JOB_STATUS_FILTERS.find(
     (option) => option.value === recentJobStatusFilter.value,
@@ -303,6 +309,23 @@ function resolveApiError(e: unknown): string {
   const detail = err.data?.detail
   if (typeof detail === 'string' && detail.trim()) return detail
   return err.message || 'Request failed'
+}
+
+function resolveRegenerateFailureMessage(description: string): { title: string; hint?: string } {
+  const lower = description.toLowerCase()
+  if (lower.includes('in progress') || lower.includes('still running') || lower.includes('running')) {
+    return {
+      title: 'Cannot regenerate maintenance jobs yet',
+      hint: 'Wait for running jobs to finish, cancel them, or reset running jobs — then regenerate again.',
+    }
+  }
+  if (lower.includes('ingest prepare')) {
+    return {
+      title: 'Sources need ingest prepare first',
+      hint: 'Queue maintenance jobs to refresh JobPackages, then regenerate pending jobs.',
+    }
+  }
+  return { title: 'Regenerate failed', hint: description }
 }
 
 function formatWhen(value: string | null | undefined): string {
@@ -526,6 +549,32 @@ async function archiveCompletedJobs() {
   }
 }
 
+async function regenerateMaintenanceJobs() {
+  regeneratingJobs.value = true
+  try {
+    const res = await apiFetch<{ generated_jobs?: number; message?: string }>(
+      `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/maintenance-runs/regenerate-jobs`,
+      {
+        method: 'POST',
+        body: { files_per_job: normalizedFilesPerJob.value },
+      },
+    )
+    toast.success('Maintenance jobs synced', {
+      description: res.message || `Synced ${res.generated_jobs ?? 0} pending job(s).`,
+    })
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    const description = resolveApiError(e)
+    const failure = resolveRegenerateFailureMessage(description)
+    toast.error(failure.title, {
+      description: failure.hint || description,
+      duration: 10000,
+    })
+  } finally {
+    regeneratingJobs.value = false
+  }
+}
+
 async function refreshAll(options?: { background?: boolean }) {
   const background = options?.background ?? false
   if (background) refreshing.value = true
@@ -572,47 +621,6 @@ async function checkForNewCommits() {
   }
 }
 
-async function getLatestCommitLocally() {
-  const queue = sourcesNeedingPrepare.value
-  if (queue.length === 0) {
-    toast.message('Already up to date locally', {
-      description: 'No sources need ingestion prepare. Run check for new commits first if unsure.',
-    })
-    return
-  }
-  updatingLocalCommits.value = true
-  try {
-    const results = await Promise.allSettled(
-      queue.map((ds) =>
-        apiFetch(`/management/data-sources/${ds.id}/sync`, {
-          method: 'POST',
-          body: { mode: 'ingest_only' },
-        }),
-      ),
-    )
-    const failures = results.filter((result) => result.status === 'rejected')
-    await loadDataSources()
-    if (failures.length === queue.length) {
-      toast.error('Failed to update local commits', {
-        description: resolveApiError(failures[0]?.status === 'rejected' ? failures[0].reason : null),
-      })
-      return
-    }
-    if (failures.length > 0) {
-      toast.warning(
-        `Started ${queue.length - failures.length} of ${queue.length} preparations`,
-        { description: 'Some sources could not be queued.' },
-      )
-      return
-    }
-    toast.success(`Preparing ${queue.length} data source${queue.length === 1 ? '' : 's'}`)
-  } catch (e: unknown) {
-    toast.error('Failed to get latest commit locally', { description: resolveApiError(e) })
-  } finally {
-    updatingLocalCommits.value = false
-  }
-}
-
 async function saveSchedule() {
   const cron = dailyTimeToCron(scheduleTime.value)
   if (!cron) {
@@ -642,6 +650,43 @@ async function saveSchedule() {
     toast.error('Failed to save schedule', { description: resolveApiError(e) })
   } finally {
     scheduleSaving.value = false
+  }
+}
+
+async function queueMaintenanceJobs() {
+  optimisticLiveUntilMs.value = Date.now() + 30000
+  await runMaintenanceNow({ startExtraction: true })
+  startFastAutoRefresh()
+}
+
+async function runReadyMaintenanceJobs() {
+  runningMaintenance.value = true
+  const workerTotal = Math.min(
+    MAX_MAINTENANCE_WORKERS,
+    Math.max(1, Math.floor(Number(workers.value) || 1)),
+  )
+  try {
+    const result = await apiFetch<{
+      success: boolean
+      message: string
+      pending_jobs: number
+      in_progress_jobs: number
+      worker_count: number
+    }>(
+      `/management/knowledge-graphs/${encodeURIComponent(props.kgId)}/maintenance-runs/start-ready`,
+      {
+        method: 'POST',
+        body: { worker_count: workerTotal },
+      },
+    )
+    optimisticLiveUntilMs.value = Date.now() + 30000
+    toast.success('Ready maintenance jobs started', { description: result.message })
+    startFastAutoRefresh()
+    await refreshAll({ background: true })
+  } catch (e: unknown) {
+    toast.error('Failed to run ready maintenance jobs', { description: resolveApiError(e) })
+  } finally {
+    runningMaintenance.value = false
   }
 }
 
@@ -684,13 +729,6 @@ async function runMaintenanceNow(options?: { startExtraction?: boolean }) {
     runningMaintenance.value = false
   }
 }
-
-async function runMaintenancePipeline() {
-  optimisticLiveUntilMs.value = Date.now() + 30000
-  await runMaintenanceNow({ startExtraction: true })
-  startFastAutoRefresh()
-}
-
 function startAutoRefresh() {
   if (refreshInterval) return
   refreshInterval = setInterval(() => { void refreshAll({ background: true }) }, 3000)
@@ -776,21 +814,12 @@ onUnmounted(() => {
               <Button
                 variant="outline"
                 size="sm"
-                :disabled="checkingCommits || updatingLocalCommits || dataSources.length === 0"
+                :disabled="checkingCommits || dataSources.length === 0"
                 @click="checkForNewCommits"
               >
                 <Loader2 v-if="checkingCommits" class="mr-2 size-4 animate-spin" />
                 <RefreshCw v-else class="mr-2 size-4" />
                 Check for new commits
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="checkingCommits || updatingLocalCommits || dataSources.length === 0"
-                @click="getLatestCommitLocally"
-              >
-                <Loader2 v-if="updatingLocalCommits" class="mr-2 size-4 animate-spin" />
-                Get latest commit locally
               </Button>
             </div>
           </div>
@@ -880,7 +909,7 @@ onUnmounted(() => {
           <p class="mt-3 text-xs text-muted-foreground">
             {{ maintenanceReadySources.length }} source(s) have commits ahead of the last job baseline ·
             {{ totalChangedFiles }} changed file(s) detected ·
-            {{ sourcesNeedingPrepare.length }} need local prepare
+            {{ sourcesNeedingPrepare.length }} will ingest on queue
           </p>
         </CardContent>
       </Card>
@@ -890,11 +919,11 @@ onUnmounted(() => {
           <CardHeader>
             <CardTitle class="flex items-center gap-2 text-base">
               <Play class="size-4 text-primary" />
-              Run maintenance
+              Maintenance jobs
             </CardTitle>
             <CardDescription>
-              Materialize by-file maintenance jobs from changed sources, then run parallel workers
-              until the queue drains. Per-job results appear in Graph Writes History.
+              Queue by-file jobs from changed sources, then run ready jobs to start workers.
+              Per-job results appear in Graph Writes History.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -945,11 +974,18 @@ onUnmounted(() => {
 
             <div class="flex flex-wrap items-end gap-2">
               <Button
-                :disabled="runningMaintenance || maintenanceReadySources.length === 0"
-                @click="runMaintenancePipeline"
+                variant="outline"
+                :disabled="runningMaintenance || !canQueueMaintenanceJobs"
+                @click="queueMaintenanceJobs"
               >
                 <Loader2 v-if="runningMaintenance" class="mr-2 size-4 animate-spin" />
-                Run maintenance
+                Queue maintenance jobs
+              </Button>
+              <Button
+                :disabled="runningMaintenance || !canRunReadyMaintenanceJobs"
+                @click="runReadyMaintenanceJobs"
+              >
+                Run ready maintenance jobs
               </Button>
               <Button size="sm" variant="outline" :disabled="pausingExtraction" @click="pauseExtractionWorkers">
                 Pause
@@ -1197,6 +1233,15 @@ onUnmounted(() => {
               </Button>
               <Button size="sm" variant="outline" :disabled="resettingAll" @click="resetByKind('all')">
                 Reset All Jobs
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="regeneratingJobs"
+                @click="regenerateMaintenanceJobs"
+              >
+                <Settings class="mr-1.5 size-3.5" />
+                Regenerate jobs
               </Button>
             </div>
 

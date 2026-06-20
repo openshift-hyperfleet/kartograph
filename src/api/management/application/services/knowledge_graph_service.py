@@ -238,6 +238,38 @@ class KnowledgeGraphService:
             start_extraction=start_extraction,
         )
 
+    async def start_ready_maintenance_jobs(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        worker_count: int = 8,
+    ) -> dict[str, int | str | bool]:
+        """Start workers for pending maintenance jobs without re-queueing work."""
+        if self._maintenance_pipeline is None:
+            raise ValueError("Maintenance pipeline is not configured")
+        return await self._maintenance_pipeline.start_ready_maintenance_jobs(
+            user_id=user_id,
+            kg_id=kg_id,
+            worker_count=worker_count,
+        )
+
+    async def regenerate_maintenance_jobs(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        files_per_job: int = 2,
+    ) -> dict[str, int | str | bool]:
+        """Replace pending maintenance jobs from the current changed-file diff."""
+        if self._maintenance_pipeline is None:
+            raise ValueError("Maintenance pipeline is not configured")
+        return await self._maintenance_pipeline.regenerate_maintenance_jobs(
+            user_id=user_id,
+            kg_id=kg_id,
+            files_per_job=files_per_job,
+        )
+
     async def _check_permission(
         self,
         user_id: str,

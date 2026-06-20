@@ -41,7 +41,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             "Jobs use --network host, so docker service names like api:8000 will not resolve."
         ),
     )
-    agentic_ci_timeout_seconds: int = Field(default=1200, ge=60, le=7200)
+    agentic_ci_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
     extraction_job_work_dir: str = Field(default="/tmp/kartograph/extraction_jobs")
     sticky_command: tuple[str, ...] = Field(
         default=(),

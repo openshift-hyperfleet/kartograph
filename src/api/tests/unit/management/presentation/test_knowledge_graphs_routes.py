@@ -495,6 +495,33 @@ class TestKnowledgeGraphMaintenanceRoutes:
             start_extraction=True,
         )
 
+    def test_regenerate_maintenance_jobs_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.regenerate_maintenance_jobs.return_value = {
+            "success": True,
+            "generated_jobs": 5,
+            "message": "Regenerated 5 pending maintenance job(s) from 10 changed file(s)",
+        }
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/regenerate-jobs",
+            json={"files_per_job": 2},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["generated_jobs"] == 5
+        mock_kg_service.regenerate_maintenance_jobs.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            files_per_job=2,
+        )
+
 
 class TestWorkspaceCommandsRoutes:
     """Tests for workspace validate/transition command endpoints."""

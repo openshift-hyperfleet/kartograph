@@ -23,6 +23,11 @@ from infrastructure.management.maintenance_job_materializer import (
     MAINTENANCE_JOB_SET_NAME,
     materialize_maintenance_jobs,
 )
+
+_START_READY_NO_JOBS_MESSAGE = (
+    "No maintenance jobs are ready to run. Queue maintenance jobs from changed "
+    "sources first."
+)
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
@@ -117,6 +122,106 @@ class MaintenancePipelineService:
             worker_count=worker_count,
             start_extraction=start_extraction,
         )
+
+    async def start_ready_maintenance_jobs(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        worker_count: int = 8,
+    ) -> dict[str, int | str | bool]:
+        """Start or resume workers for already-queued pending maintenance jobs."""
+        kg = await self._require_manage_kg(user_id=user_id, kg_id=kg_id)
+        normalized_workers = max(1, int(worker_count))
+        counts = await self._job_repo.count_by_job_set(knowledge_graph_id=kg_id)
+        maintenance_counts = counts.get(MAINTENANCE_JOB_SET_NAME, {})
+        pending_jobs = int(maintenance_counts.get("pending", 0))
+        in_progress_jobs = int(maintenance_counts.get("in_progress", 0))
+
+        if pending_jobs <= 0 and in_progress_jobs <= 0:
+            raise ValueError(_START_READY_NO_JOBS_MESSAGE)
+
+        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        await orchestrator.start(
+            tenant_id=kg.tenant_id,
+            knowledge_graph_id=kg_id,
+            worker_count=normalized_workers,
+        )
+        await self._session.commit()
+
+        if pending_jobs > 0:
+            message = (
+                f"Started {normalized_workers} worker(s) for "
+                f"{pending_jobs} ready maintenance job(s)"
+            )
+        else:
+            message = (
+                f"Resumed {normalized_workers} worker(s) while "
+                f"{in_progress_jobs} maintenance job(s) are in progress"
+            )
+        return {
+            "success": True,
+            "message": message,
+            "pending_jobs": pending_jobs,
+            "in_progress_jobs": in_progress_jobs,
+            "worker_count": normalized_workers,
+        }
+
+    async def regenerate_maintenance_jobs(
+        self,
+        *,
+        user_id: str,
+        kg_id: str,
+        files_per_job: int = 2,
+    ) -> dict[str, int | str | bool]:
+        """Replace pending maintenance jobs from the current baseline-to-head diff."""
+        kg = await self._require_manage_kg(user_id=user_id, kg_id=kg_id)
+        normalized_files_per_job = max(1, int(files_per_job))
+        data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+        changed_sources = self._changed_sources(data_sources)
+        if not changed_sources:
+            return {
+                "success": True,
+                "generated_jobs": 0,
+                "message": "No source commit delta detected across connected data sources",
+            }
+
+        needs_ingest = [
+            ds for ds in changed_sources if self._source_needs_maintenance_ingest(ds)
+        ]
+        if needs_ingest:
+            raise ValueError(
+                f"{len(needs_ingest)} changed source(s) still need ingest prepare. "
+                "Queue maintenance jobs to refresh JobPackages first."
+            )
+
+        jobs, changed_files = await self._build_maintenance_jobs(
+            kg_id=kg_id,
+            tenant_id=kg.tenant_id,
+            changed_sources=changed_sources,
+            files_per_job=normalized_files_per_job,
+        )
+        if not jobs:
+            return {
+                "success": True,
+                "generated_jobs": 0,
+                "message": "No changed files were mapped to prepared JobPackages",
+            }
+
+        await self._job_repo.sync_maintenance_pending_jobs(
+            knowledge_graph_id=kg_id,
+            jobs=jobs,
+            job_set_name=MAINTENANCE_JOB_SET_NAME,
+        )
+        await self._session.commit()
+        return {
+            "success": True,
+            "generated_jobs": len(jobs),
+            "message": (
+                f"Regenerated {len(jobs)} pending maintenance job(s) from "
+                f"{len(changed_files)} changed file(s)"
+            ),
+        }
 
     async def _trigger_for_kg(
         self,
@@ -380,25 +485,11 @@ class MaintenancePipelineService:
             for ds in data_sources
             if ds.id.value in set(latest.target_data_source_ids)
         ]
-        runtime_settings = get_extraction_workload_runtime_settings()
-        prepared_reader = SqlPreparedJobPackageReader(
-            session=self._session,
-            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
-        )
-        job_packages = await prepared_reader.list_latest_for_knowledge_graph(
-            knowledge_graph_id=kg_id,
-        )
-        diff_service = self._diff_summary_service_factory(tenant_id)
-        changed_files = await collect_changed_maintenance_files(
-            diff_summary_service=diff_service,
-            data_sources=changed_sources,
-            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
-            job_packages=job_packages,
-        )
         files_per_job = latest.files_per_job or 2
-        jobs = materialize_maintenance_jobs(
-            knowledge_graph_id=kg_id,
-            changed_files=changed_files,
+        jobs, changed_files = await self._build_maintenance_jobs(
+            kg_id=kg_id,
+            tenant_id=tenant_id,
+            changed_sources=changed_sources,
             files_per_job=files_per_job,
         )
         if not jobs:
@@ -531,6 +622,36 @@ class MaintenancePipelineService:
 
             raise KnowledgeGraphNotFoundError(f"Knowledge graph {kg_id} not found")
         return kg
+
+    async def _build_maintenance_jobs(
+        self,
+        *,
+        kg_id: str,
+        tenant_id: str,
+        changed_sources: list[DataSource],
+        files_per_job: int,
+    ) -> tuple[list, list]:
+        runtime_settings = get_extraction_workload_runtime_settings()
+        prepared_reader = SqlPreparedJobPackageReader(
+            session=self._session,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+        )
+        job_packages = await prepared_reader.list_latest_for_knowledge_graph(
+            knowledge_graph_id=kg_id,
+        )
+        diff_service = self._diff_summary_service_factory(tenant_id)
+        changed_files = await collect_changed_maintenance_files(
+            diff_summary_service=diff_service,
+            data_sources=changed_sources,
+            job_package_work_dir=Path(runtime_settings.job_package_work_dir),
+            job_packages=job_packages,
+        )
+        jobs = materialize_maintenance_jobs(
+            knowledge_graph_id=kg_id,
+            changed_files=changed_files,
+            files_per_job=max(1, int(files_per_job)),
+        )
+        return jobs, changed_files
 
     @staticmethod
     def _changed_sources(data_sources: list[DataSource]) -> list[DataSource]:

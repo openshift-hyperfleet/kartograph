@@ -167,8 +167,10 @@ class MaintenancePipelineService:
             )
 
         try:
+            phase = "start maintenance pipeline"
             sync_run_ids: tuple[str, ...] = ()
             if needs_ingest:
+                phase = "launch maintenance ingest"
                 sync_run_ids = await self._launch_ingest_only_syncs(
                     changed_sources=needs_ingest,
                     requested_by=requested_by,
@@ -225,6 +227,7 @@ class MaintenancePipelineService:
                         outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
                         message="Maintenance ingest finished in an unexpected state",
                     )
+            phase = "collect changed files and materialize maintenance jobs"
             advanced = await self._materialize_and_start_extraction(
                 kg_id=kg_id,
                 tenant_id=kg.tenant_id,
@@ -239,7 +242,7 @@ class MaintenancePipelineService:
                     run_id=run_id,
                     triggered_at=now,
                     outcome=KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED,
-                    message=f"Failed to launch maintenance ingest: {exc}",
+                    message=f"Failed to {phase}: {exc}",
                     target_data_source_ids=tuple(ds.id.value for ds in changed_sources),
                     files_per_job=normalized_files_per_job,
                     worker_count=normalized_workers,

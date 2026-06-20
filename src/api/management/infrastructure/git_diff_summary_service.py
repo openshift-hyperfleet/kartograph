@@ -8,6 +8,12 @@ from urllib.parse import urlparse
 import httpx
 
 from management.domain.aggregates import DataSource
+from management.infrastructure.github_source_auth import (
+    github_api_headers,
+    load_github_credentials,
+    raise_for_github_http_error,
+    require_github_token,
+)
 from shared_kernel.credential_reader import ICredentialReader
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -86,23 +92,17 @@ class GitDiffSummaryService:
             )
 
         owner, repo = self._parse_github_connection_config(data_source.connection_config)
-        credentials: dict[str, str] = {}
-        if data_source.credentials_path:
-            try:
-                credentials = await self._credential_reader.retrieve(
-                    path=data_source.credentials_path,
-                    tenant_id=self._tenant_id,
-                )
-            except KeyError:
-                credentials = {}
-
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        token = credentials.get("token") or credentials.get("access_token")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        credentials = await load_github_credentials(
+            credential_reader=self._credential_reader,
+            data_source=data_source,
+        )
+        require_github_token(
+            data_source=data_source,
+            credentials=credentials,
+            owner=owner,
+            repo=repo,
+        )
+        headers = github_api_headers(credentials)
 
         url = f"https://api.github.com/repos/{owner}/{repo}/compare/{baseline}...{tracked}"
         client = self._http_client or httpx.AsyncClient(timeout=30.0)
@@ -110,6 +110,14 @@ class GitDiffSummaryService:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise_for_github_http_error(
+                exc=exc,
+                data_source=data_source,
+                owner=owner,
+                repo=repo,
+                operation="compare",
+            )
         finally:
             if self._http_client is None:
                 await client.aclose()

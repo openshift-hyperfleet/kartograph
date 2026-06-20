@@ -92,15 +92,16 @@ async def test_resolve_tracked_head_parses_repo_url_branch() -> None:
         return httpx.Response(status_code=200, json={"commit": {"sha": "head987"}})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    service = GitCommitReferenceService(
-        credential_reader=_FakeCredentialReader(),
-        tenant_id="tenant-001",
-        http_client=client,
-    )
     ds = _make_data_source(
         connection_config={
             "repo_url": "https://github.com/openshift-hyperfleet/kartograph/tree/feature/test"
-        }
+        },
+        credentials_path="datasource/ds-1/credentials",
+    )
+    service = GitCommitReferenceService(
+        credential_reader=_FakeCredentialReader({"access_token": "secret-token"}),
+        tenant_id="tenant-001",
+        http_client=client,
     )
 
     tracked = await service.resolve_tracked_head_commit(ds)

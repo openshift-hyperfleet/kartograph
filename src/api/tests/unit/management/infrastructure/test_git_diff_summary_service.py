@@ -14,10 +14,18 @@ from shared_kernel.datasource_types import DataSourceAdapterType
 
 
 class _FakeCredentialReader:
-    def __init__(self, credentials: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        credentials: dict[str, str] | None = None,
+        *,
+        missing: bool = False,
+    ) -> None:
         self._credentials = credentials or {}
+        self._missing = missing
 
     async def retrieve(self, path: str, tenant_id: str) -> dict[str, str]:
+        if self._missing:
+            raise KeyError(path)
         return dict(self._credentials)
 
 
@@ -60,6 +68,66 @@ async def test_returns_empty_summary_when_commits_missing():
 
 
 @pytest.mark.asyncio
+async def test_raises_when_github_credentials_missing():
+    service = GitDiffSummaryService(
+        credential_reader=_FakeCredentialReader(missing=True),
+        tenant_id="tenant-001",
+    )
+    ds = _make_data_source()
+    ds = DataSource(
+        id=ds.id,
+        knowledge_graph_id=ds.knowledge_graph_id,
+        tenant_id=ds.tenant_id,
+        name=ds.name,
+        adapter_type=ds.adapter_type,
+        connection_config=ds.connection_config,
+        credentials_path="datasource/test/credentials",
+        schedule=ds.schedule,
+        last_sync_at=ds.last_sync_at,
+        created_at=ds.created_at,
+        updated_at=ds.updated_at,
+        last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+        tracked_branch_head_commit=ds.tracked_branch_head_commit,
+    )
+
+    with pytest.raises(ValueError, match="credentials not found"):
+        await service.build_summary(data_source=ds, max_files=50)
+
+
+@pytest.mark.asyncio
+async def test_raises_when_github_rejects_credentials():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=401, json={"message": "Bad credentials"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = GitDiffSummaryService(
+        credential_reader=_FakeCredentialReader({"access_token": "ghp_invalid"}),
+        tenant_id="tenant-001",
+        http_client=client,
+    )
+    ds = _make_data_source()
+    ds = DataSource(
+        id=ds.id,
+        knowledge_graph_id=ds.knowledge_graph_id,
+        tenant_id=ds.tenant_id,
+        name=ds.name,
+        adapter_type=ds.adapter_type,
+        connection_config=ds.connection_config,
+        credentials_path="datasource/test/credentials",
+        schedule=ds.schedule,
+        last_sync_at=ds.last_sync_at,
+        created_at=ds.created_at,
+        updated_at=ds.updated_at,
+        last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+        tracked_branch_head_commit=ds.tracked_branch_head_commit,
+    )
+
+    with pytest.raises(ValueError, match="access was denied"):
+        await service.build_summary(data_source=ds, max_files=50)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_truncates_changed_files_when_max_exceeded():
     """Changed-file list should truncate safely for large diffs."""
 
@@ -77,13 +145,29 @@ async def test_truncates_changed_files_when_max_exceeded():
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ds = _make_data_source()
+    ds = DataSource(
+        id=ds.id,
+        knowledge_graph_id=ds.knowledge_graph_id,
+        tenant_id=ds.tenant_id,
+        name=ds.name,
+        adapter_type=ds.adapter_type,
+        connection_config=ds.connection_config,
+        credentials_path="datasource/test/credentials",
+        schedule=ds.schedule,
+        last_sync_at=ds.last_sync_at,
+        created_at=ds.created_at,
+        updated_at=ds.updated_at,
+        last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+        tracked_branch_head_commit=ds.tracked_branch_head_commit,
+    )
     service = GitDiffSummaryService(
-        credential_reader=_FakeCredentialReader(),
+        credential_reader=_FakeCredentialReader({"access_token": "ghp_test"}),
         tenant_id="tenant-001",
         http_client=client,
     )
 
-    result = await service.build_summary(data_source=_make_data_source(), max_files=2)
+    result = await service.build_summary(data_source=ds, max_files=2)
     await client.aclose()
 
     assert result.total_changed_files == 3

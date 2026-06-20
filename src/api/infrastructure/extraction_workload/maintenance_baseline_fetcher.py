@@ -72,7 +72,7 @@ class MaintenanceBaselineContentFetcher:
         result = await self._session.execute(
             text(
                 """
-                SELECT adapter_type, connection_config, credentials_path
+                SELECT adapter_type, connection_config, credentials_path, tenant_id
                 FROM data_sources
                 WHERE id = :data_source_id
                 """
@@ -89,18 +89,24 @@ class MaintenanceBaselineContentFetcher:
         if isinstance(connection_config, str):
             connection_config = json.loads(connection_config)
         owner, repo = _parse_github_connection_config(dict(connection_config or {}))
-        headers = await self._build_github_headers(row.get("credentials_path"))
+        headers = await self._build_github_headers(
+            credentials_path=row.get("credentials_path"),
+            tenant_id=str(row["tenant_id"] or self._tenant_id),
+        )
         context = (owner, repo, headers)
         self._github_context_cache[data_source_id] = context
         return context
 
-    async def _build_github_headers(self, credentials_path: str | None) -> dict[str, str]:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        if not credentials_path:
-            return headers
+    async def _build_github_headers(
+        self,
+        *,
+        credentials_path: str | None,
+        tenant_id: str,
+    ) -> dict[str, str]:
+        from management.infrastructure.github_source_auth import github_api_headers
+
+        if not credentials_path or not tenant_id.strip():
+            return github_api_headers({})
 
         from management.infrastructure.repositories.fernet_secret_store import FernetSecretStore
 
@@ -111,7 +117,7 @@ class MaintenanceBaselineContentFetcher:
             if key.strip()
         ]
         if not encryption_keys:
-            return headers
+            return github_api_headers({})
 
         credential_reader = FernetSecretStore(
             session=self._session,
@@ -120,14 +126,11 @@ class MaintenanceBaselineContentFetcher:
         try:
             credentials = await credential_reader.retrieve(
                 path=str(credentials_path),
-                tenant_id=self._tenant_id,
+                tenant_id=tenant_id,
             )
         except KeyError:
             credentials = {}
-        token = credentials.get("token") or credentials.get("access_token")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        return headers
+        return github_api_headers(credentials)
 
 
 def _parse_github_connection_config(config: dict[str, str]) -> tuple[str, str]:

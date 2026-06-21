@@ -19,6 +19,7 @@ from infrastructure.management.maintenance_pipeline_service import (
 )
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings, get_spicedb_settings
+from management.infrastructure.git_commit_reference_service import GitCommitReferenceService
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.infrastructure.repositories import (
     DataSourceRepository,
@@ -35,6 +36,18 @@ def _diff_summary_service_factory(
 ) -> Callable[[str], GitDiffSummaryService]:
     def factory(tenant_id: str) -> GitDiffSummaryService:
         return GitDiffSummaryService(
+            credential_reader=secret_store,
+            tenant_id=tenant_id,
+        )
+
+    return factory
+
+
+def _commit_reference_service_factory(
+    secret_store: FernetSecretStore,
+) -> Callable[[str], GitCommitReferenceService]:
+    def factory(tenant_id: str) -> GitCommitReferenceService:
+        return GitCommitReferenceService(
             credential_reader=secret_store,
             tenant_id=tenant_id,
         )
@@ -71,6 +84,7 @@ def build_maintenance_pipeline_for_background(
         authorization=authz,
         tenant_id="",
         diff_summary_service_factory=_diff_summary_service_factory(secret_store),
+        commit_reference_service_factory=_commit_reference_service_factory(secret_store),
     )
 
 
@@ -96,4 +110,5 @@ def get_maintenance_pipeline_service(
         authorization=authz,
         tenant_id=current_user.tenant_id.value,
         diff_summary_service_factory=_diff_summary_service_factory(secret_store),
+        commit_reference_service_factory=_commit_reference_service_factory(secret_store),
     )

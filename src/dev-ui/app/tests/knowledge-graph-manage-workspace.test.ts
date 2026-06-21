@@ -131,8 +131,10 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
   it('labels new files section and exposes commit refresh actions', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('New Files to Process')
     expect(graphMaintenanceWorkspaceVue).toContain('Check for new commits')
-    expect(graphMaintenanceWorkspaceVue).toContain('showExtractionBaselineNotice')
-    expect(graphMaintenanceWorkspaceVue).toContain('Commit during last extraction')
+    expect(graphMaintenanceWorkspaceVue).toContain('New commits vs baseline')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('not ingested yet')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Unpulled commits')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('will ingest on queue')
     expect(graphMaintenanceWorkspaceVue).toContain('diff-summary')
   })
 

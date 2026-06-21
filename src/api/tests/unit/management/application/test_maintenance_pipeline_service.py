@@ -610,6 +610,54 @@ async def test_check_scheduled_triggers_skips_when_failed_maintenance_jobs_remai
 
 
 @pytest.mark.asyncio
+async def test_trigger_scheduled_refreshes_tracked_branch_heads(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-1", kg_id=kg.id.value, tenant_id=kg.tenant_id, baseline="abc", head="old-head")
+    ds_repo.seed(ds)
+
+    ref_service = MagicMock()
+    ref_service.resolve_tracked_head_commit = AsyncMock(return_value="new-head")
+    svc = MaintenancePipelineService(
+        session=mock_session,
+        session_factory=session_factory,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=MagicMock(),
+        authorization=authz,
+        tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
+        commit_reference_service_factory=lambda _tenant: ref_service,
+    )
+
+    with patch.object(
+        svc,
+        "_trigger_for_kg",
+        AsyncMock(
+            return_value=KnowledgeGraphMaintenanceRunRecord(
+                run_id="run-scheduled",
+                triggered_at=datetime.now(UTC),
+                outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+            )
+        ),
+    ) as trigger_for_kg:
+        await svc.trigger_scheduled(
+            kg_id=kg.id.value,
+            files_per_job=2,
+            worker_count=4,
+        )
+
+    ref_service.resolve_tracked_head_commit.assert_awaited_once()
+    trigger_for_kg.assert_awaited_once()
+    saved = await ds_repo.get_by_id(DataSourceId(value="ds-1"))
+    assert saved is not None
+    assert saved.tracked_branch_head_commit == "new-head"
+
+
+@pytest.mark.asyncio
 async def test_start_ready_maintenance_jobs_requires_queued_jobs(
     mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
 ):

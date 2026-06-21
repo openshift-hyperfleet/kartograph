@@ -34,14 +34,9 @@ import {
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
 import {
   commitStatusClass,
-  formatFilesOnDisk,
-  hasUnpulledCommits,
-  needsIngestionPrepare,
-  resolveIngestedHeadCommit,
   resolveRepoUrl,
   resolveTrackedBranch,
   shortCommitHash,
-  unpulledCommitStatusLabel,
 } from '@/utils/kgDataSourcesCommits'
 import {
   cronToDailyTime,
@@ -205,10 +200,6 @@ const maintenanceReadySources = computed(() =>
   dataSources.value.filter((ds) => isMaintenanceReady(ds)),
 )
 
-const sourcesNeedingPrepare = computed(() =>
-  dataSources.value.filter((ds) => needsIngestionPrepare(ds)),
-)
-
 const totalChangedFiles = computed(() =>
   dataSources.value.reduce((sum, ds) => sum + (ds.diff_summary?.total_changed_files || 0), 0),
 )
@@ -288,7 +279,7 @@ const extractionBaselineNoticeDetail = computed(() => {
   }
   return (
     'After you queue maintenance, that column stays fixed until every job in the run succeeds. '
-    + 'Check for new commits only updates branch HEAD; it does not move the extraction baseline.'
+    + 'Use Check for new commits to refresh branch tips from GitHub before queueing or regenerating.'
   )
 })
 const extractionRunLive = computed(() => {
@@ -641,13 +632,15 @@ async function checkForNewCommits() {
       ),
     )
     await loadDataSources()
-    const unpulled = dataSources.value.filter((ds) => hasUnpulledCommits(ds))
-    if (unpulled.length === 0) {
-      toast.success('Up to date with remote branches')
+    const ready = maintenanceReadySources.value.length
+    if (ready === 0) {
+      toast.success('Branch tips refreshed', {
+        description: 'No sources have commits ahead of the last extraction baseline.',
+      })
     } else {
       toast.success(
-        `${unpulled.length} source${unpulled.length === 1 ? '' : 's'} have unpulled commits`,
-        { description: 'Compare baseline vs branch head in the table below.' },
+        `${ready} source${ready === 1 ? '' : 's'} have new commits vs baseline`,
+        { description: 'Queue or regenerate maintenance jobs when ready to process them.' },
       )
     }
   } catch (e: unknown) {
@@ -843,7 +836,8 @@ onUnmounted(() => {
                 New Files to Process
               </CardTitle>
               <CardDescription class="mt-1">
-                Compare the last job baseline to the remote branch tip and review changed files since extraction.
+                Compare commit during last extraction to branch HEAD. Check for new commits refreshes
+                tips from GitHub; queue and regenerate use these stored refs and prepare sources as needed.
               </CardDescription>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -881,13 +875,12 @@ onUnmounted(() => {
             Connect a data source before scheduling maintenance.
           </div>
           <div v-else class="overflow-x-auto rounded-md border">
-            <table class="w-full min-w-[1100px] text-sm">
+            <table class="w-full min-w-[900px] text-sm">
               <thead>
                 <tr class="border-b bg-muted/50 text-left">
                   <th class="px-3 py-2 font-medium">Source</th>
                   <th class="px-3 py-2 font-medium">Branch</th>
                   <th class="px-3 py-2 font-medium">Branch HEAD</th>
-                  <th class="px-3 py-2 text-right font-medium">Files on disk</th>
                   <th class="px-3 py-2 font-medium">Commit during last extraction</th>
                   <th class="px-3 py-2 text-right font-medium">Changed files</th>
                   <th class="px-3 py-2 font-medium">Status</th>
@@ -898,7 +891,7 @@ onUnmounted(() => {
                   v-for="ds in dataSources"
                   :key="ds.id"
                   class="border-b border-border/60 align-top last:border-0"
-                  :class="isMaintenanceReady(ds) || hasUnpulledCommits(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
+                  :class="isMaintenanceReady(ds) ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''"
                 >
                   <td class="px-3 py-2">
                     <p class="font-medium">{{ ds.name }}</p>
@@ -909,22 +902,11 @@ onUnmounted(() => {
                   <td class="px-3 py-2 font-mono text-xs">{{ resolveTrackedBranch(ds.connection_config) }}</td>
                   <td class="px-3 py-2 font-mono text-xs">
                     <span
-                      :class="commitStatusClass(ds.tracked_branch_head_commit, resolveIngestedHeadCommit(ds))"
+                      :class="commitStatusClass(ds.tracked_branch_head_commit, ds.last_extraction_baseline_commit)"
                       :title="ds.tracked_branch_head_commit || ''"
                     >
                       {{ shortCommitHash(ds.tracked_branch_head_commit) }}
                     </span>
-                    <p class="mt-0.5 text-[10px] text-muted-foreground">
-                      {{
-                        unpulledCommitStatusLabel(
-                          ds.newest_unpulled_commit,
-                          ds.tracked_branch_head_commit,
-                        )
-                      }}
-                    </p>
-                  </td>
-                  <td class="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                    {{ formatFilesOnDisk(ds) }}
                   </td>
                   <td class="px-3 py-2 font-mono text-xs">
                     <span
@@ -939,16 +921,10 @@ onUnmounted(() => {
                   </td>
                   <td class="px-3 py-2">
                     <Badge
-                      :variant="isMaintenanceReady(ds) ? 'default' : hasUnpulledCommits(ds) ? 'outline' : 'secondary'"
+                      :variant="isMaintenanceReady(ds) ? 'default' : 'secondary'"
                       class="text-xs"
                     >
-                      {{
-                        isMaintenanceReady(ds)
-                          ? 'New files vs baseline'
-                          : hasUnpulledCommits(ds)
-                            ? 'Unpulled commits'
-                            : 'Up to date'
-                      }}
+                      {{ isMaintenanceReady(ds) ? 'New commits vs baseline' : 'Up to date' }}
                     </Badge>
                   </td>
                 </tr>
@@ -957,8 +933,7 @@ onUnmounted(() => {
           </div>
           <p class="mt-3 text-xs text-muted-foreground">
             {{ maintenanceReadySources.length }} source(s) have commits ahead of the last job baseline ·
-            {{ totalChangedFiles }} changed file(s) detected ·
-            {{ sourcesNeedingPrepare.length }} will ingest on queue
+            {{ totalChangedFiles }} changed file(s) detected
           </p>
         </CardContent>
       </Card>

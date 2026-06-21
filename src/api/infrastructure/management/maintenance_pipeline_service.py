@@ -36,6 +36,7 @@ from management.domain.value_objects import (
     KnowledgeGraphMaintenanceRunRecord,
     KnowledgeGraphMaintenanceSchedule,
 )
+from management.infrastructure.git_commit_reference_service import GitCommitReferenceService
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.ports.exceptions import UnauthorizedError
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -74,6 +75,9 @@ class MaintenancePipelineService:
         authorization: AuthorizationProvider,
         tenant_id: str,
         diff_summary_service_factory: Callable[[str], GitDiffSummaryService],
+        commit_reference_service_factory: (
+            Callable[[str], GitCommitReferenceService] | None
+        ) = None,
     ) -> None:
         self._session = session
         self._session_factory = session_factory
@@ -84,6 +88,7 @@ class MaintenancePipelineService:
         self._authz = authorization
         self._tenant_id = tenant_id
         self._diff_summary_service_factory = diff_summary_service_factory
+        self._commit_reference_service_factory = commit_reference_service_factory
 
     async def trigger_scheduled(
         self,
@@ -96,6 +101,7 @@ class MaintenancePipelineService:
         kg = await self._kg_repo.get_by_id(KnowledgeGraphId(value=kg_id))
         if kg is None:
             raise ValueError(f"Knowledge graph {kg_id} not found")
+        await self._refresh_tracked_branch_heads(kg_id=kg_id, tenant_id=kg.tenant_id)
         return await self._trigger_for_kg(
             kg=kg,
             requested_by="maintenance-scheduler",
@@ -628,7 +634,31 @@ class MaintenancePipelineService:
             authorization=self._authz,
             tenant_id=self._tenant_id,
             diff_summary_service_factory=self._diff_summary_service_factory,
+            commit_reference_service_factory=self._commit_reference_service_factory,
         )
+
+    async def _refresh_tracked_branch_heads(
+        self,
+        *,
+        kg_id: str,
+        tenant_id: str,
+    ) -> int:
+        """Refresh stored branch tips from GitHub before a scheduled maintenance run."""
+        if self._commit_reference_service_factory is None:
+            return 0
+        ref_service = self._commit_reference_service_factory(tenant_id)
+        data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+        updated = 0
+        for data_source in data_sources:
+            tracked_head = await ref_service.resolve_tracked_head_commit(data_source)
+            if tracked_head is None:
+                continue
+            if data_source.tracked_branch_head_commit == tracked_head:
+                continue
+            data_source.tracked_branch_head_commit = tracked_head
+            await self._ds_repo.save(data_source)
+            updated += 1
+        return updated
 
     async def _require_manage_kg(self, *, user_id: str, kg_id: str) -> KnowledgeGraph:
         resource = format_resource(ResourceType.KNOWLEDGE_GRAPH, kg_id)

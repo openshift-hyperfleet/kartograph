@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import {
   Archive,
   Calendar,
+  CircleAlert,
   ClipboardList,
   Eye,
   GitBranch,
@@ -19,6 +20,17 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { isMaintenanceReady } from '@/utils/kgManageWorkspace'
 import {
   commitStatusClass,
@@ -159,6 +171,7 @@ const resettingFailed = ref(false)
 const resettingAll = ref(false)
 const archivingCompleted = ref(false)
 const regeneratingJobs = ref(false)
+const regenerateConfirmOpen = ref(false)
 const optimisticLiveUntilMs = ref<number | null>(null)
 const nowMs = ref(Date.now())
 const lastStatusRefreshMs = ref<number | null>(null)
@@ -255,6 +268,29 @@ const remainingJobsCount = computed(() => {
 const activeQueueJobsTotal = computed(
   () => pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value + completedJobsCount.value,
 )
+const showExtractionBaselineNotice = computed(
+  () => maintenanceReadySources.value.length > 0 || activeQueueJobsTotal.value > 0,
+)
+const extractionBaselineNoticeDetail = computed(() => {
+  const queued = pendingJobsCount.value + inProgressJobsCount.value + failedJobsCount.value
+  if (queued > 0) {
+    return (
+      `${queued} job${queued === 1 ? '' : 's'} still need to finish `
+      + '(ready, running, or failed). Resolve failures or reset them, then run ready jobs. '
+      + 'Job Status tracks the queue; Regenerate jobs refreshes pending work from the table below.'
+    )
+  }
+  if (completedJobsCount.value > 0 && maintenanceReadySources.value.length > 0) {
+    return (
+      `${completedJobsCount.value} job${completedJobsCount.value === 1 ? '' : 's'} completed but the baseline `
+      + 'has not advanced yet — wait for reconciliation after the queue drains.'
+    )
+  }
+  return (
+    'After you queue maintenance, that column stays fixed until every job in the run succeeds. '
+    + 'Check for new commits only updates branch HEAD; it does not move the extraction baseline.'
+  )
+})
 const extractionRunLive = computed(() => {
   if (optimisticLiveUntilMs.value && nowMs.value < optimisticLiveUntilMs.value) return true
   return Boolean(extractionRunState.value?.live)
@@ -825,6 +861,19 @@ onUnmounted(() => {
           </div>
         </CardHeader>
         <CardContent>
+          <Alert
+            v-if="showExtractionBaselineNotice"
+            variant="warning"
+            class="mb-4"
+          >
+            <CircleAlert class="size-4" />
+            <AlertDescription>
+              <span class="font-medium">Commit during last extraction</span>
+              does not update until every maintenance job in the current run completes successfully
+              with no failed jobs remaining.
+              {{ extractionBaselineNoticeDetail }}
+            </AlertDescription>
+          </Alert>
           <div
             v-if="dataSources.length === 0"
             class="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground"
@@ -1119,7 +1168,9 @@ onUnmounted(() => {
               Schedule recurring maintenance jobs
             </CardTitle>
             <CardDescription>
-              Daily schedule to sync changed sources and run maintenance extraction automatically.
+              Each scheduled run checks for new commits, rebuilds the pending maintenance job set,
+              and starts workers on ready jobs. Failed jobs in Job Status block scheduled runs
+              until you reset or fix them manually.
             </CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
@@ -1152,6 +1203,10 @@ onUnmounted(() => {
             </div>
 
             <div class="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <p v-if="failedJobsCount > 0" class="mb-2 font-medium text-destructive">
+                Scheduled maintenance is blocked while {{ failedJobsCount }} failed job(s) remain.
+                Reset failed jobs in Job Status before the next run can proceed.
+              </p>
               <p v-if="schedule?.next_run_at">
                 Next scheduled run: {{ formatWhen(schedule.next_run_at) }}
               </p>
@@ -1236,9 +1291,9 @@ onUnmounted(() => {
               </Button>
               <Button
                 size="sm"
-                variant="outline"
+                variant="destructive"
                 :disabled="regeneratingJobs"
-                @click="regenerateMaintenanceJobs"
+                @click="regenerateConfirmOpen = true"
               >
                 <Settings class="mr-1.5 size-3.5" />
                 Regenerate jobs
@@ -1268,6 +1323,43 @@ onUnmounted(() => {
         :kg-id="kgId"
         :job-id="watchJobId"
       />
+
+      <AlertDialog v-model:open="regenerateConfirmOpen">
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Regenerate maintenance jobs?</AlertDialogTitle>
+            <AlertDialogDescription class="space-y-2 text-left">
+              <p>
+                This replaces the entire <span class="font-medium text-foreground">Ready</span>
+                queue with a freshly materialized maintenance job set from the current diffs.
+              </p>
+              <p>
+                All pending jobs are wiped. Running jobs must finish or be reset first — regenerate
+                is blocked while workers are active.
+              </p>
+              <p>
+                If some jobs already completed, regenerating can create
+                <span class="font-medium text-destructive">duplicate work</span>
+                on the same files until you archive completed jobs and the extraction baseline advances.
+              </p>
+              <p class="font-medium text-destructive">
+                Only continue when you intend to discard the current pending queue and start over.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              class="bg-destructive text-white hover:bg-destructive/90"
+              :disabled="regeneratingJobs"
+              @click="regenerateMaintenanceJobs"
+            >
+              <Loader2 v-if="regeneratingJobs" class="mr-2 size-4 animate-spin" />
+              Regenerate jobs
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </template>
   </div>
 </template>

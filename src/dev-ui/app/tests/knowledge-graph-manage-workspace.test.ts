@@ -131,7 +131,8 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
   it('labels new files section and exposes commit refresh actions', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('New Files to Process')
     expect(graphMaintenanceWorkspaceVue).toContain('Check for new commits')
-    expect(graphMaintenanceWorkspaceVue).toContain('last_extraction_baseline_commit')
+    expect(graphMaintenanceWorkspaceVue).toContain('showExtractionBaselineNotice')
+    expect(graphMaintenanceWorkspaceVue).toContain('Commit during last extraction')
     expect(graphMaintenanceWorkspaceVue).toContain('diff-summary')
   })
 
@@ -154,6 +155,10 @@ describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
     expect(graphMaintenanceWorkspaceVue).toContain('Archive Completed')
     expect(graphMaintenanceWorkspaceVue).toContain('Regenerate jobs')
     expect(graphMaintenanceWorkspaceVue).toContain('regenerateMaintenanceJobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('regenerateConfirmOpen')
+    expect(graphMaintenanceWorkspaceVue).toContain('variant="destructive"')
+    expect(graphMaintenanceWorkspaceVue).toContain('Regenerate maintenance jobs?')
+    expect(graphMaintenanceWorkspaceVue).toContain('Scheduled maintenance is blocked')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Maintenance run history')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Sync changed sources only')
     expect(graphMaintenanceWorkspaceVue).not.toContain('Run maintenance jobs now')

@@ -401,11 +401,37 @@ class MaintenancePipelineService:
                 if schedule.next_run_at is None or schedule.next_run_at > current:
                     continue
                 service = self._with_session(session)
-                await service.trigger_scheduled(
-                    kg_id=kg.id.value,
-                    files_per_job=schedule.files_per_job,
-                    worker_count=schedule.worker_count,
+                from extraction.infrastructure.repositories.extraction_job_repository import (
+                    ExtractionJobRepository,
                 )
+
+                job_repo = ExtractionJobRepository(session)
+                maintenance_counts = (
+                    await job_repo.count_by_job_set(knowledge_graph_id=kg.id.value)
+                ).get(MAINTENANCE_JOB_SET_NAME, {})
+                failed_jobs = int(maintenance_counts.get("failed", 0))
+                if failed_jobs > 0:
+                    service._record_run(
+                        kg=kg,
+                        run=KnowledgeGraphMaintenanceRunRecord(
+                            run_id=str(ULID()),
+                            triggered_at=current,
+                            outcome=KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED,
+                            message=(
+                                f"Scheduled maintenance skipped: {failed_jobs} failed "
+                                "maintenance job(s) must be reset or addressed manually "
+                                "before another scheduled run can proceed"
+                            ),
+                            files_per_job=schedule.files_per_job,
+                            worker_count=schedule.worker_count,
+                        ),
+                    )
+                else:
+                    await service.trigger_scheduled(
+                        kg_id=kg.id.value,
+                        files_per_job=schedule.files_per_job,
+                        worker_count=schedule.worker_count,
+                    )
                 kg.set_maintenance_schedule(
                     KnowledgeGraphMaintenanceSchedule(
                         enabled=schedule.enabled,

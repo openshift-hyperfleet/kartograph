@@ -517,10 +517,17 @@ async def test_check_scheduled_triggers_due_knowledge_graph(
     fake_repo.find_all = AsyncMock(return_value=[kg])
     fake_repo.save = AsyncMock()
 
+    job_repo = MagicMock()
+    job_repo.count_by_job_set = AsyncMock(return_value={"maintenance": {"failed": 0}})
+
     with (
         patch(
             "management.infrastructure.repositories.knowledge_graph_repository.KnowledgeGraphRepository",
             return_value=fake_repo,
+        ),
+        patch(
+            "extraction.infrastructure.repositories.extraction_job_repository.ExtractionJobRepository",
+            return_value=job_repo,
         ),
         patch.object(
             MaintenancePipelineService,
@@ -539,6 +546,67 @@ async def test_check_scheduled_triggers_due_knowledge_graph(
     assert triggered == 1
     trigger_scheduled.assert_awaited_once()
     fake_repo.save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_scheduled_triggers_skips_when_failed_maintenance_jobs_remain(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    now = datetime.now(UTC)
+    kg = _make_kg()
+    kg.set_maintenance_schedule(
+        KnowledgeGraphMaintenanceSchedule(
+            enabled=True,
+            cron_expression="0 2 * * *",
+            timezone_name="UTC",
+            next_run_at=now - timedelta(minutes=1),
+            files_per_job=2,
+            worker_count=8,
+        )
+    )
+    kg_repo.seed(kg)
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+    )
+
+    fake_repo = MagicMock()
+    fake_repo.find_all = AsyncMock(return_value=[kg])
+    fake_repo.save = AsyncMock()
+
+    job_repo = MagicMock()
+    job_repo.count_by_job_set = AsyncMock(
+        return_value={"maintenance": {"failed": 2, "pending": 0, "in_progress": 0}}
+    )
+
+    with (
+        patch(
+            "management.infrastructure.repositories.knowledge_graph_repository.KnowledgeGraphRepository",
+            return_value=fake_repo,
+        ),
+        patch(
+            "extraction.infrastructure.repositories.extraction_job_repository.ExtractionJobRepository",
+            return_value=job_repo,
+        ),
+        patch.object(
+            MaintenancePipelineService,
+            "trigger_scheduled",
+            AsyncMock(),
+        ) as trigger_scheduled,
+    ):
+        triggered = await svc.check_scheduled_triggers(now=now)
+
+    assert triggered == 1
+    trigger_scheduled.assert_not_awaited()
+    fake_repo.save.assert_awaited_once()
+    assert len(kg.maintenance_run_history) == 1
+    assert kg.maintenance_run_history[-1].outcome == KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED
+    assert "failed maintenance job" in (kg.maintenance_run_history[-1].message or "").lower()
 
 
 @pytest.mark.asyncio

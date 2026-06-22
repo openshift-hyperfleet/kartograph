@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kartograph-openshell-sandbox
+  labels:
+    app.kubernetes.io/component: openshell
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "secrets", "configmaps"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kartograph-api-openshell-sandbox
+  labels:
+    app.kubernetes.io/component: openshell
+subjects:
+  - kind: ServiceAccount
+    name: kartograph-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kartograph-openshell-sandbox

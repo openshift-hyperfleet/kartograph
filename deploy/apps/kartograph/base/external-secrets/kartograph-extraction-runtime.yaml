@@ -1,0 +1,23 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: kartograph-extraction-runtime
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    description: >-
+      Syncs OpenShell / extraction workload secrets from Vault via ESO.
+      Vault path kartograph/stage/extraction-runtime must contain:
+      KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY and
+      application_default_credentials.json (Vertex service account ADC).
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: kartograph-extraction-runtime
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  dataFrom:
+    - extract:
+        key: kartograph/stage/extraction-runtime

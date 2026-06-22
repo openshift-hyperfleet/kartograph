@@ -1,0 +1,19 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: kartograph-management
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    description: "Syncs kartograph management secrets from Vault via ESO."
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: kartograph-management
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  dataFrom:
+    - extract:
+        key: kartograph/stage/management

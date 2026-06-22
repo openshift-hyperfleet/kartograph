@@ -15,3 +15,9 @@ data:
   DEV_UI_KEYCLOAK_CLIENT_ID: "e84a630e-cd5c-4bb9-bec6-7609d795fd2f"
   # IAM
   KARTOGRAPH_IAM_SINGLE_TENANT_MODE: "false"
+  # OpenShell extraction runtime (GMA, extraction jobs, maintenance jobs)
+  KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: "openshell"
+  KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: "openshell"
+  KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL: "http://kartograph-api:8000"
+  ANTHROPIC_VERTEX_PROJECT_ID: "itpc-gcp-hcm-pe-eng-claude"
+  CLOUD_ML_REGION: "us-east5"

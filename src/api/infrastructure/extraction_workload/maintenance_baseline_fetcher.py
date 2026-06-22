@@ -74,10 +74,10 @@ class MaintenanceBaselineContentFetcher:
                 """
                 SELECT adapter_type, connection_config, credentials_path, tenant_id
                 FROM data_sources
-                WHERE id = :data_source_id
+                WHERE id = :data_source_id AND tenant_id = :tenant_id
                 """
             ),
-            {"data_source_id": data_source_id},
+            {"data_source_id": data_source_id, "tenant_id": self._tenant_id},
         )
         row = result.mappings().first()
         if row is None:

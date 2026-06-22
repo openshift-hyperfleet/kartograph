@@ -27,7 +27,9 @@ def derive_inverse_label(primary_label: str) -> str:
     return _INVERSE_LABEL_MAP.get(normalized, f"{normalized}_inverse")
 
 
-def bidirectional_pair_key(*, source_label: str, relationship_label: str, target_label: str) -> str:
+def bidirectional_pair_key(
+    *, source_label: str, relationship_label: str, target_label: str
+) -> str:
     """Stable identifier for a directed relationship type in design artifacts."""
     return f"{source_label}|{relationship_label}|{target_label}"
 
@@ -49,9 +51,7 @@ def build_inverse_edge_type(primary: EdgeTypeDefinition) -> EdgeTypeDefinition:
     inverse_label = resolve_inverse_label_for_primary(primary)
     source = primary.source_labels[0]
     target = primary.target_labels[0]
-    description = (
-        f"Inverse of `{primary.label}` ({target} → {source}); auto-generated for bidirectional pairing."
-    )
+    description = f"Inverse of `{primary.label}` ({target} → {source}); auto-generated for bidirectional pairing."
     return EdgeTypeDefinition(
         label=inverse_label,
         description=description,
@@ -73,7 +73,11 @@ def build_inverse_edge_type(primary: EdgeTypeDefinition) -> EdgeTypeDefinition:
 
 
 def _is_primary_bidirectional_edge(edge_type: EdgeTypeDefinition) -> bool:
-    return edge_type.bidirectional and not edge_type.auto_generated and not edge_type.inverse_of
+    return (
+        edge_type.bidirectional
+        and not edge_type.auto_generated
+        and not edge_type.inverse_of
+    )
 
 
 def is_secondary_bidirectional_edge(edge_type: EdgeTypeDefinition) -> bool:
@@ -140,7 +144,10 @@ def expand_ontology_bidirectional_pairs(config: OntologyConfig) -> OntologyConfi
 
         existing_inverse = by_label.get(inverse_label)
         if existing_inverse is not None:
-            if existing_inverse.inverse_of and existing_inverse.inverse_of != primary.label:
+            if (
+                existing_inverse.inverse_of
+                and existing_inverse.inverse_of != primary.label
+            ):
                 raise RelationshipPairingError(
                     f"inverse_label `{inverse_label}` already exists and is paired with "
                     f"`{existing_inverse.inverse_of}`, not `{primary.label}`"
@@ -199,7 +206,9 @@ def _primary_edge_by_label(ontology: OntologyConfig) -> dict[str, EdgeTypeDefini
     }
 
 
-def normalize_authoring_edge_type_dicts(edge_types: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_authoring_edge_type_dicts(
+    edge_types: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Default bidirectional=true for newly authored primary relationship types."""
     normalized: list[dict[str, Any]] = []
     for row in edge_types:

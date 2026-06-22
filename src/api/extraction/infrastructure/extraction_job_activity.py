@@ -103,7 +103,9 @@ def format_claude_code_stream_line(raw_line: str) -> list[tuple[str, str]]:
 
     if event_type == "result":
         if event.get("is_error"):
-            error_text = str(event.get("result") or event.get("error") or "Extraction failed")
+            error_text = str(
+                event.get("result") or event.get("error") or "Extraction failed"
+            )
             return [("error", error_text)]
         result_text = str(event.get("result") or "").strip()
         if result_text:
@@ -260,7 +262,9 @@ def serialize_job_detail(
             "strategy": job.strategy,
             "description": job.description,
             "attempt": job.attempt,
-            "targetInstances": [instance.to_dict() for instance in job.target_instances],
+            "targetInstances": [
+                instance.to_dict() for instance in job.target_instances
+            ],
             "targetFiles": [target_file.to_dict() for target_file in job.target_files],
             "hasActivityLog": activity_log_path(workdir).is_file(),
         }

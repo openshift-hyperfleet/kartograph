@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from extraction.infrastructure.extraction_job_container import stop_extraction_job_runtimes
+from extraction.infrastructure.extraction_job_container import (
+    stop_extraction_job_runtimes,
+)
 
 
-@patch("extraction.infrastructure.extraction_job_container.stop_extraction_job_sandboxes")
-@patch("extraction.infrastructure.extraction_job_container.stop_extraction_job_containers")
+@patch(
+    "extraction.infrastructure.extraction_job_container.stop_extraction_job_sandboxes"
+)
+@patch(
+    "extraction.infrastructure.extraction_job_container.stop_extraction_job_containers"
+)
 def test_stop_extraction_job_runtimes_stops_sandboxes_on_openshell_backend(
     mock_stop_containers: MagicMock,
     mock_stop_sandboxes: MagicMock,
@@ -23,11 +29,17 @@ def test_stop_extraction_job_runtimes_stops_sandboxes_on_openshell_backend(
 
     assert containers == 0
     assert sandboxes == 3
-    mock_stop_sandboxes.assert_called_once_with(job_ids=("job-a", "job-b"), sweep_orphans=True)
+    mock_stop_sandboxes.assert_called_once_with(
+        job_ids=("job-a", "job-b"), sweep_orphans=True
+    )
 
 
-@patch("extraction.infrastructure.extraction_job_container.stop_extraction_job_sandboxes")
-@patch("extraction.infrastructure.extraction_job_container.stop_extraction_job_containers")
+@patch(
+    "extraction.infrastructure.extraction_job_container.stop_extraction_job_sandboxes"
+)
+@patch(
+    "extraction.infrastructure.extraction_job_container.stop_extraction_job_containers"
+)
 def test_stop_extraction_job_runtimes_skips_sandboxes_for_container_backend(
     mock_stop_containers: MagicMock,
     mock_stop_sandboxes: MagicMock,

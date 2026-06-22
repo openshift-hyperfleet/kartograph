@@ -6,8 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from extraction.infrastructure.openshell.cli import OpenShellCliError
-from extraction.infrastructure.openshell_extraction_job_runner import OpenShellExtractionJobRunner
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.openshell_extraction_job_runner import (
+    OpenShellExtractionJobRunner,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 
 def test_openshell_extraction_sandbox_image_uses_agentic_ci_claude_sandbox() -> None:
@@ -41,7 +45,9 @@ def test_run_agent_uses_harness_claude_binary() -> None:
 
 
 def test_build_extraction_job_invoke_prompt_uses_openshell_workspace() -> None:
-    from extraction.infrastructure.extraction_job_prompt import build_extraction_job_invoke_prompt
+    from extraction.infrastructure.extraction_job_prompt import (
+        build_extraction_job_invoke_prompt,
+    )
 
     prompt = build_extraction_job_invoke_prompt(workspace_dir="/sandbox")
 
@@ -62,7 +68,9 @@ def test_run_agent_uses_inference_local_bare_for_vertex(monkeypatch) -> None:
     runner = OpenShellExtractionJobRunner()
 
     agent_args = runner._harness.build_args("Extract entities.", "claude-opus-4-6")
-    from extraction.infrastructure.openshell.inference_env import insert_claude_bare_flag
+    from extraction.infrastructure.openshell.inference_env import (
+        insert_claude_bare_flag,
+    )
 
     if runner._settings.vertex_enabled() and runner._harness.auth_mode == "vertex":
         agent_args = insert_claude_bare_flag(agent_args)
@@ -95,12 +103,15 @@ def test_sync_mutation_artifacts_falls_back_to_result_json(tmp_path: Path) -> No
     runner = OpenShellExtractionJobRunner()
     workdir = tmp_path / "job"
 
-    with patch(
-        "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_directory_contents",
-        side_effect=OpenShellCliError("sandbox missing"),
-    ), patch(
-        "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_path",
-    ) as download_file:
+    with (
+        patch(
+            "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_directory_contents",
+            side_effect=OpenShellCliError("sandbox missing"),
+        ),
+        patch(
+            "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_path",
+        ) as download_file,
+    ):
         runner._sync_mutation_artifacts_from_sandbox(
             sandbox_name="kartograph-extract-job-1",
             workdir=workdir,
@@ -114,19 +125,26 @@ def test_sync_mutation_artifacts_falls_back_to_result_json(tmp_path: Path) -> No
     )
 
 
-def test_sync_mutation_artifacts_skips_fallback_when_result_exists(tmp_path: Path) -> None:
+def test_sync_mutation_artifacts_skips_fallback_when_result_exists(
+    tmp_path: Path,
+) -> None:
     runner = OpenShellExtractionJobRunner()
     workdir = tmp_path / "job"
     result = workdir / "mutations" / "result.json"
     result.parent.mkdir(parents=True)
-    result.write_text('{"action":"apply","applied":true,"operations_applied":1,"errors":[]}\n')
+    result.write_text(
+        '{"action":"apply","applied":true,"operations_applied":1,"errors":[]}\n'
+    )
 
-    with patch(
-        "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_directory_contents",
-        side_effect=OpenShellCliError("sandbox missing"),
-    ), patch(
-        "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_path",
-    ) as download_file:
+    with (
+        patch(
+            "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_directory_contents",
+            side_effect=OpenShellCliError("sandbox missing"),
+        ),
+        patch(
+            "extraction.infrastructure.openshell_extraction_job_runner.openshell_sandbox.download_path",
+        ) as download_file,
+    ):
         runner._sync_mutation_artifacts_from_sandbox(
             sandbox_name="kartograph-extract-job-1",
             workdir=workdir,

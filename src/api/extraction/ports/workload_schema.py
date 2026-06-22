@@ -4,22 +4,30 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from management.domain.value_objects import OntologyConfig
-
 
 class IWorkloadSchemaService(Protocol):
     """Canonical schema access scoped to a workload-authenticated knowledge graph."""
 
-    async def get_ontology(self, *, knowledge_graph_id: str) -> OntologyConfig | None:
+    async def get_ontology(
+        self, *, knowledge_graph_id: str
+    ) -> dict[str, object] | None:
         """Return the canonical ontology for one knowledge graph."""
 
     async def replace_ontology(
         self,
         *,
         knowledge_graph_id: str,
-        config: OntologyConfig,
-    ) -> OntologyConfig:
+        config: dict[str, object],
+    ) -> dict[str, object]:
         """Replace the canonical ontology via DEFINE mutation-log operations."""
+
+    async def replace_ontology_from_authoring_payload(
+        self,
+        *,
+        knowledge_graph_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Validate authoring payload and replace the canonical ontology."""
 
     async def validate_mutation_jsonl(
         self,

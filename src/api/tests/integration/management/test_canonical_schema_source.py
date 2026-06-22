@@ -11,9 +11,15 @@ from graph.domain.value_objects import EntityType, MutationOperationType
 from infrastructure.canonical_schema.graph_canonical_schema_repository import (
     GraphCanonicalSchemaRepository,
 )
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 from tests.fakes.authorization import InMemoryAuthorizationProvider
 
 pytestmark = pytest.mark.integration

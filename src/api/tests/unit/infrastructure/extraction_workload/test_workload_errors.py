@@ -13,7 +13,9 @@ from infrastructure.extraction_workload.workload_errors import (
 
 
 def test_is_graph_storage_error_detects_graph_query_error() -> None:
-    assert is_graph_storage_error(GraphQueryError("graph with oid 1 does not exist", query="MATCH (n) RETURN n"))
+    assert is_graph_storage_error(
+        GraphQueryError("graph with oid 1 does not exist", query="MATCH (n) RETURN n")
+    )
 
 
 def test_is_graph_storage_error_detects_message_markers() -> None:
@@ -23,7 +25,9 @@ def test_is_graph_storage_error_detects_message_markers() -> None:
 def test_raise_graph_storage_http_error_maps_to_503() -> None:
     with pytest.raises(HTTPException) as exc_info:
         raise_graph_storage_http_error(
-            GraphQueryError("graph with oid 17491 does not exist", query="MATCH (n) RETURN n")
+            GraphQueryError(
+                "graph with oid 17491 does not exist", query="MATCH (n) RETURN n"
+            )
         )
     assert exc_info.value.status_code == 503
     assert "dev-repair-age-graphs" in str(exc_info.value.detail)

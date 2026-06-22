@@ -47,14 +47,18 @@ class TestCreateSandbox:
     def test_waits_for_ready_then_terminates_create_process(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.popen_openshell",
-            return_value=proc,
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox._wait_for_sandbox_ready",
-        ) as wait_ready, patch(
-            "extraction.infrastructure.openshell.sandbox._terminate_create_process",
-        ) as terminate:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.popen_openshell",
+                return_value=proc,
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox._wait_for_sandbox_ready",
+            ) as wait_ready,
+            patch(
+                "extraction.infrastructure.openshell.sandbox._terminate_create_process",
+            ) as terminate,
+        ):
             create_sandbox(
                 name="sb-1",
                 image="kartograph-agent-runtime:dev",
@@ -64,17 +68,22 @@ class TestCreateSandbox:
         terminate.assert_called_once_with(proc)
 
     def test_raises_when_sandbox_enters_error_phase(self) -> None:
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.popen_openshell",
-            return_value=MagicMock(poll=MagicMock(return_value=None)),
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox.sandbox_phase",
-            side_effect=[None, "Error"],
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox.run_openshell",
-            return_value=MagicMock(returncode=0, stdout="phase=Error", stderr=""),
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox.time.sleep",
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.popen_openshell",
+                return_value=MagicMock(poll=MagicMock(return_value=None)),
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox.sandbox_phase",
+                side_effect=[None, "Error"],
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox.run_openshell",
+                return_value=MagicMock(returncode=0, stdout="phase=Error", stderr=""),
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox.time.sleep",
+            ),
         ):
             with pytest.raises(OpenShellCliError, match="entered Error"):
                 create_sandbox(name="sb-1", image="img:dev")
@@ -139,7 +148,9 @@ class TestDownloadPath:
 
         def _simulate_openshell_download(args, **kwargs) -> None:
             local_tar.parent.mkdir(parents=True, exist_ok=True)
-            (local_tar.parent / "kartograph-download-sb-1.tar").write_bytes(b"tar-bytes")
+            (local_tar.parent / "kartograph-download-sb-1.tar").write_bytes(
+                b"tar-bytes"
+            )
 
         with patch(
             "extraction.infrastructure.openshell.sandbox.run_openshell",
@@ -158,13 +169,17 @@ class TestDownloadDirectoryContents:
     def test_tars_remote_dir_downloads_and_extracts(self, tmp_path) -> None:
         workdir = tmp_path / "job"
         workdir.mkdir()
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.run_openshell",
-        ) as run_mock, patch(
-            "extraction.infrastructure.openshell.sandbox.download_path",
-        ) as download_mock, patch(
-            "extraction.infrastructure.openshell.sandbox.tarfile.open",
-        ) as tar_open:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.run_openshell",
+            ) as run_mock,
+            patch(
+                "extraction.infrastructure.openshell.sandbox.download_path",
+            ) as download_mock,
+            patch(
+                "extraction.infrastructure.openshell.sandbox.tarfile.open",
+            ) as tar_open,
+        ):
             download_directory_contents(
                 sandbox_name="sb-1",
                 remote_dir="/sandbox/mutations",
@@ -175,7 +190,9 @@ class TestDownloadDirectoryContents:
         assert "tar -cf" in tar_cmd[-1]
         assert "/sandbox/mutations" in tar_cmd[-1]
         download_mock.assert_called_once()
-        assert download_mock.call_args.kwargs["sandbox_path"].startswith("/tmp/kartograph-download-")
+        assert download_mock.call_args.kwargs["sandbox_path"].startswith(
+            "/tmp/kartograph-download-"
+        )
         tar_open.assert_called_once()
         extractall = tar_open.return_value.__enter__.return_value.extractall
         extractall.assert_called_once_with(workdir, filter="data")
@@ -214,26 +231,32 @@ class TestSafeExtractTar:
 
 class TestExtractionSandboxCleanup:
     def test_stop_extraction_job_sandbox_deletes_existing_sandbox(self) -> None:
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.sandbox_exists",
-            return_value=True,
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox.delete_sandbox",
-        ) as delete:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.sandbox_exists",
+                return_value=True,
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox.delete_sandbox",
+            ) as delete,
+        ):
             assert stop_extraction_job_sandbox(job_id="job-a") is True
         delete.assert_called_once()
 
     def test_delete_sandboxes_by_prefix(self) -> None:
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.list_sandbox_names",
-            return_value=[
-                "kartograph-extract-job-a",
-                "kartograph-gma-session-1",
-                "kartograph-extract-job-b",
-            ],
-        ), patch(
-            "extraction.infrastructure.openshell.sandbox.delete_sandbox",
-        ) as delete:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.list_sandbox_names",
+                return_value=[
+                    "kartograph-extract-job-a",
+                    "kartograph-gma-session-1",
+                    "kartograph-extract-job-b",
+                ],
+            ),
+            patch(
+                "extraction.infrastructure.openshell.sandbox.delete_sandbox",
+            ) as delete,
+        ):
             deleted = delete_sandboxes_by_prefix("kartograph-extract-")
 
         assert deleted == 2
@@ -247,11 +270,14 @@ class TestUploadDirectoryContents:
         (workdir / "helpers").mkdir()
         (workdir / "helpers" / "sync.py").write_text("print('ok')", encoding="utf-8")
 
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.upload_path",
-        ) as upload_path_mock, patch(
-            "extraction.infrastructure.openshell.sandbox.run_openshell",
-        ) as run_mock:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.upload_path",
+            ) as upload_path_mock,
+            patch(
+                "extraction.infrastructure.openshell.sandbox.run_openshell",
+            ) as run_mock,
+        ):
             upload_directory_contents(
                 sandbox_name="sb-1",
                 local_dir=str(workdir),
@@ -261,7 +287,9 @@ class TestUploadDirectoryContents:
         upload_path_mock.assert_called_once()
         uploaded_tar = upload_path_mock.call_args.kwargs["local_path"]
         assert uploaded_tar.endswith(".tar")
-        assert upload_path_mock.call_args.kwargs["dest"].startswith("/tmp/kartograph-upload-sb-1")
+        assert upload_path_mock.call_args.kwargs["dest"].startswith(
+            "/tmp/kartograph-upload-sb-1"
+        )
 
         run_mock.assert_called_once()
         exec_args = run_mock.call_args.args[0]
@@ -279,11 +307,14 @@ class TestUploadGcloudAdc:
         adc = host_gcloud / "application_default_credentials.json"
         adc.write_text('{"type":"service_account"}', encoding="utf-8")
 
-        with patch(
-            "extraction.infrastructure.openshell.sandbox.run_openshell",
-        ) as run, patch(
-            "extraction.infrastructure.openshell.sandbox.upload_path",
-        ) as upload:
+        with (
+            patch(
+                "extraction.infrastructure.openshell.sandbox.run_openshell",
+            ) as run,
+            patch(
+                "extraction.infrastructure.openshell.sandbox.upload_path",
+            ) as upload,
+        ):
             from extraction.infrastructure.openshell.sandbox import upload_gcloud_adc
 
             upload_gcloud_adc(
@@ -323,7 +354,9 @@ class TestStartForward:
         config_home = tmp_path / "config"
         forwards_dir = config_home / "openshell" / "forwards"
         forwards_dir.mkdir(parents=True)
-        monkeypatch.setenv("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", str(config_home)
+        )
         monkeypatch.setattr("os.access", lambda _path, _mode: False)
 
         with pytest.raises(OpenShellCliError, match="read-only"):
@@ -337,7 +370,9 @@ class TestStartForward:
         config_home = tmp_path / "config"
         forwards_dir = config_home / "openshell" / "forwards"
         forwards_dir.mkdir(parents=True)
-        monkeypatch.setenv("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", str(config_home))
+        monkeypatch.setenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", str(config_home)
+        )
 
         with patch(
             "extraction.infrastructure.openshell.sandbox.subprocess.Popen",

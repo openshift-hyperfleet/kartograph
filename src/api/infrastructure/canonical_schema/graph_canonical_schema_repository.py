@@ -14,7 +14,9 @@ from graph.infrastructure.noop_mutation_applier import NoOpMutationApplier
 from graph.infrastructure.postgres_kg_type_definition_store import (
     PostgresKnowledgeGraphTypeDefinitionStore,
 )
-from graph.infrastructure.type_definition_repository import InMemoryTypeDefinitionRepository
+from graph.infrastructure.type_definition_repository import (
+    InMemoryTypeDefinitionRepository,
+)
 from infrastructure.canonical_schema.ontology_mutation_builder import (
     edge_type_metadata,
     node_type_metadata,
@@ -126,7 +128,11 @@ def _metadata_map_for_config(
     """Build lookup for authoring metadata preserved outside graph TypeDefinition."""
     metadata: dict[tuple[str, str], dict[str, Any]] = {}
     for node_type in config.node_types:
-        metadata[(node_type.label, EntityType.NODE.value)] = node_type_metadata(node_type)
+        metadata[(node_type.label, EntityType.NODE.value)] = node_type_metadata(
+            node_type
+        )
     for edge_type in config.edge_types:
-        metadata[(edge_type.label, EntityType.EDGE.value)] = edge_type_metadata(edge_type)
+        metadata[(edge_type.label, EntityType.EDGE.value)] = edge_type_metadata(
+            edge_type
+        )
     return metadata

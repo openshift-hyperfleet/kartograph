@@ -41,9 +41,9 @@ class SqlJobPackageArchiveReader:
         return None
 
     def _package_has_repository_content(self, package_id: str) -> bool:
-        archive_path = self._job_package_work_dir / JobPackageId(
-            value=package_id
-        ).archive_name()
+        archive_path = (
+            self._job_package_work_dir / JobPackageId(value=package_id).archive_name()
+        )
         if not archive_path.is_file():
             return False
         try:

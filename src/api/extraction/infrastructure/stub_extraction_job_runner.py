@@ -21,7 +21,9 @@ class StubExtractionJobRunner(IExtractionJobRunner):
         tenant_id: str,
     ) -> PreparedExtractionJobRun:
         _ = tenant_id
-        return PreparedExtractionJobRun(workdir=Path("/tmp/stub"), prompt=job.description)
+        return PreparedExtractionJobRun(
+            workdir=Path("/tmp/stub"), prompt=job.description
+        )
 
     async def run_prepared(
         self,

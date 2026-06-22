@@ -213,7 +213,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         existing: set[str] = set()
         for offset in range(0, len(node_ids), chunk_size):
             chunk = node_ids[offset : offset + chunk_size]
-            literals = ", ".join(f"'{_escape_cypher_string(node_id)}'" for node_id in chunk)
+            literals = ", ".join(
+                f"'{_escape_cypher_string(node_id)}'" for node_id in chunk
+            )
             query = f"""
                 MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}})
                 WHERE n.id IN [{literals}]
@@ -238,7 +240,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         existing: set[str] = set()
         for offset in range(0, len(edge_ids), chunk_size):
             chunk = edge_ids[offset : offset + chunk_size]
-            literals = ", ".join(f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk)
+            literals = ", ".join(
+                f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk
+            )
             query = f"""
                 MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}}]->()
                 WHERE r.id IN [{literals}]
@@ -264,7 +268,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         kg = _escape_cypher_string(knowledge_graph_id)
         for offset in range(0, len(node_ids), chunk_size):
             chunk = node_ids[offset : offset + chunk_size]
-            literals = ", ".join(f"'{_escape_cypher_string(node_id)}'" for node_id in chunk)
+            literals = ", ".join(
+                f"'{_escape_cypher_string(node_id)}'" for node_id in chunk
+            )
             query = f"""
                 MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}})
                 WHERE n.id IN [{literals}]
@@ -292,7 +298,9 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         kg = _escape_cypher_string(knowledge_graph_id)
         for offset in range(0, len(edge_ids), chunk_size):
             chunk = edge_ids[offset : offset + chunk_size]
-            literals = ", ".join(f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk)
+            literals = ", ".join(
+                f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk
+            )
             query = f"""
                 MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}}]->()
                 WHERE r.id IN [{literals}]

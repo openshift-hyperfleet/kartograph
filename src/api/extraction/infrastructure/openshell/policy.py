@@ -67,7 +67,9 @@ def resolve_endpoints(
     vertex_region: str | None = None,
 ) -> tuple[str, ...]:
     """Return OpenShell ``policy update --add-endpoint`` strings."""
-    path = resolve_policy_path(ui_mode=ui_mode, workload=workload, policy_dir=policy_dir)
+    path = resolve_policy_path(
+        ui_mode=ui_mode, workload=workload, policy_dir=policy_dir
+    )
     document = load_policy_yaml(path)
     raw = document.get("endpoints")
     if isinstance(raw, list) and raw:
@@ -99,7 +101,9 @@ def resolve_enforcement(
     policy_dir: str | None = None,
     default: PolicyEnforcement = "hard_requirement",
 ) -> PolicyEnforcement:
-    path = resolve_policy_path(ui_mode=ui_mode, workload=workload, policy_dir=policy_dir)
+    path = resolve_policy_path(
+        ui_mode=ui_mode, workload=workload, policy_dir=policy_dir
+    )
     document = load_policy_yaml(path)
     configured = str(document.get("enforcement", default)).strip()
     if configured in {"soft", "hard_requirement"}:
@@ -116,7 +120,9 @@ def resolve_l7_paths(
     workload: Literal["gma", "extraction_job"] = "gma",
     policy_dir: str | None = None,
 ) -> tuple[str, ...]:
-    path = resolve_policy_path(ui_mode=ui_mode, workload=workload, policy_dir=policy_dir)
+    path = resolve_policy_path(
+        ui_mode=ui_mode, workload=workload, policy_dir=policy_dir
+    )
     document = load_policy_yaml(path)
     raw = document.get("l7_allowed_paths")
     if not isinstance(raw, list):

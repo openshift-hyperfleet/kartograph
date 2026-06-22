@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.management.extraction_jobs_service import ExtractionJobsService
-from infrastructure.management.extraction_jobs_dependencies import get_extraction_jobs_service
+from infrastructure.management.extraction_jobs_dependencies import (
+    get_extraction_jobs_service,
+)
 from management.ports.exceptions import UnauthorizedError
 
 router = APIRouter(tags=["extraction-jobs"])
@@ -52,7 +54,9 @@ class ActionResponse(BaseModel):
 
 
 def _handle_value_error(exc: ValueError) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+    )
 
 
 @router.get(
@@ -72,7 +76,9 @@ async def get_extraction_jobs(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     return ExtractionJobsDocumentResponse.model_validate(payload)
 
 
@@ -105,7 +111,9 @@ async def save_extraction_jobs(
         kg_id=kg_id,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     payload["last_regenerated_jobs"] = regenerated.get("generated_jobs")
     payload["last_regenerate_warnings"] = regenerated.get("warnings")
     payload["last_regenerate_message"] = regenerated.get("message")
@@ -132,7 +140,10 @@ async def regenerate_extraction_jobs(
         raise _handle_value_error(exc)
     return ActionResponse(
         success=True,
-        message=str(result.get("message") or f"Regenerated {result.get('generated_jobs', 0)} jobs"),
+        message=str(
+            result.get("message")
+            or f"Regenerated {result.get('generated_jobs', 0)} jobs"
+        ),
         generated_jobs=int(result.get("generated_jobs") or 0),
         warnings=[str(item) for item in result.get("warnings") or []],
     )
@@ -177,7 +188,9 @@ async def get_extraction_job_detail(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction job not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Extraction job not found"
+        )
     return payload
 
 
@@ -197,7 +210,9 @@ async def get_extraction_job_activity(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Extraction job not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Extraction job not found"
+        )
     return payload
 
 
@@ -215,11 +230,15 @@ async def get_archived_extraction_history(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     return payload
 
 
-@router.get("/knowledge-graphs/{kg_id}/extraction-jobs/jobs/{job_id}/archived-mutations")
+@router.get(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/jobs/{job_id}/archived-mutations"
+)
 async def get_archived_job_mutations(
     kg_id: str,
     job_id: str,
@@ -235,7 +254,9 @@ async def get_archived_job_mutations(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archived job not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Archived job not found"
+        )
     return payload
 
 
@@ -253,7 +274,9 @@ async def get_extraction_database_status(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     return payload
 
 
@@ -271,7 +294,9 @@ async def get_extraction_run_state(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     return payload
 
 
@@ -289,11 +314,15 @@ async def get_extraction_plan_summary(
     except UnauthorizedError:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge graph not found"
+        )
     return payload
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/start", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/start", response_model=ActionResponse
+)
 async def start_extraction(
     kg_id: str,
     body: StartExtractionRequest,
@@ -313,7 +342,9 @@ async def start_extraction(
     return ActionResponse(success=True, message=result.get("message"))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/pause", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/pause", response_model=ActionResponse
+)
 async def pause_extraction(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -331,7 +362,9 @@ async def pause_extraction(
     return ActionResponse(success=True, message=result.get("message"))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/halt", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/halt", response_model=ActionResponse
+)
 async def halt_extraction(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -349,7 +382,10 @@ async def halt_extraction(
     return ActionResponse(success=True, message=result.get("message"))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/reset-stale", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/reset-stale",
+    response_model=ActionResponse,
+)
 async def reset_stale_jobs(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -365,7 +401,10 @@ async def reset_stale_jobs(
     return ActionResponse(success=True, reset_count=int(result.get("reset_count") or 0))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/reset-completed", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/reset-completed",
+    response_model=ActionResponse,
+)
 async def reset_completed_jobs(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -381,7 +420,10 @@ async def reset_completed_jobs(
     return ActionResponse(success=True, reset_count=int(result.get("reset_count") or 0))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/archive-completed", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/archive-completed",
+    response_model=ActionResponse,
+)
 async def archive_completed_jobs(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -401,7 +443,10 @@ async def archive_completed_jobs(
     )
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/reset-failed", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/reset-failed",
+    response_model=ActionResponse,
+)
 async def reset_failed_jobs(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],
@@ -417,7 +462,9 @@ async def reset_failed_jobs(
     return ActionResponse(success=True, reset_count=int(result.get("reset_count") or 0))
 
 
-@router.post("/knowledge-graphs/{kg_id}/extraction-jobs/reset", response_model=ActionResponse)
+@router.post(
+    "/knowledge-graphs/{kg_id}/extraction-jobs/reset", response_model=ActionResponse
+)
 async def reset_extraction_jobs(
     kg_id: str,
     service: Annotated[ExtractionJobsService, Depends(get_extraction_jobs_service)],

@@ -15,18 +15,28 @@ from extraction.application import (
 from extraction.application.graph_management_session_journal import (
     GraphManagementSessionJournalService,
 )
-from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from extraction.application.sticky_session_runtime_service import (
+    StickySessionRuntimeService,
+)
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
 from extraction.infrastructure.sticky_runtime_health import StickyRuntimeHealthChecker
-from extraction.infrastructure.ingestion_readiness_reader import SqlIngestionReadinessReader
+from extraction.infrastructure.ingestion_readiness_reader import (
+    SqlIngestionReadinessReader,
+)
 from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
 from extraction.infrastructure.repositories import (
     ExtractionAgentSessionRepository,
     ExtractionSessionRunMetricsReader,
     ExtractionSkillOverrideRepository,
 )
-from extraction.infrastructure.sticky_session_bootstrap_builder import StickySessionBootstrapBuilder
+from extraction.infrastructure.sticky_session_bootstrap_builder import (
+    StickySessionBootstrapBuilder,
+)
 from extraction.infrastructure.sticky_session_workdir_materializer import (
     StickySessionWorkdirMaterializer,
 )
@@ -38,7 +48,9 @@ from extraction.infrastructure.workload_runtime_factory import (
 )
 from datetime import timedelta
 
-from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 from extraction.ports.runtime import (
     IEphemeralExtractionWorkerLauncher,
     IStickySessionRuntimeManager,

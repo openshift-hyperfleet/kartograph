@@ -314,16 +314,18 @@ class TestGetKnowledgeGraphWorkspaceStatusRoute:
         mock_current_user: CurrentUser,
     ) -> None:
         """Should return mode/readiness/session projection when authorized."""
-        mock_kg_service.get_workspace_status.return_value = KnowledgeGraphWorkspaceStatus(
-            knowledge_graph_id=sample_knowledge_graph.id.value,
-            workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
-            readiness=WorkspaceReadinessStatus(
-                has_minimum_entity_types=True,
-                has_minimum_relationship_types=False,
-                prepopulated_types_ready=True,
-            ),
-            transition_eligible=False,
-            session_pointers=WorkspaceSessionPointers(),
+        mock_kg_service.get_workspace_status.return_value = (
+            KnowledgeGraphWorkspaceStatus(
+                knowledge_graph_id=sample_knowledge_graph.id.value,
+                workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
+                readiness=WorkspaceReadinessStatus(
+                    has_minimum_entity_types=True,
+                    has_minimum_relationship_types=False,
+                    prepopulated_types_ready=True,
+                ),
+                transition_eligible=False,
+                session_pointers=WorkspaceSessionPointers(),
+            )
         )
 
         response = test_client.get(

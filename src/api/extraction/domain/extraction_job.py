@@ -69,7 +69,9 @@ class ExtractionTargetFile:
                 str(data["baseline_commit"]) if data.get("baseline_commit") else None
             ),
             head_commit=str(data["head_commit"]) if data.get("head_commit") else None,
-            change_status=str(data["change_status"]) if data.get("change_status") else None,
+            change_status=str(data["change_status"])
+            if data.get("change_status")
+            else None,
             patch=str(data["patch"]) if data.get("patch") is not None else None,
             data_source_id=(
                 str(data["data_source_id"]) if data.get("data_source_id") else None
@@ -113,7 +115,9 @@ class ExtractionJobRecord:
     status: ExtractionJobStatus
     order_index: int
     description: str
-    target_instances: tuple[ExtractionTargetInstance, ...] = field(default_factory=tuple)
+    target_instances: tuple[ExtractionTargetInstance, ...] = field(
+        default_factory=tuple
+    )
     target_files: tuple[ExtractionTargetFile, ...] = field(default_factory=tuple)
     worker_id: str | None = None
     started_at: datetime | None = None
@@ -153,11 +157,17 @@ class ExtractionJobRecord:
             "status": self.status.value,
             "order_index": self.order_index,
             "description": self.description,
-            "target_instances": [instance.to_dict() for instance in self.target_instances],
-            "target_files": [target_file.to_dict() for target_file in self.target_files],
+            "target_instances": [
+                instance.to_dict() for instance in self.target_instances
+            ],
+            "target_files": [
+                target_file.to_dict() for target_file in self.target_files
+            ],
             "worker_id": self.worker_id,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "error_message": self.error_message,
             "attempt": self.attempt,
             "input_tokens": self.input_tokens,
@@ -170,7 +180,9 @@ class ExtractionJobRecord:
             "relationships_created": self.relationships_created,
             "relationships_modified": self.relationships_modified,
             "write_ops": self.write_ops(),
-            "run_started_at": self.run_started_at.isoformat() if self.run_started_at else None,
+            "run_started_at": self.run_started_at.isoformat()
+            if self.run_started_at
+            else None,
             "archived_at": self.archived_at.isoformat() if self.archived_at else None,
             "instance_count": len(self.target_instances),
             "file_count": len(self.target_files),

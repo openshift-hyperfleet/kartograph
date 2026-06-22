@@ -17,8 +17,12 @@ from shared_kernel.job_package.value_objects import (
 )
 
 
-def test_job_package_work_dir_defaults_to_tmp_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR", raising=False)
+def test_job_package_work_dir_defaults_to_tmp_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(
+        "KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR", raising=False
+    )
 
     from shared_kernel.job_package.archive_availability import job_package_work_dir
 
@@ -49,8 +53,12 @@ def test_job_package_archive_exists_when_file_present(tmp_path: Path) -> None:
     builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={}))
     builder.build(tmp_path)
 
-    assert job_package_archive_exists(work_dir=tmp_path, job_package_id=package_id) is True
+    assert (
+        job_package_archive_exists(work_dir=tmp_path, job_package_id=package_id) is True
+    )
 
 
 def test_job_package_archive_exists_when_file_missing(tmp_path: Path) -> None:
-    assert job_package_archive_exists(work_dir=tmp_path, job_package_id="missing") is False
+    assert (
+        job_package_archive_exists(work_dir=tmp_path, job_package_id="missing") is False
+    )

@@ -106,7 +106,9 @@ def load_relationships(payload: Any) -> list[dict[str, Any]]:
             raise ValueError(f"Relationship at index {index} is missing target_slug")
         properties = row.get("properties") or {}
         if not isinstance(properties, dict):
-            raise ValueError(f"Relationship at index {index} properties must be an object")
+            raise ValueError(
+                f"Relationship at index {index} properties must be an object"
+            )
         relationships.append(
             {
                 "source_slug": str(source_slug).strip(),
@@ -136,12 +138,18 @@ def main() -> int:
         "target_entity_type",
         help="Target entity type label matching ontology exactly (case-sensitive).",
     )
-    parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
-    parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic ids.")
+    parser.add_argument(
+        "input", nargs="?", help="Path to JSON file; omit to read stdin."
+    )
+    parser.add_argument(
+        "--tenant-id", default="", help="Tenant id for deterministic ids."
+    )
     parser.add_argument("--data-source-id", default="schema-bootstrap")
     args = parser.parse_args()
 
-    raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
+    raw = (
+        Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
+    )
     relationships = load_relationships(json.loads(raw))
     for row in relationships:
         line = relationship_to_create_line(

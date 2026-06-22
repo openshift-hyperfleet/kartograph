@@ -176,4 +176,3 @@ async def test_truncates_changed_files_when_max_exceeded():
     assert result.added_count == 1
     assert result.modified_count == 1
     assert result.removed_count == 1
-

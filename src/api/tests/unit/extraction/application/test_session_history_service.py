@@ -9,7 +9,11 @@ import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import ExtractionSessionMode, ExtractionSessionRunMetric, GraphManagementUiMode
+from extraction.domain.value_objects import (
+    ExtractionSessionMode,
+    ExtractionSessionRunMetric,
+    GraphManagementUiMode,
+)
 from extraction.domain.value_objects import ExtractionSessionMode as Mode
 
 
@@ -150,7 +154,9 @@ class TestExtractionSessionHistoryService:
         )
 
         assert len(history) == 2
-        archived_record = next(item for item in history if item.session.archived_at is not None)
+        archived_record = next(
+            item for item in history if item.session.archived_at is not None
+        )
         assert archived_record.session.id == archived.id
         assert archived_record.session.updated_at is not None
         assert archived_record.session.archived_at is not None
@@ -189,5 +195,8 @@ class TestExtractionSessionHistoryService:
         )
 
         assert len(history) == 3
-        assert any(item.session.id == first.id and item.session.archived_at is not None for item in history)
+        assert any(
+            item.session.id == first.id and item.session.archived_at is not None
+            for item in history
+        )
         assert sum(1 for item in history if item.session.archived_at is None) == 1

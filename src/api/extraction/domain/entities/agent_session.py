@@ -32,4 +32,3 @@ class ExtractionAgentSession:
         now = when or datetime.now(UTC)
         self.archived_at = now
         self.updated_at = now
-

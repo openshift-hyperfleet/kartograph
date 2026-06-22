@@ -17,7 +17,10 @@ from extraction.domain.extraction_job import (
     ExtractionTargetFile,
     ExtractionTargetInstance,
 )
-from extraction.infrastructure.models.extraction_job import ExtractionJobModel, ExtractionRunModel
+from extraction.infrastructure.models.extraction_job import (
+    ExtractionJobModel,
+    ExtractionRunModel,
+)
 
 
 def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
@@ -31,7 +34,8 @@ def _job_model_to_record(model: ExtractionJobModel) -> ExtractionJobRecord:
         order_index=model.order_index,
         description=model.description,
         target_instances=tuple(
-            ExtractionTargetInstance.from_dict(row) for row in (model.target_instances or [])
+            ExtractionTargetInstance.from_dict(row)
+            for row in (model.target_instances or [])
         ),
         target_files=tuple(
             ExtractionTargetFile.from_dict(row) for row in (model.target_files or [])
@@ -99,8 +103,12 @@ class ExtractionJobRepository:
                     status=job.status.value,
                     order_index=job.order_index,
                     description=job.description,
-                    target_instances=[instance.to_dict() for instance in job.target_instances],
-                    target_files=[target_file.to_dict() for target_file in job.target_files],
+                    target_instances=[
+                        instance.to_dict() for instance in job.target_instances
+                    ],
+                    target_files=[
+                        target_file.to_dict() for target_file in job.target_files
+                    ],
                 )
             )
         await self._session.flush()
@@ -160,7 +168,9 @@ class ExtractionJobRepository:
                     )
                 )
 
-        stale_names = await self._list_pending_job_set_names(knowledge_graph_id=knowledge_graph_id)
+        stale_names = await self._list_pending_job_set_names(
+            knowledge_graph_id=knowledge_graph_id
+        )
         for job_set_name in stale_names:
             if job_set_name not in configured_job_set_names:
                 await self._delete_pending_for_job_set(
@@ -267,7 +277,9 @@ class ExtractionJobRepository:
         result = await self._session.execute(stmt)
         return int(result.scalar_one())
 
-    async def job_set_names_with_in_progress(self, *, knowledge_graph_id: str) -> set[str]:
+    async def job_set_names_with_in_progress(
+        self, *, knowledge_graph_id: str
+    ) -> set[str]:
         stmt = (
             select(ExtractionJobModel.job_set_name)
             .where(
@@ -314,7 +326,9 @@ class ExtractionJobRepository:
             counts[str(status)] = int(count)
         return counts
 
-    async def count_by_job_set(self, *, knowledge_graph_id: str) -> dict[str, dict[str, int]]:
+    async def count_by_job_set(
+        self, *, knowledge_graph_id: str
+    ) -> dict[str, dict[str, int]]:
         stmt = (
             select(
                 ExtractionJobModel.job_set_name,
@@ -438,7 +452,9 @@ class ExtractionJobRepository:
         )
         return int(result.rowcount or 0) > 0
 
-    async def list_active_workers(self, *, knowledge_graph_id: str) -> list[dict[str, Any]]:
+    async def list_active_workers(
+        self, *, knowledge_graph_id: str
+    ) -> list[dict[str, Any]]:
         stmt = select(ExtractionJobModel).where(
             ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
             ExtractionJobModel.status == ExtractionJobStatus.IN_PROGRESS.value,
@@ -454,7 +470,9 @@ class ExtractionJobRepository:
                     "strategy": model.strategy,
                     "fileCount": len(model.target_files or []),
                     "instanceCount": len(model.target_instances or []),
-                    "startedAt": model.started_at.isoformat() if model.started_at else None,
+                    "startedAt": model.started_at.isoformat()
+                    if model.started_at
+                    else None,
                 }
             )
         return workers
@@ -471,7 +489,9 @@ class ExtractionJobRepository:
                 ExtractionJobModel.knowledge_graph_id == knowledge_graph_id,
                 ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
             )
-            .order_by(ExtractionJobModel.order_index.asc(), ExtractionJobModel.job_id.asc())
+            .order_by(
+                ExtractionJobModel.order_index.asc(), ExtractionJobModel.job_id.asc()
+            )
             .limit(1)
             .with_for_update(skip_locked=True)
         )
@@ -535,7 +555,10 @@ class ExtractionJobRepository:
             if isinstance(applied_jsonl, str) and applied_jsonl.strip():
                 values["applied_mutations_jsonl"] = applied_jsonl
             instance_changes_jsonl = payload.get("applied_instance_changes_jsonl")
-            if isinstance(instance_changes_jsonl, str) and instance_changes_jsonl.strip():
+            if (
+                isinstance(instance_changes_jsonl, str)
+                and instance_changes_jsonl.strip()
+            ):
                 values["applied_instance_changes_jsonl"] = instance_changes_jsonl
         await self._session.execute(
             update(ExtractionJobModel)
@@ -638,8 +661,12 @@ class ExtractionJobRepository:
                 status=job.status.value,
                 order_index=job.order_index,
                 description=job.description,
-                target_instances=[instance.to_dict() for instance in job.target_instances],
-                target_files=[target_file.to_dict() for target_file in job.target_files],
+                target_instances=[
+                    instance.to_dict() for instance in job.target_instances
+                ],
+                target_files=[
+                    target_file.to_dict() for target_file in job.target_files
+                ],
                 started_at=job.started_at,
                 completed_at=job.completed_at,
                 entities_created=job.entities_created,
@@ -682,7 +709,9 @@ class ExtractionJobRepository:
         result = await self._session.execute(stmt)
         return [_job_model_to_record(model) for model in result.scalars().all()]
 
-    async def aggregate_token_metrics(self, *, knowledge_graph_id: str) -> dict[str, float | int]:
+    async def aggregate_token_metrics(
+        self, *, knowledge_graph_id: str
+    ) -> dict[str, float | int]:
         stmt = select(
             func.coalesce(func.sum(ExtractionJobModel.input_tokens), 0),
             func.coalesce(func.sum(ExtractionJobModel.output_tokens), 0),
@@ -700,7 +729,9 @@ class ExtractionJobRepository:
             "totalCostUsd": float(row[4]),
         }
 
-    async def avg_completed_job_seconds(self, *, knowledge_graph_id: str) -> float | None:
+    async def avg_completed_job_seconds(
+        self, *, knowledge_graph_id: str
+    ) -> float | None:
         stmt = select(
             func.avg(
                 func.extract(
@@ -769,7 +800,9 @@ class ExtractionJobRepository:
         await self._session.flush()
         return _run_model_to_record(model)
 
-    async def set_pause_requested(self, *, knowledge_graph_id: str, pause_requested: bool) -> None:
+    async def set_pause_requested(
+        self, *, knowledge_graph_id: str, pause_requested: bool
+    ) -> None:
         await self._session.execute(
             update(ExtractionRunModel)
             .where(ExtractionRunModel.knowledge_graph_id == knowledge_graph_id)

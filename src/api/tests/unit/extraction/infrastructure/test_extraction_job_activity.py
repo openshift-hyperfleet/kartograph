@@ -22,7 +22,11 @@ def test_format_claude_code_stream_line_parses_assistant_thoughts() -> None:
             "message": {
                 "content": [
                     {"type": "text", "text": "Inspecting adapter configuration files."},
-                    {"type": "tool_use", "name": "Read", "input": {"path": "job-context.json"}},
+                    {
+                        "type": "tool_use",
+                        "name": "Read",
+                        "input": {"path": "job-context.json"},
+                    },
                 ]
             },
         }
@@ -50,9 +54,17 @@ def test_format_claude_code_stream_line_parses_result_error() -> None:
 def test_parse_activity_messages_expands_legacy_json_lines(tmp_path: Path) -> None:
     log_path = tmp_path / "agent_activity.log"
     append_activity_line(log_path, "📡 Processing job adapter_batch_0001_abcd")
-    append_activity_message(log_path, kind="system", text="Agent initialized (model: claude-opus-4-6)")
-    append_activity_message(log_path, kind="thought", text="Scanning repository-files for adapter config")
-    append_activity_message(log_path, kind="error", text="API Error: Could not load the default credentials.")
+    append_activity_message(
+        log_path, kind="system", text="Agent initialized (model: claude-opus-4-6)"
+    )
+    append_activity_message(
+        log_path, kind="thought", text="Scanning repository-files for adapter config"
+    )
+    append_activity_message(
+        log_path,
+        kind="error",
+        text="API Error: Could not load the default credentials.",
+    )
 
     messages = parse_activity_messages(read_activity_log(tmp_path))
 
@@ -65,9 +77,15 @@ def test_parse_activity_messages_expands_legacy_json_lines(tmp_path: Path) -> No
 def test_read_assistant_preview_returns_latest_thought_for_job(tmp_path: Path) -> None:
     log_path = tmp_path / "agent_activity.log"
     append_activity_line(log_path, "📡 Processing job adapter_batch_0001_abcd")
-    append_activity_message(log_path, kind="thought", text="Scanning repository-files for adapter config")
-    append_activity_message(log_path, kind="tool", text="Using tool: kartograph_apply_graph_mutations")
-    append_activity_message(log_path, kind="thought", text="Linked adapter to three Resource entities")
+    append_activity_message(
+        log_path, kind="thought", text="Scanning repository-files for adapter config"
+    )
+    append_activity_message(
+        log_path, kind="tool", text="Using tool: kartograph_apply_graph_mutations"
+    )
+    append_activity_message(
+        log_path, kind="thought", text="Linked adapter to three Resource entities"
+    )
 
     preview = read_assistant_preview(tmp_path, job_id="adapter_batch_0001_abcd")
 

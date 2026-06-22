@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from graph.domain.value_objects import EntityType, MutationOperation, MutationOperationType
+from graph.domain.value_objects import (
+    EntityType,
+    MutationOperation,
+    MutationOperationType,
+)
 from management.domain.value_objects import OntologyConfig
 
 

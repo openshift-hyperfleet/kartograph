@@ -37,7 +37,9 @@ def _entity_paths(label: str) -> tuple[Path, Path, Path]:
     return scanner, json_path, jsonl_path
 
 
-def _relationship_paths(*, source: str, relationship: str, target: str) -> tuple[Path, Path, Path]:
+def _relationship_paths(
+    *, source: str, relationship: str, target: str
+) -> tuple[Path, Path, Path]:
     stem = relationship_scanner_stem(
         source=source,
         relationship=relationship,
@@ -51,11 +53,15 @@ def _relationship_paths(*, source: str, relationship: str, target: str) -> tuple
     return GENERATORS_DIR / f"{stem}.py", Path(json_rel), Path(jsonl_rel)
 
 
-def _run_scanner(*, scanner_path: Path, repository_files: Path, json_path: Path) -> None:
+def _run_scanner(
+    *, scanner_path: Path, repository_files: Path, json_path: Path
+) -> None:
     if not scanner_path.is_file():
         raise FileNotFoundError(f"Scanner not found: {scanner_path}")
     if not repository_files.is_dir():
-        raise FileNotFoundError(f"Repository files directory not found: {repository_files}")
+        raise FileNotFoundError(
+            f"Repository files directory not found: {repository_files}"
+        )
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with json_path.open("w", encoding="utf-8") as handle:
         subprocess.run(
@@ -85,7 +91,11 @@ def _convert_entity_jsonl(
             check=True,
             stdout=handle,
         )
-    return sum(1 for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return sum(
+        1
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def _convert_relationship_jsonl(
@@ -112,7 +122,11 @@ def _convert_relationship_jsonl(
             check=True,
             stdout=handle,
         )
-    return sum(1 for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    return sum(
+        1
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def _load_instance_count(json_path: Path) -> int:
@@ -137,7 +151,9 @@ def main() -> int:
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--entity", action="store_true", help="Run an entity scanner.")
-    mode.add_argument("--relationship", action="store_true", help="Run a relationship scanner.")
+    mode.add_argument(
+        "--relationship", action="store_true", help="Run a relationship scanner."
+    )
     parser.add_argument("--source", help="Relationship source entity type label.")
     parser.add_argument("--rel", help="Relationship type label.")
     parser.add_argument("--target", help="Relationship target entity type label.")

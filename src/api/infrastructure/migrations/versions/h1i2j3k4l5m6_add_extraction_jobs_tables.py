@@ -41,12 +41,20 @@ def upgrade() -> None:
         sa.Column("attempt", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("input_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("output_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("cache_read_tokens", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("cache_creation_tokens", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "cache_read_tokens", sa.Integer(), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "cache_creation_tokens", sa.Integer(), nullable=False, server_default="0"
+        ),
         sa.Column("cost_usd", sa.Float(), nullable=False, server_default="0"),
         sa.Column("entities_created", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("entities_modified", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("relationships_created", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "entities_modified", sa.Integer(), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "relationships_created", sa.Integer(), nullable=False, server_default="0"
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -65,7 +73,9 @@ def upgrade() -> None:
             name="uq_extraction_jobs_kg_job_id",
         ),
     )
-    op.create_index("idx_extraction_jobs_kg_id", "extraction_jobs", ["knowledge_graph_id"])
+    op.create_index(
+        "idx_extraction_jobs_kg_id", "extraction_jobs", ["knowledge_graph_id"]
+    )
     op.create_index("idx_extraction_jobs_status", "extraction_jobs", ["status"])
 
     op.create_table(
@@ -74,7 +84,9 @@ def upgrade() -> None:
         sa.Column("knowledge_graph_id", sa.String(length=26), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("worker_count", sa.Integer(), nullable=False, server_default="1"),
-        sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "pause_requested", sa.Boolean(), nullable=False, server_default="false"
+        ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("orchestrator_pid", sa.Integer(), nullable=True),

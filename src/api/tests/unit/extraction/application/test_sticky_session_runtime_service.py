@@ -5,13 +5,17 @@ from __future__ import annotations
 import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
-from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
+from extraction.application.sticky_session_runtime_service import (
+    StickySessionRuntimeService,
+)
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
     GraphManagementUiMode,
     IngestionReadinessSnapshot,
 )
-from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
+from extraction.infrastructure.workload_runtime import (
+    InMemoryStickySessionRuntimeManager,
+)
 from shared_kernel.container_runtime.ports import ContainerRuntimeError
 
 
@@ -45,7 +49,9 @@ class _InMemoryAgentSessionRepository:
                 return replace(session)
         return None
 
-    async def find_active_by_ui_mode(self, user_id: str, knowledge_graph_id: str, ui_mode):
+    async def find_active_by_ui_mode(
+        self, user_id: str, knowledge_graph_id: str, ui_mode
+    ):
         for session in self._sessions.values():
             if (
                 session.user_id == user_id
@@ -105,7 +111,9 @@ class _RecordingBootstrapBuilder:
         self.calls: list[dict[str, object]] = []
 
     async def resolve_job_packages(self, **kwargs):
-        from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+        from extraction.domain.prepared_job_package_source import (
+            PreparedJobPackageSource,
+        )
 
         return (
             PreparedJobPackageSource(
@@ -200,7 +208,9 @@ class _OnceInactiveStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inactive() -> None:
+async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inactive() -> (
+    None
+):
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
     sticky = _OnceInactiveStickyRuntimeManager()
@@ -244,7 +254,9 @@ async def test_ensure_runtime_for_chat_reprepares_when_persisted_runtime_is_inac
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization_changes() -> None:
+async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization_changes() -> (
+    None
+):
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
     sticky = InMemoryStickySessionRuntimeManager()
@@ -271,7 +283,9 @@ async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization
         mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP.value,
     )
     lease = sticky.try_resolve_active_lease(session_id=session.id)
-    session.runtime_context["workspace_materialization"] = {"job_package_ids": ["stale-pkg"]}
+    session.runtime_context["workspace_materialization"] = {
+        "job_package_ids": ["stale-pkg"]
+    }
     session.runtime_context["sticky_runtime"] = {
         "container_id": lease.container_id,
         "status": "active",
@@ -297,7 +311,9 @@ async def test_ensure_runtime_for_chat_restarts_when_job_package_materialization
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepare() -> None:
+async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepare() -> (
+    None
+):
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
     sticky = InMemoryStickySessionRuntimeManager()
@@ -323,7 +339,9 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
         knowledge_graph_id="kg-1",
         mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP.value,
     )
-    session.runtime_context["workspace_materialization"] = {"job_package_ids": ["pkg-1"]}
+    session.runtime_context["workspace_materialization"] = {
+        "job_package_ids": ["pkg-1"]
+    }
     await session_service.save_session(session)
 
     events = [
@@ -344,7 +362,9 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_for_chat_restarts_when_persisted_container_is_unhealthy() -> None:
+async def test_ensure_runtime_for_chat_restarts_when_persisted_container_is_unhealthy() -> (
+    None
+):
     repo = _InMemoryAgentSessionRepository()
     session_service = ExtractionAgentSessionService(repository=repo)
     sticky = InMemoryStickySessionRuntimeManager()

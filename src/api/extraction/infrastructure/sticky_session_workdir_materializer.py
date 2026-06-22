@@ -76,9 +76,10 @@ class StickySessionWorkdirMaterializer:
 
         index_sources: list[dict[str, object]] = []
         for source in job_packages:
-            archive_path = self._job_package_work_dir / JobPackageId(
-                value=source.package_id
-            ).archive_name()
+            archive_path = (
+                self._job_package_work_dir
+                / JobPackageId(value=source.package_id).archive_name()
+            )
             if not archive_path.exists():
                 continue
             reader = JobPackageReader(archive_path)

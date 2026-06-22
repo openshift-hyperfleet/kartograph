@@ -5,7 +5,10 @@ from __future__ import annotations
 import shutil
 
 from shared_kernel.container_runtime.cli_runtime import CliContainerRuntime
-from shared_kernel.container_runtime.ports import ContainerRuntimeError, IContainerRuntime
+from shared_kernel.container_runtime.ports import (
+    ContainerRuntimeError,
+    IContainerRuntime,
+)
 
 
 def create_container_runtime(engine: str = "auto") -> IContainerRuntime:

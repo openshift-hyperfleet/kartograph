@@ -29,7 +29,9 @@ def test_design_artifacts_exposes_reverse_relationship_type() -> None:
     )
 
     contains = next(
-        row for row in artifacts["relationships"] if row["relationship_type"] == "contains"
+        row
+        for row in artifacts["relationships"]
+        if row["relationship_type"] == "contains"
     )
     assert contains["reverse_relationship_type"] == "contained_in"
     inverse_labels = {row["relationship_type"] for row in artifacts["relationships"]}
@@ -67,5 +69,9 @@ def test_design_artifacts_hides_auto_generated_inverse_rows() -> None:
 
     labels = {row["relationship_type"] for row in artifacts["relationships"]}
     assert labels == {"exercises", "covered_by"}
-    exercises = next(row for row in artifacts["relationships"] if row["relationship_type"] == "exercises")
+    exercises = next(
+        row
+        for row in artifacts["relationships"]
+        if row["relationship_type"] == "exercises"
+    )
     assert exercises["reverse_relationship_type"] == "exercises_inverse"

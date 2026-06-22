@@ -8,7 +8,9 @@ from extraction.infrastructure.vertex_runtime_env import (
 )
 
 
-def test_build_openshell_inference_container_env_routes_through_inference_local() -> None:
+def test_build_openshell_inference_container_env_routes_through_inference_local() -> (
+    None
+):
     env = build_openshell_inference_container_env()
     assert env["ANTHROPIC_BASE_URL"] == "https://inference.local"
     assert env["ANTHROPIC_API_KEY"] == "unused"

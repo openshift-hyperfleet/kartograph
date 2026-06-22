@@ -19,7 +19,10 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
         json.dumps(
             [
                 {"slug": "b-entity", "properties": {"name": "B"}},
-                {"slug": "a-entity", "properties": {"name": "A", "file_path": "pkg/a.go"}},
+                {
+                    "slug": "a-entity",
+                    "properties": {"name": "A", "file_path": "pkg/a.go"},
+                },
             ]
         ),
         encoding="utf-8",
@@ -59,7 +62,9 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
     assert rerun.stdout == proc.stdout
 
 
-def test_entities_to_jsonl_omits_source_path_when_not_configured(tmp_path: Path) -> None:
+def test_entities_to_jsonl_omits_source_path_when_not_configured(
+    tmp_path: Path,
+) -> None:
     instances_path = tmp_path / "test_instances.json"
     instances_path.write_text(
         json.dumps([{"slug": "a-entity", "properties": {"name": "A"}}]),
@@ -77,11 +82,18 @@ def test_entities_to_jsonl_omits_source_path_when_not_configured(tmp_path: Path)
     assert "source_path" not in line["set_properties"]
 
 
-def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(tmp_path: Path) -> None:
+def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(
+    tmp_path: Path,
+) -> None:
     instances_path = tmp_path / "test_instances.json"
     instances_path.write_text(
         json.dumps(
-            [{"slug": "a-entity", "properties": {"name": "A", "source_path": "pkg/a_test.go"}}]
+            [
+                {
+                    "slug": "a-entity",
+                    "properties": {"name": "A", "source_path": "pkg/a_test.go"},
+                }
+            ]
         ),
         encoding="utf-8",
     )
@@ -100,7 +112,14 @@ def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(tmp_pat
 def test_entities_to_jsonl_preserves_pascal_case_entity_label(tmp_path: Path) -> None:
     instances_path = tmp_path / "APIEndpoint_instances.json"
     instances_path.write_text(
-        json.dumps([{"slug": "get-healthz", "properties": {"method": "GET", "path": "/healthz"}}]),
+        json.dumps(
+            [
+                {
+                    "slug": "get-healthz",
+                    "properties": {"method": "GET", "path": "/healthz"},
+                }
+            ]
+        ),
         encoding="utf-8",
     )
 

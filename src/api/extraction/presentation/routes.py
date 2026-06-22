@@ -16,7 +16,9 @@ from extraction.dependencies import (
     get_extraction_agent_session_service_with_runtime,
     get_extraction_chat_turn_service,
 )
-from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.graph_management_session_scope import (
+    resolve_backend_session_mode,
+)
 from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.presentation.models import (
     BootstrapIntakePathSelectionRequest,
@@ -85,7 +87,8 @@ async def get_active_session(
     graph_management_ui_mode: GraphManagementUiMode,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
-        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service_with_runtime)
+        ExtractionAgentSessionService,
+        Depends(get_extraction_agent_session_service_with_runtime),
     ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> ExtractionSessionResponse:
@@ -118,7 +121,8 @@ async def start_session(
     request: GraphManagementSessionRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[
-        ExtractionAgentSessionService, Depends(get_extraction_agent_session_service_with_runtime)
+        ExtractionAgentSessionService,
+        Depends(get_extraction_agent_session_service_with_runtime),
     ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> ExtractionSessionResponse:
@@ -264,7 +268,9 @@ async def stream_runtime_warmup(
     mode: ExtractionSessionMode,
     request: StickyRuntimeWarmupRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)],
+    service: Annotated[
+        ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)
+    ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> StreamingResponse:
     await _assert_kg_edit_permission(
@@ -300,7 +306,9 @@ async def stream_chat_turn(
     mode: ExtractionSessionMode,
     request: ExtractionChatTurnRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    service: Annotated[ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)],
+    service: Annotated[
+        ExtractionChatTurnService, Depends(get_extraction_chat_turn_service)
+    ],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
 ) -> StreamingResponse:
     await _assert_kg_edit_permission(
@@ -354,4 +362,3 @@ async def select_bootstrap_intake_path(
         capabilities_goals=request.capabilities_goals,
     )
     return ExtractionSessionResponse.from_domain(session)
-

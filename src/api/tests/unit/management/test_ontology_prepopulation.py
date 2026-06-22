@@ -25,7 +25,9 @@ def _bootstrap_ontology(
 
 
 class TestValidateOntologyPrepopulation:
-    def test_allows_prepopulated_relationship_when_endpoints_are_prepopulated(self) -> None:
+    def test_allows_prepopulated_relationship_when_endpoints_are_prepopulated(
+        self,
+    ) -> None:
         config = _bootstrap_ontology(
             nodes=(
                 NodeTypeDefinition(label="test", prepopulated=True),
@@ -43,7 +45,9 @@ class TestValidateOntologyPrepopulation:
 
         validate_ontology_prepopulation(config)
 
-    def test_rejects_prepopulated_relationship_when_source_not_prepopulated(self) -> None:
+    def test_rejects_prepopulated_relationship_when_source_not_prepopulated(
+        self,
+    ) -> None:
         config = _bootstrap_ontology(
             nodes=(
                 NodeTypeDefinition(label="test", prepopulated=False),
@@ -59,10 +63,14 @@ class TestValidateOntologyPrepopulation:
             ),
         )
 
-        with pytest.raises(PrepopulationValidationError, match="source entity type `test`"):
+        with pytest.raises(
+            PrepopulationValidationError, match="source entity type `test`"
+        ):
             validate_ontology_prepopulation(config)
 
-    def test_rejects_prepopulated_relationship_when_target_not_prepopulated(self) -> None:
+    def test_rejects_prepopulated_relationship_when_target_not_prepopulated(
+        self,
+    ) -> None:
         config = _bootstrap_ontology(
             nodes=(
                 NodeTypeDefinition(label="test", prepopulated=True),
@@ -78,7 +86,9 @@ class TestValidateOntologyPrepopulation:
             ),
         )
 
-        with pytest.raises(PrepopulationValidationError, match="target entity type `api_endpoint`"):
+        with pytest.raises(
+            PrepopulationValidationError, match="target entity type `api_endpoint`"
+        ):
             validate_ontology_prepopulation(config)
 
     def test_rejects_prepopulated_relationship_when_endpoint_type_missing(self) -> None:
@@ -94,7 +104,9 @@ class TestValidateOntologyPrepopulation:
             ),
         )
 
-        with pytest.raises(PrepopulationValidationError, match="source entity type `test`"):
+        with pytest.raises(
+            PrepopulationValidationError, match="source entity type `test`"
+        ):
             validate_ontology_prepopulation(config)
 
 

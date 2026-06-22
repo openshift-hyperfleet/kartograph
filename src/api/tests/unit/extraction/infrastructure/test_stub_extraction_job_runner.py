@@ -23,8 +23,12 @@ async def test_stub_runner_returns_metrics_for_file_targets() -> None:
         order_index=0,
         description="Extract docs.",
         target_files=(
-            ExtractionTargetFile(path="a.md", repository_folder="repo", package_id="pkg"),
-            ExtractionTargetFile(path="b.md", repository_folder="repo", package_id="pkg"),
+            ExtractionTargetFile(
+                path="a.md", repository_folder="repo", package_id="pkg"
+            ),
+            ExtractionTargetFile(
+                path="b.md", repository_folder="repo", package_id="pkg"
+            ),
         ),
     )
 

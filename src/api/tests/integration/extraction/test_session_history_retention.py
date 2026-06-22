@@ -14,10 +14,16 @@ from extraction.infrastructure.repositories import (
     ExtractionSessionRunMetricsReader,
 )
 from management.application.services.data_source_service import DataSourceService
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.entities.data_source_sync_run import MutationLogRunMetadata
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 from shared_kernel.datasource_types import DataSourceAdapterType
 from tests.fakes.authorization import InMemoryAuthorizationProvider
 
@@ -45,7 +51,9 @@ async def test_archived_session_history_retains_linked_run_metadata(
         )
     )
     if table_check.scalar_one_or_none() is None:
-        pytest.skip("extraction_agent_sessions table is missing in local integration database")
+        pytest.skip(
+            "extraction_agent_sessions table is missing in local integration database"
+        )
     await async_session.rollback()
 
     user_id = "user-integration-session-history"
@@ -112,7 +120,10 @@ async def test_archived_session_history_retains_linked_run_metadata(
         user_id=user_id,
         kg_id=knowledge_graph.id.value,
     )
-    assert transitioned.session_pointers.active_extraction_operations_session_id is not None
+    assert (
+        transitioned.session_pointers.active_extraction_operations_session_id
+        is not None
+    )
 
     session_repo = ExtractionAgentSessionRepository(session=async_session)
     metrics_reader = ExtractionSessionRunMetricsReader(session=async_session)
@@ -186,7 +197,9 @@ async def test_archived_session_history_retains_linked_run_metadata(
     assert still_archived is not None
     assert still_archived.archived_at is not None
 
-    runs = await data_source_sync_run_repository.find_by_data_source(data_source.id.value)
+    runs = await data_source_sync_run_repository.find_by_data_source(
+        data_source.id.value
+    )
     assert len(runs) == 1
     assert runs[0].mutation_log_run is not None
     assert runs[0].mutation_log_run.session_id == session_id

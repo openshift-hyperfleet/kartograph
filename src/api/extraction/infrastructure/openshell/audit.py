@@ -30,7 +30,9 @@ class OpenShellRuntimeProbe(Protocol):
     def policy_applied(self, observation: OpenShellPolicyAppliedObservation) -> None:
         """Emit when network/L7 policy is applied to a sandbox."""
 
-    def sandbox_lifecycle(self, observation: OpenShellSandboxLifecycleObservation) -> None:
+    def sandbox_lifecycle(
+        self, observation: OpenShellSandboxLifecycleObservation
+    ) -> None:
         """Emit when a sandbox is created, started, or deleted."""
 
 
@@ -53,7 +55,9 @@ class LoggingOpenShellRuntimeProbe:
             observation.job_id,
         )
 
-    def sandbox_lifecycle(self, observation: OpenShellSandboxLifecycleObservation) -> None:
+    def sandbox_lifecycle(
+        self, observation: OpenShellSandboxLifecycleObservation
+    ) -> None:
         self._logger.info(
             "openshell_sandbox_lifecycle sandbox=%s action=%s image=%s forward_port=%s session_id=%s job_id=%s",
             observation.sandbox_name,

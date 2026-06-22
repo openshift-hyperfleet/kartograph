@@ -52,15 +52,23 @@ def test_adapter_omits_componenttest_relationship_but_keeps_resource() -> None:
     edges = [
         {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
         {"label": "verifies", "source_type": "ComponentTest", "target_type": "Adapter"},
-        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+        {
+            "label": "verifies_inverse",
+            "source_type": "Adapter",
+            "target_type": "ComponentTest",
+        },
     ]
     guidance = relationship_authoring_guidance_for_entity_type(
         "Adapter",
         edge_types=edges,
         entity_instance_counts=counts,
     )
-    owned = {(line.relationship_label, line.counterpart_type) for line in guidance.owned}
-    ignored = {(line.relationship_label, line.counterpart_type) for line in guidance.ignored}
+    owned = {
+        (line.relationship_label, line.counterpart_type) for line in guidance.owned
+    }
+    ignored = {
+        (line.relationship_label, line.counterpart_type) for line in guidance.ignored
+    }
 
     assert ("operates_on", "Resource") in owned
     assert ("verifies_inverse", "ComponentTest") in ignored
@@ -103,7 +111,9 @@ Adapter -> operates_on -> Resource: invented edge
         edge_types=edges,
     )
 
-    assert any("operates_on" in err and "not a relationship type" in err for err in errors)
+    assert any(
+        "operates_on" in err and "not a relationship type" in err for err in errors
+    )
 
 
 def test_rejects_unknown_property_name() -> None:
@@ -137,7 +147,11 @@ def test_rejects_active_line_for_ignored_relationship() -> None:
     counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
     edges = [
         {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
-        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+        {
+            "label": "verifies_inverse",
+            "source_type": "Adapter",
+            "target_type": "ComponentTest",
+        },
     ]
     description = """
 For each Adapter instance, capture everything.
@@ -155,14 +169,20 @@ Adapter -> verifies_inverse -> ComponentTest: link tests
         entity_instance_counts=counts,
     )
 
-    assert any("verifies_inverse" in err and "must not" in err.lower() for err in errors)
+    assert any(
+        "verifies_inverse" in err and "must not" in err.lower() for err in errors
+    )
 
 
 def test_requires_ignore_line_for_counterpart_owned_edge() -> None:
     counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
     edges = [
         {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
-        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+        {
+            "label": "verifies_inverse",
+            "source_type": "Adapter",
+            "target_type": "ComponentTest",
+        },
     ]
     description = """
 Properties:
@@ -184,26 +204,34 @@ def test_accepts_canonical_adapter_description() -> None:
     counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
     edges = [
         {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
-        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+        {
+            "label": "verifies_inverse",
+            "source_type": "Adapter",
+            "target_type": "ComponentTest",
+        },
     ]
     description = f"""
 Properties:
 - name: from source
 
-{format_owned_line_prefix(
-    relationship_authoring_guidance_for_entity_type(
-        "Adapter", edge_types=edges, entity_instance_counts=counts
-    ).owned[0]
-)} link managed resources
+{
+        format_owned_line_prefix(
+            relationship_authoring_guidance_for_entity_type(
+                "Adapter", edge_types=edges, entity_instance_counts=counts
+            ).owned[0]
+        )
+    } link managed resources
 
 Ignore these relationships:
-{format_ignore_line(
-    relationship_authoring_guidance_for_entity_type(
-        "Adapter", edge_types=edges, entity_instance_counts=counts
-    ).ignored[0],
-    entity_count=19,
-    counterpart_count=1264,
-)}
+{
+        format_ignore_line(
+            relationship_authoring_guidance_for_entity_type(
+                "Adapter", edge_types=edges, entity_instance_counts=counts
+            ).ignored[0],
+            entity_count=19,
+            counterpart_count=1264,
+        )
+    }
 """
     errors = per_instance_description_relationship_errors(
         description,

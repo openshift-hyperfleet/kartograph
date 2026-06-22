@@ -788,7 +788,9 @@ class KnowledgeGraphService:
         self, ontology: OntologyConfig | None
     ) -> WorkspaceReadinessStatus:
         """Evaluate transition readiness flags from canonical schema state."""
-        from management.application.workspace_readiness import evaluate_workspace_readiness
+        from management.application.workspace_readiness import (
+            evaluate_workspace_readiness,
+        )
 
         return evaluate_workspace_readiness(ontology)
 

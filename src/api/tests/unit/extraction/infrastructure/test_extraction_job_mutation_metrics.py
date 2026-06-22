@@ -112,7 +112,9 @@ def test_reconcile_mutation_metrics_prefers_workdir_jsonl(tmp_path: Path) -> Non
     assert metrics["applied_mutations_jsonl"]
 
 
-def test_reconcile_mutation_metrics_falls_back_to_operations_applied(tmp_path: Path) -> None:
+def test_reconcile_mutation_metrics_falls_back_to_operations_applied(
+    tmp_path: Path,
+) -> None:
     metrics = reconcile_mutation_metrics(
         {"write_ops": 0},
         workdir=tmp_path,

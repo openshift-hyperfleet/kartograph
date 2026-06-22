@@ -83,7 +83,9 @@ class MaintenanceBaselineContentFetcher:
         if row is None:
             raise ValueError(f"Data source not found: {data_source_id}")
         if str(row["adapter_type"]) != "github":
-            raise ValueError(f"Baseline fetch supports GitHub sources only: {data_source_id}")
+            raise ValueError(
+                f"Baseline fetch supports GitHub sources only: {data_source_id}"
+            )
 
         connection_config = row["connection_config"]
         if isinstance(connection_config, str):
@@ -108,7 +110,9 @@ class MaintenanceBaselineContentFetcher:
         if not credentials_path or not tenant_id.strip():
             return github_api_headers({})
 
-        from management.infrastructure.repositories.fernet_secret_store import FernetSecretStore
+        from management.infrastructure.repositories.fernet_secret_store import (
+            FernetSecretStore,
+        )
 
         mgmt_settings = get_management_settings()
         encryption_keys = [

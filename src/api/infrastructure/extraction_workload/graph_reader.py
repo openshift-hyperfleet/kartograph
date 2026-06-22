@@ -13,7 +13,11 @@ from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings
 
-from extraction.ports.workload_graph import IWorkloadGraphReader, WorkloadGraphNode, WorkloadGraphRelationship
+from extraction.ports.workload_graph import (
+    IWorkloadGraphReader,
+    WorkloadGraphNode,
+    WorkloadGraphRelationship,
+)
 
 
 class GraphWorkloadGraphReader(IWorkloadGraphReader):
@@ -31,7 +35,9 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
     def _connect_for_tenant(self, tenant_id: str) -> AgeGraphClient:
         factory = ConnectionFactory(self._settings, pool=self._pool)
         graph_name = ensure_tenant_graph_operational(factory, tenant_id)
-        client = AgeGraphClient(self._settings, connection_factory=factory, graph_name=graph_name)
+        client = AgeGraphClient(
+            self._settings, connection_factory=factory, graph_name=graph_name
+        )
         client.connect()
         return client
 
@@ -49,7 +55,9 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
                 client=client,
                 graph_id=client.graph_name,
             )
-            service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
+            service = GraphQueryService(
+                repository=repository, probe=DefaultGraphServiceProbe()
+            )
             nodes = service.search_by_slug(
                 slug=slug,
                 node_type=entity_type,
@@ -82,7 +90,9 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
                 client=client,
                 graph_id=client.graph_name,
             )
-            service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
+            service = GraphQueryService(
+                repository=repository, probe=DefaultGraphServiceProbe()
+            )
             bounded_limit = max(1, min(limit, 500))
             bounded_offset = max(0, offset)
             total = service.count_by_label(
@@ -121,7 +131,9 @@ class GraphWorkloadGraphReader(IWorkloadGraphReader):
                 client=client,
                 graph_id=client.graph_name,
             )
-            service = GraphQueryService(repository=repository, probe=DefaultGraphServiceProbe())
+            service = GraphQueryService(
+                repository=repository, probe=DefaultGraphServiceProbe()
+            )
             return service.count_by_label(
                 entity_type,
                 knowledge_graph_id=knowledge_graph_id,

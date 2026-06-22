@@ -76,7 +76,10 @@ async def test_sessioned_ingestion_handler_prepares_commit_context():
     )
 
     with (
-        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "infrastructure.outbox.repository.OutboxRepository",
+            return_value=outbox_repo,
+        ),
         patch(
             "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
             return_value=ds_repo,
@@ -102,10 +105,9 @@ async def test_sessioned_ingestion_handler_prepares_commit_context():
     assert call_payload["baseline_commit"] == "baseline123"
     assert call_payload["tracked_branch_head_commit"] == "head456"
     assert "credentials" not in call_payload
-    assert (
-        ingestion_handler.handle.call_args.kwargs["runtime_credentials"]
-        == {"token": "tok"}
-    )
+    assert ingestion_handler.handle.call_args.kwargs["runtime_credentials"] == {
+        "token": "tok"
+    }
     ds_repo.save.assert_awaited_once()
     assert data_source.tracked_branch_head_commit == "head456"
 
@@ -148,7 +150,10 @@ async def test_sessioned_ingestion_handler_sets_no_changes_flag_when_heads_match
     )
 
     with (
-        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "infrastructure.outbox.repository.OutboxRepository",
+            return_value=outbox_repo,
+        ),
         patch(
             "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
             return_value=ds_repo,
@@ -174,10 +179,9 @@ async def test_sessioned_ingestion_handler_sets_no_changes_flag_when_heads_match
     assert call_payload["tracked_branch_head_commit"] == "baseline123"
     assert call_payload["no_changes_detected"] is True
     assert "credentials" not in call_payload
-    assert (
-        ingestion_handler.handle.call_args.kwargs["runtime_credentials"]
-        == {"token": "tok"}
-    )
+    assert ingestion_handler.handle.call_args.kwargs["runtime_credentials"] == {
+        "token": "tok"
+    }
 
 
 @pytest.mark.asyncio
@@ -221,7 +225,10 @@ async def test_sessioned_ingestion_handler_uses_last_prepared_for_ingest_only():
     )
 
     with (
-        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "infrastructure.outbox.repository.OutboxRepository",
+            return_value=outbox_repo,
+        ),
         patch(
             "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
             return_value=ds_repo,
@@ -288,7 +295,10 @@ async def test_sessioned_ingestion_handler_runs_ingest_only_when_archive_missing
     )
 
     with (
-        patch("infrastructure.outbox.repository.OutboxRepository", return_value=outbox_repo),
+        patch(
+            "infrastructure.outbox.repository.OutboxRepository",
+            return_value=outbox_repo,
+        ),
         patch(
             "management.infrastructure.repositories.data_source_repository.DataSourceRepository",
             return_value=ds_repo,
@@ -312,4 +322,3 @@ async def test_sessioned_ingestion_handler_runs_ingest_only_when_archive_missing
     call_payload = ingestion_handler.handle.call_args.args[1]
     assert call_payload["baseline_commit"] == "prepared123"
     assert "no_changes_detected" not in call_payload
-

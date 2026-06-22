@@ -23,7 +23,9 @@ def test_schema_design_does_not_require_job_package() -> None:
 def test_extraction_jobs_waits_without_prepared_sources() -> None:
     decision = resolve_job_package_gate(
         ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
-        readiness=IngestionReadinessSnapshot(data_source_count=2, prepared_source_count=1),
+        readiness=IngestionReadinessSnapshot(
+            data_source_count=2, prepared_source_count=1
+        ),
     )
     assert decision.phase == SessionJobPackagePhase.AWAITING_PREPARE
     assert decision.wait_message is not None
@@ -33,6 +35,8 @@ def test_extraction_jobs_waits_without_prepared_sources() -> None:
 def test_extraction_jobs_ready_when_all_prepared() -> None:
     decision = resolve_job_package_gate(
         ui_mode=GraphManagementUiMode.EXTRACTION_JOBS,
-        readiness=IngestionReadinessSnapshot(data_source_count=2, prepared_source_count=2),
+        readiness=IngestionReadinessSnapshot(
+            data_source_count=2, prepared_source_count=2
+        ),
     )
     assert decision.phase == SessionJobPackagePhase.READY

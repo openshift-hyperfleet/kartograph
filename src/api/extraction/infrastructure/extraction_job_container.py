@@ -15,7 +15,9 @@ def extraction_job_container_name(job_id: str) -> str:
     return f"{_EXTRACTION_SANDBOX_PREFIX}{cleaned}"[:63].rstrip("-_.")
 
 
-def stop_extraction_job_container(*, job_id: str, container_engine: str = "auto") -> bool:
+def stop_extraction_job_container(
+    *, job_id: str, container_engine: str = "auto"
+) -> bool:
     """Stop and remove the extraction container for one job, if it exists."""
     runtime = create_container_runtime(container_engine)
     name = extraction_job_container_name(job_id)
@@ -30,7 +32,9 @@ def stop_extraction_job_containers(
     """Stop and remove extraction containers for many jobs. Returns count removed."""
     stopped = 0
     for job_id in job_ids:
-        if stop_extraction_job_container(job_id=job_id, container_engine=container_engine):
+        if stop_extraction_job_container(
+            job_id=job_id, container_engine=container_engine
+        ):
             stopped += 1
     return stopped
 
@@ -45,7 +49,9 @@ def stop_extraction_job_sandboxes(
 
     stopped = openshell_sandbox.stop_extraction_job_sandboxes(job_ids=job_ids)
     if sweep_orphans:
-        stopped += openshell_sandbox.delete_sandboxes_by_prefix(_EXTRACTION_SANDBOX_PREFIX)
+        stopped += openshell_sandbox.delete_sandboxes_by_prefix(
+            _EXTRACTION_SANDBOX_PREFIX
+        )
     return stopped
 
 

@@ -91,7 +91,9 @@ class GitDiffSummaryService:
                 changed_files=(),
             )
 
-        owner, repo = self._parse_github_connection_config(data_source.connection_config)
+        owner, repo = self._parse_github_connection_config(
+            data_source.connection_config
+        )
         credentials = await load_github_credentials(
             credential_reader=self._credential_reader,
             data_source=data_source,
@@ -150,4 +152,3 @@ class GitDiffSummaryService:
             files_truncated=files_truncated,
             changed_files=visible_files,
         )
-

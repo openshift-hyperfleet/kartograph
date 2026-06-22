@@ -7,7 +7,9 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from extraction.application.repository_workspace_paths import repository_folder_for_data_source
+from extraction.domain.repository_workspace_paths import (
+    repository_folder_for_data_source,
+)
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
@@ -92,9 +94,9 @@ class SqlPreparedJobPackageReader:
         return None
 
     def _package_has_repository_content(self, package_id: str) -> bool:
-        archive_path = self._job_package_work_dir / JobPackageId(
-            value=package_id
-        ).archive_name()
+        archive_path = (
+            self._job_package_work_dir / JobPackageId(value=package_id).archive_name()
+        )
         if not archive_path.is_file():
             return False
         try:

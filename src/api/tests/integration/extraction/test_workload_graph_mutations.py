@@ -15,7 +15,11 @@ from infrastructure.extraction_workload.graph_mutation_writer import (
 )
 from infrastructure.extraction_workload.graph_reader import GraphWorkloadGraphReader
 from infrastructure.extraction_workload.schema_service import GraphWorkloadSchemaService
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -49,7 +53,9 @@ async def test_workload_apply_mutation_jsonl_writes_instance_to_age_graph(
     await async_session.rollback()
 
     graph_name = f"tenant_{test_tenant}"
-    factory = ConnectionFactory(integration_db_settings, pool=integration_connection_pool)
+    factory = ConnectionFactory(
+        integration_db_settings, pool=integration_connection_pool
+    )
     AGEGraphProvisioner(connection_factory=factory).ensure_graph_exists(graph_name)
 
     knowledge_graph_id = "kg-workload-mutation-001"

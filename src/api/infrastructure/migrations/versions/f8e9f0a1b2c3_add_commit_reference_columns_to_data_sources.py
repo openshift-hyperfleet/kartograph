@@ -31,7 +31,9 @@ def upgrade() -> None:
     )
     op.add_column(
         "data_sources",
-        sa.Column("last_extraction_baseline_commit", sa.String(length=64), nullable=True),
+        sa.Column(
+            "last_extraction_baseline_commit", sa.String(length=64), nullable=True
+        ),
     )
     op.add_column(
         "data_sources",
@@ -44,4 +46,3 @@ def downgrade() -> None:
     op.drop_column("data_sources", "tracked_branch_head_commit")
     op.drop_column("data_sources", "last_extraction_baseline_commit")
     op.drop_column("data_sources", "clone_head_commit")
-

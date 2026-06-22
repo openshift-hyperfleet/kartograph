@@ -41,5 +41,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("idx_extract_sessions_ui_mode_active", table_name="extraction_agent_sessions")
+    op.drop_index(
+        "idx_extract_sessions_ui_mode_active", table_name="extraction_agent_sessions"
+    )
     op.drop_column("extraction_agent_sessions", "graph_management_ui_mode")

@@ -12,7 +12,9 @@ from extraction.infrastructure.repositories import (
 from extraction.infrastructure.runtime_context_builder import (
     FilesystemExtractionRuntimeContextBuilder,
 )
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import (
+    ScopedWorkloadCredentialIssuer,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     InMemoryStickySessionRuntimeManager,

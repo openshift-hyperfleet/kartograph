@@ -49,7 +49,9 @@ def _build_package(work_dir: Path, package_id: str, path: str, content: bytes) -
             metadata={},
         )
     )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
@@ -101,12 +103,18 @@ def test_materialize_all_repository_files_writes_changeset(tmp_path: Path) -> No
         job_packages=(_source(package_id=package_id),),
     )
 
-    output = repo_dir / "hyperfleet-e2e" / "testdata/adapter-configs/cl-stuck/adapter-config.yaml"
+    output = (
+        repo_dir
+        / "hyperfleet-e2e"
+        / "testdata/adapter-configs/cl-stuck/adapter-config.yaml"
+    )
     assert result.files_written == 1
     assert output.read_text(encoding="utf-8") == "adapter: stuck\n"
 
 
-def test_materialize_all_repository_files_warns_when_archives_missing(tmp_path: Path) -> None:
+def test_materialize_all_repository_files_warns_when_archives_missing(
+    tmp_path: Path,
+) -> None:
     result = materialize_all_repository_files(
         repository_files_dir=tmp_path / "repository-files",
         job_package_work_dir=tmp_path,
@@ -118,7 +126,9 @@ def test_materialize_all_repository_files_warns_when_archives_missing(tmp_path: 
     assert any("No JobPackage archives found" in warning for warning in result.warnings)
 
 
-def test_materialize_instance_repository_paths_targets_referenced_files(tmp_path: Path) -> None:
+def test_materialize_instance_repository_paths_targets_referenced_files(
+    tmp_path: Path,
+) -> None:
     package_id = "01JTESTPACK0000000000000001"
     _build_package(
         tmp_path,
@@ -138,7 +148,9 @@ def test_materialize_instance_repository_paths_targets_referenced_files(tmp_path
     assert result.files_written == 1
     assert result.paths_not_found == ()
     assert (
-        repo_dir / "hyperfleet-e2e" / "testdata/adapter-configs/cl-stuck/adapter-config.yaml"
+        repo_dir
+        / "hyperfleet-e2e"
+        / "testdata/adapter-configs/cl-stuck/adapter-config.yaml"
     ).is_file()
 
 

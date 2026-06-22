@@ -15,7 +15,10 @@ AuthMode = Literal["vertex", "api-key"]
 
 def _adc_path(*, gcloud_config_mount: str | None) -> Path:
     if gcloud_config_mount:
-        return Path(gcloud_config_mount).expanduser() / "application_default_credentials.json"
+        return (
+            Path(gcloud_config_mount).expanduser()
+            / "application_default_credentials.json"
+        )
     return Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
 
 
@@ -38,7 +41,9 @@ def _home_for_adc(*, gcloud_config_mount: str | None) -> Iterator[None]:
 
 
 def provider_exists(*, provider_name: str) -> bool:
-    result = run_openshell(["provider", "get", provider_name], check=False, timeout=15.0)
+    result = run_openshell(
+        ["provider", "get", provider_name], check=False, timeout=15.0
+    )
     return result.returncode == 0
 
 

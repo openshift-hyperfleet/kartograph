@@ -13,4 +13,3 @@ router.include_router(routes.router)
 router.include_router(workload_routes.router)
 
 __all__ = ["router"]
-

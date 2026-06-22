@@ -286,7 +286,9 @@ class MutationLogEntryPreviewResponse(BaseModel):
 
     line_number: int = Field(..., description="1-based line number in the mutation log")
     operation_class: str = Field(..., description="Operation class for this entry")
-    summary: str = Field(..., description="Human-readable preview summary for this entry")
+    summary: str = Field(
+        ..., description="Human-readable preview summary for this entry"
+    )
 
 
 class MutationLogEntryPreviewPageResponse(BaseModel):

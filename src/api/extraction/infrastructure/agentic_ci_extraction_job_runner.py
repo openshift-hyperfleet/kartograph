@@ -24,7 +24,9 @@ from extraction.infrastructure.extraction_job_activity import (
     format_activity_log_line,
     format_claude_code_stream_line,
 )
-from extraction.infrastructure.extraction_job_metrics import merge_extraction_job_metrics
+from extraction.infrastructure.extraction_job_metrics import (
+    merge_extraction_job_metrics,
+)
 from extraction.infrastructure.extraction_job_prompt import (
     EXTRACTION_JOB_INVOKE_PROMPT,
     write_extraction_prompt_file,
@@ -39,8 +41,12 @@ from extraction.infrastructure.vertex_runtime_env import (
     build_gcloud_config_bind,
     build_vertex_container_env,
 )
-from extraction.infrastructure.workload_credential_issuer import INTERACTIVE_WORKLOAD_SCOPES
-from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
+from extraction.infrastructure.workload_credential_issuer import (
+    INTERACTIVE_WORKLOAD_SCOPES,
+)
+from extraction.infrastructure.workload_runtime_factory import (
+    get_workload_credential_issuer,
+)
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
     get_extraction_workload_runtime_settings,
@@ -92,7 +98,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         tenant_id: str,
     ) -> PreparedExtractionJobRun:
         if self._workdir_materializer is None:
-            raise RuntimeError("AgenticCiExtractionJobRunner requires a workdir materializer")
+            raise RuntimeError(
+                "AgenticCiExtractionJobRunner requires a workdir materializer"
+            )
         credentials = get_workload_credential_issuer().issue(
             tenant_id=tenant_id,
             knowledge_graph_id=job.knowledge_graph_id,
@@ -132,7 +140,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
     ) -> dict[str, Any]:
         import asyncio
 
-        return await asyncio.to_thread(self._run_in_container_sync, job, workdir, prompt)
+        return await asyncio.to_thread(
+            self._run_in_container_sync, job, workdir, prompt
+        )
 
     def _run_in_container_sync(
         self,
@@ -149,7 +159,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         container_name = _sanitize_container_name(job.job_id)
 
         try:
-            otel_proc, otel_port, otel_log_path, _otel_rate = otel.start_collector(run_dir)
+            otel_proc, otel_port, otel_log_path, _otel_rate = otel.start_collector(
+                run_dir
+            )
             otel_log = Path(otel_log_path)
             env = self._build_container_env(otel_port=otel_port)
             binds = self._build_binds(workdir=workdir)
@@ -232,7 +244,9 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                 )
             )
             if self._settings.gcloud_config_mount:
-                container_gcloud = self._settings.gcloud_config_container_path.rstrip("/")
+                container_gcloud = self._settings.gcloud_config_container_path.rstrip(
+                    "/"
+                )
                 env.update(build_gcloud_adc_env(container_config_path=container_gcloud))
         if self._harness.supports_otel and otel_port:
             env.update(
@@ -281,7 +295,10 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
             "--workdir",
             "/workspace",
         ]
-        if self._settings.container_run_uid is not None and self._settings.container_run_gid is not None:
+        if (
+            self._settings.container_run_uid is not None
+            and self._settings.container_run_gid is not None
+        ):
             cmd.extend(
                 [
                     "--user",
@@ -344,10 +361,13 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         stream_log_path = activity_log_path.parent / "agent_stream.jsonl"
         try:
             assert proc.stdout is not None
-            with activity_log_path.open("a", encoding="utf-8") as log_handle, stream_log_path.open(
-                "a",
-                encoding="utf-8",
-            ) as stream_handle:
+            with (
+                activity_log_path.open("a", encoding="utf-8") as log_handle,
+                stream_log_path.open(
+                    "a",
+                    encoding="utf-8",
+                ) as stream_handle,
+            ):
                 for line in proc.stdout:
                     if time.monotonic() - started > timeout_seconds:
                         proc.kill()
@@ -369,11 +389,15 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                     if parsed:
                         ts = datetime.now(UTC).isoformat()
                         for kind, text in parsed:
-                            log_handle.write(f"{ts} {format_activity_log_line(kind=kind, text=text)}\n")
+                            log_handle.write(
+                                f"{ts} {format_activity_log_line(kind=kind, text=text)}\n"
+                            )
                             captured_tail.append(text)
                     else:
                         ts = datetime.now(UTC).isoformat()
-                        log_handle.write(f"{ts} {format_activity_log_line(kind='info', text=cleaned)}\n")
+                        log_handle.write(
+                            f"{ts} {format_activity_log_line(kind='info', text=cleaned)}\n"
+                        )
                         captured_tail.append(cleaned)
                     log_handle.flush()
                     if len(captured_tail) > 20:
@@ -397,7 +421,5 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
                 kind="error",
                 text=f"Container failed: {detail}",
             )
-            raise ContainerRuntimeError(
-                f"{binary} run failed for {name}: {detail}"
-            )
+            raise ContainerRuntimeError(f"{binary} run failed for {name}: {detail}")
         return int(rc)

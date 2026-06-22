@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 from extraction.domain.extraction_job import ExtractionJobRecord
 from extraction.infrastructure.openshell.sandbox import sanitize_sandbox_name
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 _WORKER_INDEX_RE = re.compile(r"(\d+)\s*$")
 

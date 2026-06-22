@@ -248,7 +248,9 @@ class KnowledgeGraph:
         self.ontology = None
         self.updated_at = datetime.now(UTC)
 
-    def set_maintenance_schedule(self, schedule: KnowledgeGraphMaintenanceSchedule) -> None:
+    def set_maintenance_schedule(
+        self, schedule: KnowledgeGraphMaintenanceSchedule
+    ) -> None:
         """Persist KG-level maintenance schedule configuration."""
         if self._deleted:
             raise AggregateDeletedError(

@@ -41,9 +41,9 @@ def _credentials_with_scopes(*scopes: str) -> ScopedWorkloadCredentials:
 
 
 def test_validate_workload_scope_id_accepts_ulid_like_values() -> None:
-    assert validate_workload_scope_id("01JTESTPACK0000000000000000", field="tenant") == (
-        "01JTESTPACK0000000000000000"
-    )
+    assert validate_workload_scope_id(
+        "01JTESTPACK0000000000000000", field="tenant"
+    ) == ("01JTESTPACK0000000000000000")
     assert validate_workload_scope_id("tenant-1", field="tenant") == "tenant-1"
 
 

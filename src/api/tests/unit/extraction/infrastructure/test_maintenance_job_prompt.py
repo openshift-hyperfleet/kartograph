@@ -5,7 +5,9 @@ from extraction.domain.extraction_job import (
     ExtractionJobStatus,
     ExtractionTargetFile,
 )
-from extraction.infrastructure.maintenance_job_prompt import build_maintenance_job_prompt
+from extraction.infrastructure.maintenance_job_prompt import (
+    build_maintenance_job_prompt,
+)
 
 
 def test_build_maintenance_job_prompt_documents_commit_layout() -> None:

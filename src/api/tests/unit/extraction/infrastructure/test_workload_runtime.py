@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     InMemoryStickySessionRuntimeManager,
@@ -107,9 +109,14 @@ class TestInMemoryStickySessionRuntimeManager:
 
 class TestEphemeralWorkerLauncher:
     def test_launch_rejects_expired_credentials(self) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         launcher = InMemoryEphemeralExtractionWorkerLauncher()
-        scoped_credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+        scoped_credentials = issuer.issue(
+            tenant_id="tenant-1", knowledge_graph_id="kg-1"
+        )
         expired_credentials = ScopedWorkloadCredentials(
             token=scoped_credentials.token,
             expires_at=datetime.now(UTC) - timedelta(seconds=1),
@@ -127,7 +134,10 @@ class TestEphemeralWorkerLauncher:
             launcher.launch(request=request, credentials=expired_credentials)
 
     def test_launch_requires_credentials_scoped_to_request(self) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         launcher = InMemoryEphemeralExtractionWorkerLauncher()
         wrong_scope = issuer.issue(
             tenant_id="tenant-2",
@@ -145,9 +155,14 @@ class TestEphemeralWorkerLauncher:
             launcher.launch(request=request, credentials=wrong_scope)
 
     def test_launch_uses_ephemeral_worker_and_hides_credential_material(self) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         launcher = InMemoryEphemeralExtractionWorkerLauncher()
-        scoped_credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+        scoped_credentials = issuer.issue(
+            tenant_id="tenant-1", knowledge_graph_id="kg-1"
+        )
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",
             knowledge_graph_id="kg-1",
@@ -165,9 +180,14 @@ class TestEphemeralWorkerLauncher:
         assert launcher.active_worker_count == 1
 
     def test_complete_worker_terminates_container(self) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         launcher = InMemoryEphemeralExtractionWorkerLauncher()
-        scoped_credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+        scoped_credentials = issuer.issue(
+            tenant_id="tenant-1", knowledge_graph_id="kg-1"
+        )
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",
             knowledge_graph_id="kg-1",
@@ -184,7 +204,10 @@ class TestEphemeralWorkerLauncher:
 
 class TestScopedWorkloadCredentialIssuer:
     def test_issues_short_lived_credentials_with_least_privilege_scope(self) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=15))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=15),
+        )
 
         issued = issuer.issue(tenant_id="tenant-9", knowledge_graph_id="kg-9")
 

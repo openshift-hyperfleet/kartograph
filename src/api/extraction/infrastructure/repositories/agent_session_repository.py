@@ -9,7 +9,13 @@ from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.infrastructure.models.agent_session import ExtractionAgentSessionModel
 from extraction.ports.repositories import IExtractionAgentSessionRepository
-from management.infrastructure.models.knowledge_graph import KnowledgeGraphModel
+from sqlalchemy import column, table
+
+_knowledge_graphs = table(
+    "knowledge_graphs",
+    column("id"),
+    column("tenant_id"),
+)
 
 
 class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
@@ -75,13 +81,14 @@ class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
         stmt = (
             select(ExtractionAgentSessionModel)
             .join(
-                KnowledgeGraphModel,
-                KnowledgeGraphModel.id == ExtractionAgentSessionModel.knowledge_graph_id,
+                _knowledge_graphs,
+                _knowledge_graphs.c.id
+                == ExtractionAgentSessionModel.knowledge_graph_id,
             )
             .where(
                 ExtractionAgentSessionModel.id == session_id,
                 ExtractionAgentSessionModel.knowledge_graph_id == knowledge_graph_id,
-                KnowledgeGraphModel.tenant_id == tenant_id,
+                _knowledge_graphs.c.tenant_id == tenant_id,
                 ExtractionAgentSessionModel.archived_at.is_(None),
             )
         )
@@ -188,4 +195,3 @@ class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
             updated_at=model.updated_at,
             archived_at=model.archived_at,
         )
-

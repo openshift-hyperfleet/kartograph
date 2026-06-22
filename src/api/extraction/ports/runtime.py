@@ -72,6 +72,16 @@ class IWorkloadCredentialIssuer(Protocol):
         """Return runtime-only credentials for one extraction workload."""
         ...
 
+    def issue_for_sticky_session(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        session_id: str,
+    ) -> ScopedWorkloadCredentials:
+        """Return chat-scoped credentials for one sticky session."""
+        ...
+
 
 class IStickySessionRuntimeManager(Protocol):
     """Manages sticky chat runtime containers for active sessions."""
@@ -155,4 +165,3 @@ class IEphemeralExtractionWorkerLauncher(Protocol):
     def complete_worker(self, worker_id: str) -> None:
         """Mark worker as completed and terminate runtime resources."""
         ...
-

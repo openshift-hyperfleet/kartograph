@@ -8,19 +8,25 @@ import pytest
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.application.chat_turn_service import ExtractionChatTurnService
-from extraction.application.sticky_session_runtime_service import StickySessionRuntimeService
+from extraction.application.sticky_session_runtime_service import (
+    StickySessionRuntimeService,
+)
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
     GraphManagementUiMode,
     IngestionReadinessSnapshot,
 )
-from extraction.infrastructure.deterministic_chat_agent import DeterministicExtractionChatAgent
+from extraction.infrastructure.deterministic_chat_agent import (
+    DeterministicExtractionChatAgent,
+)
 from extraction.infrastructure.workload_credential_issuer import (
     DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
     ScopedWorkloadCredentialIssuer,
 )
-from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
+from extraction.infrastructure.workload_runtime import (
+    InMemoryStickySessionRuntimeManager,
+)
 
 
 class _InMemoryAgentSessionRepository:
@@ -187,7 +193,9 @@ async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> 
     runtime_service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
-        ingestion_readiness_reader=_StaticIngestionReadinessReader(IngestionReadinessSnapshot(1, 1)),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(
+            IngestionReadinessSnapshot(1, 1)
+        ),
         sticky_runtime_manager=sticky,
         bootstrap_builder=_StaticBootstrapBuilder(),
         health_checker=_InstantHealthChecker(),
@@ -199,7 +207,9 @@ async def test_stream_chat_turn_accumulates_token_usage_in_session_journal() -> 
         runtime_service=runtime_service,
         chat_agent=_UsageEmittingChatAgent(),
     )
-    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+    await _start_session(
+        session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
     events = [
         event
@@ -273,7 +283,9 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
     runtime_service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
-        ingestion_readiness_reader=_StaticIngestionReadinessReader(IngestionReadinessSnapshot(1, 1)),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(
+            IngestionReadinessSnapshot(1, 1)
+        ),
         sticky_runtime_manager=sticky,
         bootstrap_builder=_StaticBootstrapBuilder(),
         health_checker=_InstantHealthChecker(),
@@ -285,9 +297,14 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
         session_service=session_service,
         runtime_service=runtime_service,
         chat_agent=chat_agent,
-        credential_issuer=ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=__import__("datetime").timedelta(minutes=5)),
+        credential_issuer=ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=__import__("datetime").timedelta(minutes=5),
+        ),
     )
-    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+    await _start_session(
+        session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
     events = [
         event
@@ -308,7 +325,9 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
 @pytest.mark.asyncio
 async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
     service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(2, 0))
-    await _start_session(service._session_service, ui_mode=GraphManagementUiMode.EXTRACTION_JOBS)
+    await _start_session(
+        service._session_service, ui_mode=GraphManagementUiMode.EXTRACTION_JOBS
+    )
 
     events = [
         event
@@ -335,7 +354,9 @@ async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_runtime_warmup_marks_memory_backend_ready() -> None:
-    service, _repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(1, 1))
+    service, _repo = _build_chat_turn_service(
+        readiness=IngestionReadinessSnapshot(1, 1)
+    )
     await _start_session(
         service._session_service,
         ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
@@ -395,7 +416,9 @@ async def test_stream_chat_turn_emits_error_when_agent_stream_incomplete() -> No
         runtime_service=runtime_service,
         chat_agent=_IncompleteChatAgent(),
     )
-    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+    await _start_session(
+        session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
     events = [
         event
@@ -437,7 +460,9 @@ async def test_stream_chat_turn_persists_user_message_when_agent_fails() -> None
         runtime_service=runtime_service,
         chat_agent=_FailingChatAgent(),
     )
-    await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+    await _start_session(
+        session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
     events = [
         event

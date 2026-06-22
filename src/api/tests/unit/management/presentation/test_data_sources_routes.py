@@ -122,12 +122,8 @@ def _noop_reconcile_quiescent_extraction_run(monkeypatch: pytest.MonkeyPatch) ->
         return False, False
 
     monkeypatch.setattr(
-        "management.presentation.data_sources.routes.reconcile_quiescent_extraction_run",
+        "management.presentation.data_sources.routes.reconcile_data_source_extraction_run",
         _noop,
-    )
-    monkeypatch.setattr(
-        "management.presentation.data_sources.routes.get_extraction_run_orchestrator",
-        lambda **_kwargs: MagicMock(),
     )
     monkeypatch.setattr(
         "management.presentation.data_sources.routes.get_write_sessionmaker",
@@ -783,7 +779,9 @@ class TestRunControlRoutes:
         test_client: TestClient,
         mock_ds_service: AsyncMock,
     ) -> None:
-        mock_ds_service.apply_run_control.side_effect = UnauthorizedError("no permission")
+        mock_ds_service.apply_run_control.side_effect = UnauthorizedError(
+            "no permission"
+        )
 
         response = test_client.post(
             "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/halt"

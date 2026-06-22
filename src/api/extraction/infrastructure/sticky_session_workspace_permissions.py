@@ -35,7 +35,9 @@ def ensure_agent_workspace_permissions(
 
 
 def _chown_writable_tree(session_root: Path, *, uid: int, gid: int) -> None:
-    for path in sorted(session_root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+    for path in sorted(
+        session_root.rglob("*"), key=lambda item: len(item.parts), reverse=True
+    ):
         if _is_under_repository_files(path, session_root):
             continue
         if path.is_symlink():
@@ -48,7 +50,9 @@ def _chown_writable_tree(session_root: Path, *, uid: int, gid: int) -> None:
 
 
 def _chmod_writable_tree(session_root: Path) -> None:
-    for path in sorted(session_root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+    for path in sorted(
+        session_root.rglob("*"), key=lambda item: len(item.parts), reverse=True
+    ):
         if _is_under_repository_files(path, session_root):
             continue
         if path.is_symlink():

@@ -95,7 +95,9 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
         return [self._to_stored(row) for row in result.scalars().all()]
 
     @staticmethod
-    def to_type_definition(stored: StoredKnowledgeGraphTypeDefinition) -> TypeDefinition:
+    def to_type_definition(
+        stored: StoredKnowledgeGraphTypeDefinition,
+    ) -> TypeDefinition:
         """Convert a stored projection to a graph TypeDefinition."""
         return TypeDefinition(
             label=stored.label,
@@ -106,7 +108,9 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
         )
 
     @staticmethod
-    def _to_stored(model: KnowledgeGraphTypeDefinitionModel) -> StoredKnowledgeGraphTypeDefinition:
+    def _to_stored(
+        model: KnowledgeGraphTypeDefinitionModel,
+    ) -> StoredKnowledgeGraphTypeDefinition:
         return StoredKnowledgeGraphTypeDefinition(
             label=model.label,
             entity_type=model.entity_type,

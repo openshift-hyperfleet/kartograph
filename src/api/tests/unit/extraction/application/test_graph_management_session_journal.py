@@ -176,7 +176,9 @@ def test_append_turn_usage_to_session_accumulates_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_archive_session_mutations_includes_tokens_and_initial_schema_label() -> None:
+async def test_archive_session_mutations_includes_tokens_and_initial_schema_label() -> (
+    None
+):
     session_repo = _InMemorySessionRepository()
     job_repo = _InMemoryJobRepository()
     service = GraphManagementSessionJournalService(
@@ -235,7 +237,9 @@ async def test_archive_session_mutations_uses_one_off_mutations_job_set() -> Non
         graph_management_ui_mode=GraphManagementUiMode.ONE_OFF_MUTATIONS,
         created_at=datetime(2026, 6, 5, tzinfo=UTC),
     )
-    session.runtime_context["graph_management_ui_mode"] = GraphManagementUiMode.ONE_OFF_MUTATIONS.value
+    session.runtime_context["graph_management_ui_mode"] = (
+        GraphManagementUiMode.ONE_OFF_MUTATIONS.value
+    )
     append_applied_jsonl_to_session(
         session,
         applied_jsonl=(

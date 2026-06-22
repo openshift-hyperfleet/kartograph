@@ -62,7 +62,9 @@ def test_load_mutation_verdict_parses_payload(tmp_path: Path) -> None:
     result_path = tmp_path / "mutations" / "result.json"
     result_path.parent.mkdir(parents=True)
     result_path.write_text(
-        json.dumps({"action": "validate", "valid": True, "operation_count": 2, "errors": []}),
+        json.dumps(
+            {"action": "validate", "valid": True, "operation_count": 2, "errors": []}
+        ),
         encoding="utf-8",
     )
 

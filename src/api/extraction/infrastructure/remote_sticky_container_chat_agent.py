@@ -52,7 +52,9 @@ class RemoteStickyContainerChatAgent:
         payload: dict[str, Any] = {
             "message": user_message,
             "ui_mode": ui_mode.value,
-            "agent_configuration": session.runtime_context.get("agent_configuration", {}),
+            "agent_configuration": session.runtime_context.get(
+                "agent_configuration", {}
+            ),
             "message_history": session.message_history[-20:],
         }
         if workload_token and workload_token.strip():
@@ -66,7 +68,9 @@ class RemoteStickyContainerChatAgent:
         try:
             timeout = httpx.Timeout(10.0, read=self._request_timeout_seconds)
             async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("POST", url, json=payload, headers=headers) as response:
+                async with client.stream(
+                    "POST", url, json=payload, headers=headers
+                ) as response:
                     if response.status_code >= 400:
                         body = await response.aread()
                         detail = body.decode("utf-8", errors="replace")
@@ -75,7 +79,8 @@ class RemoteStickyContainerChatAgent:
                             "ok": False,
                             "error": {
                                 "code": "RUNTIME_HTTP_ERROR",
-                                "message": detail or f"Agent runtime returned {response.status_code}",
+                                "message": detail
+                                or f"Agent runtime returned {response.status_code}",
                             },
                         }
                         return

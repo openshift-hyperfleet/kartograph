@@ -9,7 +9,10 @@ from urllib.parse import urlparse
 
 from extraction.infrastructure.openshell import gateway as openshell_gateway
 from extraction.infrastructure.openshell import sandbox as openshell_sandbox
-from extraction.infrastructure.openshell.audit import LoggingOpenShellRuntimeProbe, OpenShellRuntimeProbe
+from extraction.infrastructure.openshell.audit import (
+    LoggingOpenShellRuntimeProbe,
+    OpenShellRuntimeProbe,
+)
 from extraction.infrastructure.openshell.runtime_env import apply_openshell_gateway_env
 from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
 from extraction.infrastructure.runtime_session_auth import issue_runtime_auth_token
@@ -197,12 +200,15 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 self._leases[session_id] = refreshed
                 return refreshed
         if openshell_sandbox.sandbox_exists(sandbox_name):
-            forward_port = _forward_port(session_id=session_id, base=self._forward_port_base)
+            forward_port = _forward_port(
+                session_id=session_id, base=self._forward_port_base
+            )
             return StickySessionRuntimeLease(
                 session_id=session_id,
                 container_id=sandbox_name,
                 user_id=user_id or (lease.user_id if lease else ""),
-                knowledge_graph_id=knowledge_graph_id or (lease.knowledge_graph_id if lease else ""),
+                knowledge_graph_id=knowledge_graph_id
+                or (lease.knowledge_graph_id if lease else ""),
                 mode=mode or (lease.mode if lease else ""),
                 status="active",
                 last_activity_at=now,
@@ -259,7 +265,9 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 auth_mode="vertex",
             )
         sandbox_name = _sanitize_sandbox_name(session_id)
-        forward_port = _forward_port(session_id=session_id, base=self._forward_port_base)
+        forward_port = _forward_port(
+            session_id=session_id, base=self._forward_port_base
+        )
         runtime_auth_token = issue_runtime_auth_token()
 
         if bootstrap is not None:
@@ -300,7 +308,9 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             ui_mode=(bootstrap.ui_mode if bootstrap else None) or mode,
             workload="gma",
             policy_dir=self._policy_dir,
-            api_host=_api_host_from_base_url(bootstrap.api_base_url if bootstrap else self._api_base_url),
+            api_host=_api_host_from_base_url(
+                bootstrap.api_base_url if bootstrap else self._api_base_url
+            ),
             vertex_region=self._vertex_region if self._vertex_enabled else None,
             policy_enforcement=self._policy_enforcement,
             probe=self._probe,
@@ -366,7 +376,9 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             "KARTOGRAPH_USER_ID": user_id,
             "KARTOGRAPH_SESSION_MODE": mode,
             "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
-            "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(int(self._agent_turn_timeout_seconds)),
+            "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(
+                int(self._agent_turn_timeout_seconds)
+            ),
             "KARTOGRAPH_AGENT_MAX_TURNS": str(int(self._agent_max_turns)),
             "KARTOGRAPH_RUNTIME_AUTH_TOKEN": runtime_auth_token,
         }
@@ -382,8 +394,12 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
         return env
 
     def _terminate_sandbox(self, lease: StickySessionRuntimeLease) -> None:
-        forward_port = _forward_port(session_id=lease.session_id, base=self._forward_port_base)
-        openshell_sandbox.stop_forward(sandbox_name=lease.container_id, port=forward_port)
+        forward_port = _forward_port(
+            session_id=lease.session_id, base=self._forward_port_base
+        )
+        openshell_sandbox.stop_forward(
+            sandbox_name=lease.container_id, port=forward_port
+        )
         openshell_sandbox.delete_sandbox(lease.container_id)
         openshell_sandbox.emit_lifecycle(
             sandbox_name=lease.container_id,

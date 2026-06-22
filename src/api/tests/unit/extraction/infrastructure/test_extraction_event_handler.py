@@ -18,7 +18,9 @@ from uuid import UUID
 import pytest
 
 from extraction.infrastructure.event_handler import ExtractionEventHandler
-from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     ScopedWorkloadCredentialIssuer,
@@ -94,7 +96,9 @@ class _FakeRuntimeContextBuilder:
     def __init__(self) -> None:
         self.calls: list[dict[str, str]] = []
 
-    def build(self, *, sync_run_id: str, job_package_id: str) -> ExtractionRuntimeContext:
+    def build(
+        self, *, sync_run_id: str, job_package_id: str
+    ) -> ExtractionRuntimeContext:
         self.calls.append(
             {"sync_run_id": sync_run_id, "job_package_id": job_package_id}
         )
@@ -284,7 +288,7 @@ class TestExtractionEventHandlerCredentialInjection:
             runtime_context_builder=_FakeRuntimeContextBuilder(),
             credential_issuer=ScopedWorkloadCredentialIssuer(
                 signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
-                default_ttl=timedelta(minutes=10)
+                default_ttl=timedelta(minutes=10),
             ),
             worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
         )
@@ -364,7 +368,7 @@ class TestExtractionEventHandlerCredentialInjection:
             runtime_context_builder=_FakeRuntimeContextBuilder(),
             credential_issuer=ScopedWorkloadCredentialIssuer(
                 signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
-                default_ttl=timedelta(minutes=10)
+                default_ttl=timedelta(minutes=10),
             ),
             worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
         )
@@ -374,9 +378,9 @@ class TestExtractionEventHandlerCredentialInjection:
 
         event = outbox.appended[0]
         assert event["event_type"] == "ExtractionFailed"
-        assert "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"][
-            "error"
-        ]
+        assert (
+            "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"]["error"]
+        )
         assert "***REDACTED***" in event["payload"]["error"]
 
 

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from management.application.design_artifacts import build_design_artifacts
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 
 
 def test_build_design_artifacts_merges_ontology_with_graph_instances() -> None:
@@ -63,7 +67,9 @@ def test_build_design_artifacts_merges_ontology_with_graph_instances() -> None:
     assert payload["relationships"][0]["instances"][0]["source_slug"] == "api-gateway"
 
 
-def test_build_design_artifacts_reports_true_instance_count_when_payload_truncated() -> None:
+def test_build_design_artifacts_reports_true_instance_count_when_payload_truncated() -> (
+    None
+):
     graph_data = {
         "nodes": [
             {
@@ -81,7 +87,9 @@ def test_build_design_artifacts_reports_true_instance_count_when_payload_truncat
         knowledge_graph_id="kg-1",
         ontology=OntologyConfig(
             node_types=(
-                NodeTypeDefinition(label="service", description="Service", prepopulated=True),
+                NodeTypeDefinition(
+                    label="service", description="Service", prepopulated=True
+                ),
             ),
         ),
         graph_data=graph_data,
@@ -180,8 +188,18 @@ def test_build_design_artifacts_filters_other_knowledge_graphs() -> None:
         ontology=None,
         graph_data={
             "nodes": [
-                {"id": "1", "type": "service", "slug": "a", "knowledge_graph_id": "kg-2"},
-                {"id": "2", "type": "service", "slug": "b", "knowledge_graph_id": "kg-1"},
+                {
+                    "id": "1",
+                    "type": "service",
+                    "slug": "a",
+                    "knowledge_graph_id": "kg-2",
+                },
+                {
+                    "id": "2",
+                    "type": "service",
+                    "slug": "b",
+                    "knowledge_graph_id": "kg-1",
+                },
             ],
             "edges": [],
         },

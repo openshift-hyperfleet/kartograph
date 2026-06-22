@@ -22,7 +22,9 @@ from management.application.design_artifacts import (
     serialize_entity_instance,
     serialize_relationship_instance,
 )
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 
 
 class DesignArtifactsService:

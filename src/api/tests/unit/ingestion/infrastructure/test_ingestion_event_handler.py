@@ -346,16 +346,14 @@ class TestIngestionEventHandlerFailure:
         await handler.handle(
             "SyncStarted",
             payload,
-            runtime_credentials={
-                "token": "ghp_1234567890abcdef1234567890abcdef1234"
-            },
+            runtime_credentials={"token": "ghp_1234567890abcdef1234567890abcdef1234"},
         )
 
         event = outbox.appended[0]
         assert event["event_type"] == "IngestionFailed"
-        assert "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"][
-            "error"
-        ]
+        assert (
+            "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"]["error"]
+        )
         assert "***REDACTED***" in event["payload"]["error"]
 
     async def test_ingestion_failed_aggregate_type(

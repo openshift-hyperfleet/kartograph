@@ -65,9 +65,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         container_no_new_privileges: bool = True,
         container_pids_limit: int | None = 256,
         container_memory_limit: str | None = "2g",
-        container_tmpfs_mounts: tuple[str, ...] = (
-            "/tmp:rw,noexec,nosuid,size=512m",
-        ),
+        container_tmpfs_mounts: tuple[str, ...] = ("/tmp:rw,noexec,nosuid,size=512m",),
     ) -> None:
         self._container_runtime = container_runtime
         self._sticky_image = sticky_image
@@ -216,7 +214,9 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             return refreshed
 
         adopt_user_id = lease.user_id if lease is not None else user_id
-        adopt_kg_id = lease.knowledge_graph_id if lease is not None else knowledge_graph_id
+        adopt_kg_id = (
+            lease.knowledge_graph_id if lease is not None else knowledge_graph_id
+        )
         adopt_mode = lease.mode if lease is not None else mode
         hints = [container_id] if container_id else []
         container_name = _sanitize_container_name("kartograph-sticky-", session_id)
@@ -271,8 +271,9 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
         container_id_hint: str | None,
     ) -> StickySessionRuntimeLease | None:
         container_name = _sanitize_container_name("kartograph-sticky-", session_id)
-        container_id = container_id_hint or self._container_runtime.container_id_for_name(
-            container_name
+        container_id = (
+            container_id_hint
+            or self._container_runtime.container_id_for_name(container_name)
         )
         if container_id is None or not self._container_runtime.is_running(container_id):
             return None
@@ -308,7 +309,9 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             "KARTOGRAPH_USER_ID": user_id,
             "KARTOGRAPH_SESSION_MODE": mode,
             "KARTOGRAPH_WORKSPACE_DIR": self._container_work_mount,
-            "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(int(self._agent_turn_timeout_seconds)),
+            "KARTOGRAPH_AGENT_TURN_TIMEOUT_SECONDS": str(
+                int(self._agent_turn_timeout_seconds)
+            ),
             "KARTOGRAPH_AGENT_MAX_TURNS": str(int(self._agent_max_turns)),
             "KARTOGRAPH_RUNTIME_AUTH_TOKEN": runtime_auth_token,
         }

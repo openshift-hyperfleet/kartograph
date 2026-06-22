@@ -6,9 +6,13 @@ import asyncio
 from typing import Any
 
 from extraction.domain.extraction_job import ExtractionJobRecord
-from extraction.infrastructure.extraction_job_runner_factory import create_extraction_job_runner
+from extraction.infrastructure.extraction_job_runner_factory import (
+    create_extraction_job_runner,
+)
 from extraction.infrastructure.stub_extraction_job_runner import StubExtractionJobRunner
-from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 from extraction.ports.extraction_job_runner import IExtractionJobRunner
 from infrastructure.settings import get_database_settings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -36,7 +40,9 @@ class ExtractionJobExecutor:
             cls._prepare_semaphore = asyncio.Semaphore(limit)
         return cls._prepare_semaphore
 
-    async def execute(self, job: ExtractionJobRecord, *, tenant_id: str) -> dict[str, Any]:
+    async def execute(
+        self, job: ExtractionJobRecord, *, tenant_id: str
+    ) -> dict[str, Any]:
         if self._runner is not None:
             return await self._runner.run(job, tenant_id=tenant_id)
         settings = get_extraction_workload_runtime_settings()
@@ -45,7 +51,9 @@ class ExtractionJobExecutor:
 
         async with self._prepare_gate():
             async with self._session_factory() as session:
-                runner = create_extraction_job_runner(session=session, settings=settings)
+                runner = create_extraction_job_runner(
+                    session=session, settings=settings
+                )
                 prepared = await runner.prepare_for_run(job, tenant_id=tenant_id)
 
         return await runner.run_prepared(job, prepared=prepared)

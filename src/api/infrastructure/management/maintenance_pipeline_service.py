@@ -10,15 +10,21 @@ from typing import TYPE_CHECKING, Callable
 from croniter import croniter
 from ulid import ULID
 
-from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.infrastructure.extraction_run_orchestrator import (
+    get_extraction_run_orchestrator,
+)
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
 from extraction.infrastructure.repositories.extraction_job_repository import (
     ExtractionJobRepository,
 )
 from extraction.infrastructure.workload_runtime_settings import (
     get_extraction_workload_runtime_settings,
 )
-from infrastructure.management.maintenance_changed_files import collect_changed_maintenance_files
+from infrastructure.management.maintenance_changed_files import (
+    collect_changed_maintenance_files,
+)
 from infrastructure.management.maintenance_job_materializer import (
     MAINTENANCE_JOB_SET_NAME,
     materialize_maintenance_jobs,
@@ -31,7 +37,9 @@ from management.domain.value_objects import (
     KnowledgeGraphMaintenanceRunRecord,
     KnowledgeGraphMaintenanceSchedule,
 )
-from management.infrastructure.git_commit_reference_service import GitCommitReferenceService
+from management.infrastructure.git_commit_reference_service import (
+    GitCommitReferenceService,
+)
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.ports.exceptions import UnauthorizedError
 from shared_kernel.authorization.protocols import AuthorizationProvider
@@ -147,7 +155,9 @@ class MaintenancePipelineService:
         if pending_jobs <= 0 and in_progress_jobs <= 0:
             raise ValueError(_START_READY_NO_JOBS_MESSAGE)
 
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.start(
             tenant_id=kg.tenant_id,
             knowledge_graph_id=kg_id,
@@ -545,7 +555,9 @@ class MaintenancePipelineService:
         )
         await self._session.commit()
 
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.start(
             tenant_id=tenant_id,
             knowledge_graph_id=kg_id,
@@ -628,7 +640,9 @@ class MaintenancePipelineService:
         return MaintenancePipelineService(
             session=session,
             session_factory=self._session_factory,
-            knowledge_graph_repository=KnowledgeGraphRepository(session=session, outbox=outbox),
+            knowledge_graph_repository=KnowledgeGraphRepository(
+                session=session, outbox=outbox
+            ),
             data_source_repository=DataSourceRepository(session=session, outbox=outbox),
             sync_run_repository=DataSourceSyncRunRepository(session=session),
             extraction_job_repository=ExtractionJobRepository(session=session),

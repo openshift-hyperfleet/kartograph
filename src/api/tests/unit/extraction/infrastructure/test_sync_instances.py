@@ -14,8 +14,16 @@ def test_parse_current_nodes_accepts_list_api_response() -> None:
     payload = {
         "entity_type": "Adapter",
         "nodes": [
-            {"id": "adapter:aaa", "slug": "keep-me", "properties": {"data_source_id": "ds-1"}},
-            {"id": "adapter:bbb", "slug": "drop-me", "properties": {"data_source_id": "ds-1"}},
+            {
+                "id": "adapter:aaa",
+                "slug": "keep-me",
+                "properties": {"data_source_id": "ds-1"},
+            },
+            {
+                "id": "adapter:bbb",
+                "slug": "drop-me",
+                "properties": {"data_source_id": "ds-1"},
+            },
         ],
         "total": 2,
     }

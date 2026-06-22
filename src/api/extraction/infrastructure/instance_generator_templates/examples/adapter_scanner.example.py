@@ -14,7 +14,9 @@ from typing import Any
 
 from scanner_common import dedupe_instances, generate_slug
 
-_ADAPTER_NAME = re.compile(r"adapter[_-]?name[\"']?\s*[:=]\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+_ADAPTER_NAME = re.compile(
+    r"adapter[_-]?name[\"']?\s*[:=]\s*[\"']([^\"']+)[\"']", re.IGNORECASE
+)
 
 
 def scan(repository_files: Path) -> list[dict[str, Any]]:

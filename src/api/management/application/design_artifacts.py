@@ -156,16 +156,20 @@ def build_design_artifacts(
     instances_per_type: int | None = None,
 ) -> dict[str, Any]:
     """Merge canonical ontology with live AGE graph instances for the Dev UI."""
-    per_type_limit = max(1, min(instances_per_type if instances_per_type is not None else limit, 500))
+    per_type_limit = max(
+        1, min(instances_per_type if instances_per_type is not None else limit, 500)
+    )
     nodes = [
         node
         for node in graph_data.get("nodes", [])
-        if node.get("knowledge_graph_id") == knowledge_graph_id and not node.get("_redacted")
+        if node.get("knowledge_graph_id") == knowledge_graph_id
+        and not node.get("_redacted")
     ]
     edges = [
         edge
         for edge in graph_data.get("edges", [])
-        if edge.get("knowledge_graph_id") == knowledge_graph_id and not edge.get("_redacted")
+        if edge.get("knowledge_graph_id") == knowledge_graph_id
+        and not edge.get("_redacted")
     ]
 
     node_by_age_id = {str(node.get("id")): node for node in nodes if node.get("id")}
@@ -194,11 +198,15 @@ def build_design_artifacts(
         for node_type in ontology.node_types:
             required = list(node_type.required_properties)
             optional = list(node_type.optional_properties)
-            observed = _observed_entity_property_keys(raw_nodes_by_type.get(node_type.label, []))
-            required, optional, property_definitions = _merge_entity_property_definitions(
-                required=required,
-                optional=optional,
-                observed=observed,
+            observed = _observed_entity_property_keys(
+                raw_nodes_by_type.get(node_type.label, [])
+            )
+            required, optional, property_definitions = (
+                _merge_entity_property_definitions(
+                    required=required,
+                    optional=optional,
+                    observed=observed,
+                )
             )
             type_instances = instances_by_type.get(node_type.label, [])
             total_instances = len(full_instances_by_type.get(node_type.label, []))
@@ -219,7 +227,9 @@ def build_design_artifacts(
         if entity_type in entities:
             continue
         total_instances = len(full_instances_by_type.get(entity_type, []))
-        observed = _observed_entity_property_keys(raw_nodes_by_type.get(entity_type, []))
+        observed = _observed_entity_property_keys(
+            raw_nodes_by_type.get(entity_type, [])
+        )
         required, optional, property_definitions = _merge_entity_property_definitions(
             required=[],
             optional=[],
@@ -311,7 +321,9 @@ def build_design_artifacts(
             reverse_label = _reverse_relationship_label(edge_type)
             total_instances = len(full_relationship_instances.get(composite_key, []))
             declared = list(edge_type.properties)
-            observed = _observed_edge_property_keys(raw_edges_by_key.get(composite_key, []))
+            observed = _observed_edge_property_keys(
+                raw_edges_by_key.get(composite_key, [])
+            )
             required_parameters, optional_parameters, parameter_definitions = (
                 _merge_relationship_parameter_definitions(
                     declared=declared,
@@ -380,7 +392,9 @@ def build_design_artifacts(
         )
 
     entity_instances_returned = sum(len(rows) for rows in instances_by_type.values())
-    relationship_instances_returned = sum(len(rows) for rows in relationship_instances.values())
+    relationship_instances_returned = sum(
+        len(rows) for rows in relationship_instances.values()
+    )
     entity_instances_truncated = any(
         len(full_instances_by_type.get(entity_type, [])) > len(type_instances)
         for entity_type, type_instances in instances_by_type.items()

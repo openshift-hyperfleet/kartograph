@@ -119,7 +119,9 @@ class WorkspaceReadinessResponse(BaseModel):
     blocking_reasons: list[str] = Field(default_factory=list)
 
     @classmethod
-    def from_domain(cls, readiness: WorkspaceReadinessStatus) -> "WorkspaceReadinessResponse":
+    def from_domain(
+        cls, readiness: WorkspaceReadinessStatus
+    ) -> "WorkspaceReadinessResponse":
         return cls(
             has_minimum_entity_types=readiness.has_minimum_entity_types,
             has_minimum_relationship_types=readiness.has_minimum_relationship_types,

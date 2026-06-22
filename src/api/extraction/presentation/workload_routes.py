@@ -26,10 +26,9 @@ from infrastructure.extraction_workload.dependencies import (
 from extraction.application.graph_management_session_journal import (
     GraphManagementSessionJournalService,
 )
-from infrastructure.extraction_workload.workload_errors import raise_graph_storage_http_error
-from management.domain.ontology_prepopulation import PrepopulationValidationError
-from management.domain.relationship_pairing import ontology_config_from_authoring_payload
-from management.ports.exceptions import CanonicalSchemaMutationError
+from infrastructure.extraction_workload.workload_errors import (
+    raise_graph_storage_http_error,
+)
 
 router = APIRouter(prefix="/workloads", tags=["extraction-workloads"])
 
@@ -121,17 +120,23 @@ class WorkloadReadinessResponse(BaseModel):
     has_minimum_entity_types: bool
     has_minimum_relationship_types: bool
     prepopulated_types_ready_metadata: bool
-    prepopulated_types_without_instances_metadata: list[str] = Field(default_factory=list)
+    prepopulated_types_without_instances_metadata: list[str] = Field(
+        default_factory=list
+    )
     prepopulated_relationship_types_without_instances_metadata: list[str] = Field(
         default_factory=list
     )
-    prepopulated_entity_types_without_instances_live: list[str] = Field(default_factory=list)
+    prepopulated_entity_types_without_instances_live: list[str] = Field(
+        default_factory=list
+    )
     prepopulated_relationship_types_without_instances_live: list[str] = Field(
         default_factory=list
     )
     prepopulated_types_ready_live: bool = False
     prepopulated_entity_types: list[dict[str, object]] = Field(default_factory=list)
-    prepopulated_relationship_types: list[dict[str, object]] = Field(default_factory=list)
+    prepopulated_relationship_types: list[dict[str, object]] = Field(
+        default_factory=list
+    )
     prepopulation_tasks: list[dict[str, object]] = Field(default_factory=list)
     next_action: str = ""
     blocking_reasons: list[str] = Field(default_factory=list)
@@ -170,18 +175,22 @@ async def workload_schema_authoring_guide(
 )
 async def workload_get_schema_ontology(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    schema_service: Annotated[
+        IWorkloadSchemaService, Depends(get_workload_schema_service)
+    ] = ...,
 ) -> WorkloadOntologyResponse:
     require_workload_read_scope(auth)
-    config = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
-    if config is None:
+    config = await schema_service.get_ontology(
+        knowledge_graph_id=auth.knowledge_graph_id
+    )
+    payload = config
+    if payload is None:
         return WorkloadOntologyResponse(
             knowledge_graph_id=auth.knowledge_graph_id,
             node_types=[],
             edge_types=[],
             approved_at=None,
         )
-    payload = config.to_dict()
     return WorkloadOntologyResponse(
         knowledge_graph_id=auth.knowledge_graph_id,
         node_types=list(payload.get("node_types", [])),
@@ -197,21 +206,21 @@ async def workload_get_schema_ontology(
 async def workload_save_schema_ontology(
     request: WorkloadOntologySaveRequest,
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    schema_service: Annotated[
+        IWorkloadSchemaService, Depends(get_workload_schema_service)
+    ] = ...,
 ) -> WorkloadOntologyResponse:
     require_workload_admin_scope(auth)
-    config = ontology_config_from_authoring_payload(request.model_dump())
     try:
-        saved = await schema_service.replace_ontology(
+        payload = await schema_service.replace_ontology_from_authoring_payload(
             knowledge_graph_id=auth.knowledge_graph_id,
-            config=config,
+            payload=request.model_dump(),
         )
-    except (PrepopulationValidationError, CanonicalSchemaMutationError) as e:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
-    payload = saved.to_dict()
+            detail=str(exc),
+        ) from exc
     return WorkloadOntologyResponse(
         knowledge_graph_id=auth.knowledge_graph_id,
         node_types=list(payload.get("node_types", [])),
@@ -227,7 +236,9 @@ async def workload_save_schema_ontology(
 async def workload_validate_mutations(
     request: WorkloadMutationValidateRequest,
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    schema_service: Annotated[
+        IWorkloadSchemaService, Depends(get_workload_schema_service)
+    ] = ...,
 ) -> WorkloadMutationValidateResponse:
     require_workload_read_scope(auth)
     try:
@@ -252,7 +263,9 @@ async def workload_validate_mutations(
 async def workload_apply_mutations(
     request: WorkloadMutationApplyRequest,
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    schema_service: Annotated[
+        IWorkloadSchemaService, Depends(get_workload_schema_service)
+    ] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
     session_journal: Annotated[
         GraphManagementSessionJournalService,
@@ -305,7 +318,9 @@ async def workload_apply_mutations(
             build_workload_readiness_snapshot,
         )
 
-        ontology = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
+        ontology = await schema_service.get_ontology(
+            knowledge_graph_id=auth.knowledge_graph_id
+        )
         try:
             snapshot = await build_workload_readiness_snapshot(
                 ontology=ontology,
@@ -507,7 +522,9 @@ async def workload_list_relationship_instances(
 )
 async def workload_get_workspace_readiness(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
+    schema_service: Annotated[
+        IWorkloadSchemaService, Depends(get_workload_schema_service)
+    ] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadReadinessResponse:
     require_workload_read_scope(auth)
@@ -515,7 +532,9 @@ async def workload_get_workspace_readiness(
         build_workload_readiness_snapshot,
     )
 
-    ontology = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
+    ontology = await schema_service.get_ontology(
+        knowledge_graph_id=auth.knowledge_graph_id
+    )
     try:
         snapshot = await build_workload_readiness_snapshot(
             ontology=ontology,

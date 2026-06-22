@@ -156,7 +156,11 @@ class FakeGitHubTransport(httpx.AsyncBaseTransport):
         for path_suffix, response_data in self._responses.items():
             if path_suffix == "__tarball__":
                 if "/tarball/" in url_path:
-                    payload = response_data if isinstance(response_data, bytes) else response_data["bytes"]
+                    payload = (
+                        response_data
+                        if isinstance(response_data, bytes)
+                        else response_data["bytes"]
+                    )
                     return httpx.Response(
                         status_code=200,
                         content=payload,
@@ -930,7 +934,11 @@ class TestContentFetching:
                 if f"/git/trees/{HEAD_SHA}" in url_path:
                     data = _tree_response(
                         [
-                            {"path": f"src/file_{i}.py", "type": "blob", "sha": f"sha{i}"}
+                            {
+                                "path": f"src/file_{i}.py",
+                                "type": "blob",
+                                "sha": f"sha{i}",
+                            }
                             for i in range(4)
                         ]
                     )
@@ -1016,7 +1024,9 @@ class TestContentFetching:
                         auth_attempts += 1
                         return httpx.Response(403, content=b'{"message":"Forbidden"}')
                     unauth_attempts += 1
-                    data = _tree_response([{"path": "README.md", "type": "blob", "sha": "abc"}])
+                    data = _tree_response(
+                        [{"path": "README.md", "type": "blob", "sha": "abc"}]
+                    )
                     return httpx.Response(
                         200,
                         content=json.dumps(data).encode(),

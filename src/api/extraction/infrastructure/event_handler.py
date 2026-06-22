@@ -136,7 +136,10 @@ class ExtractionEventHandler:
         worker_id: str | None = None
 
         try:
-            if self._credential_issuer is not None and self._worker_launcher is not None:
+            if (
+                self._credential_issuer is not None
+                and self._worker_launcher is not None
+            ):
                 if not tenant_id:
                     raise ValueError(
                         "tenant_id is required for scoped workload credential injection"

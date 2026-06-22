@@ -15,10 +15,16 @@ from extraction.domain.extraction_job import (
     ExtractionJobStatus,
     ExtractionTargetInstance,
 )
-from extraction.domain.observability.extraction_job_probe import ExtractionJobMaterializationObservation
+from extraction.domain.observability.extraction_job_probe import (
+    ExtractionJobMaterializationObservation,
+)
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
-from extraction.infrastructure.extraction_job_workdir_materializer import ExtractionJobWorkdirMaterializer
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.extraction_job_workdir_materializer import (
+    ExtractionJobWorkdirMaterializer,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 from extraction.ports.runtime import ScopedWorkloadCredentials
 from tests.unit.extraction.infrastructure.fakes.extraction_job_target_context_enricher import (
     FakeExtractionJobTargetContextEnricher,
@@ -37,7 +43,9 @@ class _RecordingProbe:
     def __init__(self) -> None:
         self.observations: list[ExtractionJobMaterializationObservation] = []
 
-    def repository_files_materialized(self, observation: ExtractionJobMaterializationObservation) -> None:
+    def repository_files_materialized(
+        self, observation: ExtractionJobMaterializationObservation
+    ) -> None:
         self.observations.append(observation)
 
 
@@ -60,12 +68,16 @@ def _build_package(work_dir: Path, package_id: str, path: str, content: bytes) -
             metadata={},
         )
     )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
 @pytest.mark.asyncio
-async def test_prepare_materializes_instance_referenced_paths_and_workspace_layout(tmp_path: Path) -> None:
+async def test_prepare_materializes_instance_referenced_paths_and_workspace_layout(
+    tmp_path: Path,
+) -> None:
     package_id = "01JTESTPACK0000000000000002"
     job_packages_dir = tmp_path / "packages"
     job_packages_dir.mkdir()

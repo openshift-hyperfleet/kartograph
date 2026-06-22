@@ -17,7 +17,9 @@ _TEST_SIGNING_KEY = DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 
 
 def test_issue_for_sticky_session_includes_chat_scope() -> None:
-    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5))
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5)
+    )
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
@@ -33,7 +35,9 @@ def test_issue_for_sticky_session_includes_chat_scope() -> None:
 
 
 def test_verify_rejects_unknown_token() -> None:
-    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5))
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5)
+    )
     assert issuer.verify("not-a-valid-jwt") is None
 
 
@@ -76,7 +80,9 @@ def test_verify_rejects_token_signed_with_different_key() -> None:
 
 
 def test_verify_rejects_expired_token() -> None:
-    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(seconds=-60))
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(seconds=-60)
+    )
     credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
 
     assert issuer.verify(credentials.token) is None
@@ -111,7 +117,11 @@ def test_verify_rejects_token_without_issuer_and_audience() -> None:
         {
             "sub": "workload",
             "jti": "legacy-token",
-            "scopes": ["tenant:tenant-1", "knowledge_graph:kg-1", "workload:extraction"],
+            "scopes": [
+                "tenant:tenant-1",
+                "knowledge_graph:kg-1",
+                "workload:extraction",
+            ],
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
         },

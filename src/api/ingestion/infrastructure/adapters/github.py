@@ -195,15 +195,17 @@ class GitHubAdapter:
             )
 
             if use_full_refresh:
-                changeset_entries, content_blobs, branch_file_count = (
-                    await self._extract_full_refresh_via_tarball(
-                        client,
-                        headers,
-                        owner,
-                        repo,
-                        branch,
-                        head_sha,
-                    )
+                (
+                    changeset_entries,
+                    content_blobs,
+                    branch_file_count,
+                ) = await self._extract_full_refresh_via_tarball(
+                    client,
+                    headers,
+                    owner,
+                    repo,
+                    branch,
+                    head_sha,
                 )
             else:
                 assert checkpoint is not None
@@ -292,7 +294,9 @@ class GitHubAdapter:
         url = (
             f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
         )
-        tree_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
+        tree_data = await self._get_json_with_auth_fallback(
+            client, url, headers=headers
+        )
 
         result: list[dict[str, Any]] = []
         for item in tree_data.get("tree", []):
@@ -320,7 +324,9 @@ class GitHubAdapter:
         url = (
             f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1"
         )
-        tree_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
+        tree_data = await self._get_json_with_auth_fallback(
+            client, url, headers=headers
+        )
         return sum(
             1 for item in tree_data.get("tree", []) if item.get("type") == "blob"
         )
@@ -353,7 +359,9 @@ class GitHubAdapter:
             ``previous_path`` keys.
         """
         url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}"
-        compare_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
+        compare_data = await self._get_json_with_auth_fallback(
+            client, url, headers=headers
+        )
 
         result: list[dict[str, Any]] = []
         for file_info in compare_data.get("files", []):
@@ -403,7 +411,9 @@ class GitHubAdapter:
         except httpx.HTTPStatusError:
             # Tarball extraction already succeeded; tree count is metadata only.
             branch_file_count = 0
-        return self._changeset_from_tarball(archive_bytes, branch_file_count=branch_file_count)
+        return self._changeset_from_tarball(
+            archive_bytes, branch_file_count=branch_file_count
+        )
 
     @staticmethod
     def _changeset_from_tarball(
@@ -549,7 +559,9 @@ class GitHubAdapter:
             previous_path: str | None = file_info.get("previous_path")
 
             async with semaphore:
-                raw_bytes = await self._fetch_blob(client, headers, owner, repo, blob_sha)
+                raw_bytes = await self._fetch_blob(
+                    client, headers, owner, repo, blob_sha
+                )
 
             content_ref = ContentRef.from_bytes(raw_bytes)
             content_type, _ = mimetypes.guess_type(path)
@@ -614,7 +626,9 @@ class GitHubAdapter:
             ValueError: If the blob encoding is not ``base64``.
         """
         url = f"{_GITHUB_API_BASE}/repos/{owner}/{repo}/git/blobs/{blob_sha}"
-        blob_data = await self._get_json_with_auth_fallback(client, url, headers=headers)
+        blob_data = await self._get_json_with_auth_fallback(
+            client, url, headers=headers
+        )
 
         encoding: str = blob_data.get("encoding", "base64")
         if encoding != "base64":

@@ -7,7 +7,9 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
+from management.infrastructure.job_package_archive_reader import (
+    SqlJobPackageArchiveReader,
+)
 from shared_kernel.job_package.archive_availability import (
     job_package_archive_exists,
     job_package_work_dir,

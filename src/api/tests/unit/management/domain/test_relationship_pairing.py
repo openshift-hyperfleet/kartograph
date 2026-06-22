@@ -40,7 +40,9 @@ class TestExpandOntologyBidirectionalPairs:
 
         labels = {edge.label for edge in expanded.edge_types}
         assert labels == {"contains", "contained_in"}
-        inverse = next(edge for edge in expanded.edge_types if edge.label == "contained_in")
+        inverse = next(
+            edge for edge in expanded.edge_types if edge.label == "contained_in"
+        )
         assert inverse.source_labels == ("test",)
         assert inverse.target_labels == ("repository",)
         assert inverse.inverse_of == "contains"
@@ -77,7 +79,9 @@ class TestExpandOntologyBidirectionalPairs:
         )
 
         expanded = expand_ontology_bidirectional_pairs(config)
-        inverse = next(edge for edge in expanded.edge_types if edge.label == "housed_in")
+        inverse = next(
+            edge for edge in expanded.edge_types if edge.label == "housed_in"
+        )
 
         assert inverse.inverse_of == "contains"
 
@@ -117,7 +121,9 @@ class TestExpandOntologyBidirectionalPairs:
 
         expanded = expand_ontology_bidirectional_pairs(config)
 
-        inverse_rows = [edge for edge in expanded.edge_types if edge.label == "exercises_inverse"]
+        inverse_rows = [
+            edge for edge in expanded.edge_types if edge.label == "exercises_inverse"
+        ]
         assert len(inverse_rows) == 1
         assert inverse_rows[0].auto_generated is True
         assert inverse_rows[0].inverse_of == "exercises"

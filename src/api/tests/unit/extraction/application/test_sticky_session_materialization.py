@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from extraction.application.job_package_gate import resolve_job_package_gate
-from extraction.application.sticky_session_materialization import should_materialize_job_packages
+from extraction.application.sticky_session_materialization import (
+    should_materialize_job_packages,
+)
 from extraction.domain.value_objects import (
     GraphManagementUiMode,
     IngestionReadinessSnapshot,

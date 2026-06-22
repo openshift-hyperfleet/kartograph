@@ -36,7 +36,9 @@ def append_job_mutation_artifacts(
     if applied_jsonl and applied_jsonl.strip():
         _append_lines(mutations_dir / APPLIED_MUTATIONS_FILENAME, applied_jsonl.strip())
     if instance_changes_jsonl and instance_changes_jsonl.strip():
-        _append_lines(mutations_dir / INSTANCE_CHANGES_FILENAME, instance_changes_jsonl.strip())
+        _append_lines(
+            mutations_dir / INSTANCE_CHANGES_FILENAME, instance_changes_jsonl.strip()
+        )
 
 
 def read_instance_changes_from_workdir(

@@ -24,7 +24,10 @@ from management.domain.value_objects import (
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 from tests.fakes.authorization import InMemoryAuthorizationProvider
-from tests.fakes.management import InMemoryDataSourceRepository, InMemoryKnowledgeGraphRepository
+from tests.fakes.management import (
+    InMemoryDataSourceRepository,
+    InMemoryKnowledgeGraphRepository,
+)
 
 
 def _make_kg(*, tenant_id: str = "tenant-1") -> KnowledgeGraph:
@@ -326,7 +329,9 @@ async def test_trigger_waits_for_ingest_before_materializing(
     )
 
     with (
-        patch.object(svc, "_wait_for_sync_runs", AsyncMock(return_value=["ingested"])) as wait,
+        patch.object(
+            svc, "_wait_for_sync_runs", AsyncMock(return_value=["ingested"])
+        ) as wait,
         patch.object(
             svc,
             "_materialize_and_start_extraction",
@@ -465,7 +470,9 @@ async def test_materialize_commits_jobs_before_starting_orchestrator(
             "infrastructure.management.maintenance_pipeline_service.SqlPreparedJobPackageReader",
         ) as reader_cls,
     ):
-        reader_cls.return_value.list_latest_for_knowledge_graph = AsyncMock(return_value=())
+        reader_cls.return_value.list_latest_for_knowledge_graph = AsyncMock(
+            return_value=()
+        )
         await svc._materialize_and_start_extraction(
             kg_id=kg.id.value,
             tenant_id=kg.tenant_id,
@@ -516,7 +523,9 @@ async def test_advance_marks_ingest_failed_when_sync_fails(
         authz=authz,
     )
 
-    run = await svc.advance_for_knowledge_graph(kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    run = await svc.advance_for_knowledge_graph(
+        kg_id=kg.id.value, tenant_id=kg.tenant_id
+    )
 
     assert run is not None
     assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.INGEST_FAILED
@@ -641,8 +650,14 @@ async def test_check_scheduled_triggers_skips_when_failed_maintenance_jobs_remai
     trigger_scheduled.assert_not_awaited()
     fake_repo.save.assert_awaited_once()
     assert len(kg.maintenance_run_history) == 1
-    assert kg.maintenance_run_history[-1].outcome == KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED
-    assert "failed maintenance job" in (kg.maintenance_run_history[-1].message or "").lower()
+    assert (
+        kg.maintenance_run_history[-1].outcome
+        == KnowledgeGraphMaintenanceRunOutcome.PREFLIGHT_FAILED
+    )
+    assert (
+        "failed maintenance job"
+        in (kg.maintenance_run_history[-1].message or "").lower()
+    )
 
 
 @pytest.mark.asyncio
@@ -651,7 +666,13 @@ async def test_trigger_scheduled_refreshes_tracked_branch_heads(
 ):
     kg = _make_kg()
     kg_repo.seed(kg)
-    ds = _make_ds(ds_id="ds-1", kg_id=kg.id.value, tenant_id=kg.tenant_id, baseline="abc", head="old-head")
+    ds = _make_ds(
+        ds_id="ds-1",
+        kg_id=kg.id.value,
+        tenant_id=kg.tenant_id,
+        baseline="abc",
+        head="old-head",
+    )
     ds_repo.seed(ds)
 
     ref_service = MagicMock()
@@ -840,7 +861,9 @@ async def test_regenerate_maintenance_jobs_replaces_pending_from_current_diff(
         patch.object(
             svc,
             "_build_maintenance_jobs",
-            AsyncMock(return_value=([MagicMock(), MagicMock(), MagicMock()], [MagicMock()])),
+            AsyncMock(
+                return_value=([MagicMock(), MagicMock(), MagicMock()], [MagicMock()])
+            ),
         ),
     ):
         result = await svc.regenerate_maintenance_jobs(
@@ -897,7 +920,9 @@ async def test_regenerate_maintenance_jobs_blocks_while_jobs_running(
 
     job_repo = MagicMock()
     job_repo.sync_maintenance_pending_jobs = AsyncMock(
-        side_effect=RuntimeError("Cannot refresh maintenance jobs while 1 job(s) are running")
+        side_effect=RuntimeError(
+            "Cannot refresh maintenance jobs while 1 job(s) are running"
+        )
     )
     svc = MaintenancePipelineService(
         session=mock_session,

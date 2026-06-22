@@ -72,9 +72,15 @@ def test_by_instances_rejects_counterpart_owned_relationship_line() -> None:
     )
     edges = [
         {"label": "operates_on", "source_type": "Adapter", "target_type": "Resource"},
-        {"label": "verifies_inverse", "source_type": "Adapter", "target_type": "ComponentTest"},
+        {
+            "label": "verifies_inverse",
+            "source_type": "Adapter",
+            "target_type": "ComponentTest",
+        },
     ]
     counts = {"Adapter": 19, "Resource": 9, "ComponentTest": 1264}
     errors = document.validation_errors(entity_instance_counts=counts, edge_types=edges)
 
-    assert any("verifies_inverse" in err and "must not" in err.lower() for err in errors)
+    assert any(
+        "verifies_inverse" in err and "must not" in err.lower() for err in errors
+    )

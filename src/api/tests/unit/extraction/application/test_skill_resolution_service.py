@@ -11,7 +11,11 @@ from extraction.domain.value_objects import ExtractionSessionMode
 
 
 class _InMemorySkillOverrideRepository:
-    def __init__(self, overrides: dict[tuple[str, ExtractionSessionMode], dict[str, str]] | None = None) -> None:
+    def __init__(
+        self,
+        overrides: dict[tuple[str, ExtractionSessionMode], dict[str, str]]
+        | None = None,
+    ) -> None:
         self._overrides = overrides or {}
 
     async def get_overrides_for_knowledge_graph(
@@ -53,7 +57,10 @@ class TestExtractionSkillResolutionService:
         assert "do not ask" in guardrails_text
         assert "500/503" in guardrails_text
         assert "approved_at" in guardrails_text
-        assert "next_action" in guardrails_text or "next_action" in resolved.skills["prepopulation"]
+        assert (
+            "next_action" in guardrails_text
+            or "next_action" in resolved.skills["prepopulation"]
+        )
         assert "kartograph_save_schema_ontology" in guardrails_text
         assert len(resolved.prompt_hierarchy) > 0
 
@@ -70,11 +77,23 @@ class TestExtractionSkillResolutionService:
         assert "job_setup" in resolved.skills
         assert "per_instance_description_authoring" in resolved.skills
         assert "EntityType} ->" in resolved.skills["per_instance_description_authoring"]
-        assert "entity_type_authoring_context" in resolved.skills["per_instance_description_authoring"]
-        assert "never invent relationship labels" in resolved.skills["per_instance_description_authoring"]
-        assert "Ignore these relationships" in resolved.skills["per_instance_description_authoring"]
+        assert (
+            "entity_type_authoring_context"
+            in resolved.skills["per_instance_description_authoring"]
+        )
+        assert (
+            "never invent relationship labels"
+            in resolved.skills["per_instance_description_authoring"]
+        )
+        assert (
+            "Ignore these relationships"
+            in resolved.skills["per_instance_description_authoring"]
+        )
         assert "IGNORE" in resolved.skills["per_instance_description_authoring"]
-        assert "Implementation Analysis" in resolved.skills["per_instance_description_authoring"]
+        assert (
+            "Implementation Analysis"
+            in resolved.skills["per_instance_description_authoring"]
+        )
         assert "minor_edits" in resolved.skills
         assert "schema_edits_secondary" in resolved.skills
         assert "extraction" in resolved.system_prompt.lower()

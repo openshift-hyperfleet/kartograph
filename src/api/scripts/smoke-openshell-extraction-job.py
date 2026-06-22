@@ -12,15 +12,21 @@ from pathlib import Path
 from agentic_ci.harness import create_harness
 
 from extraction.infrastructure.extraction_job_prompt import write_extraction_prompt_file
-from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
+from extraction.infrastructure.extraction_job_workdir_layout import (
+    prepare_agentic_ci_workspace,
+)
 from extraction.infrastructure.openshell import gateway as openshell_gateway
 from extraction.infrastructure.openshell import sandbox as openshell_sandbox
 from extraction.infrastructure.openshell.cli import run_openshell
 from extraction.infrastructure.openshell.inference_env import insert_claude_bare_flag
 from extraction.infrastructure.openshell.runtime_env import apply_openshell_cli_env
 from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
-from extraction.infrastructure.openshell_extraction_job_runner import OpenShellExtractionJobRunner
-from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.infrastructure.openshell_extraction_job_runner import (
+    OpenShellExtractionJobRunner,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 
 _AGENTIC_CI_ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
 
@@ -33,7 +39,9 @@ def main() -> int:
     workdir = Path(tempfile.mkdtemp(prefix="kartograph-extract-smoke-"))
     runner = OpenShellExtractionJobRunner(settings=settings)
 
-    prepare_agentic_ci_workspace(workdir, container_run_uid=None, container_run_gid=None)
+    prepare_agentic_ci_workspace(
+        workdir, container_run_uid=None, container_run_gid=None
+    )
     (workdir / "job-context.json").write_text(
         json.dumps(
             {
@@ -139,7 +147,7 @@ def main() -> int:
         shell_cmd = [
             "bash",
             "-c",
-            f". {_AGENTIC_CI_ENV_SCRIPT} && cd {work_mount} && exec \"$@\"",
+            f'. {_AGENTIC_CI_ENV_SCRIPT} && cd {work_mount} && exec "$@"',
             "--",
             *agent_args,
         ]

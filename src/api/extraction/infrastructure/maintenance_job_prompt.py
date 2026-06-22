@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from extraction.domain.extraction_job import ExtractionJobRecord
 from extraction.infrastructure.extraction_job_prompt import build_extraction_job_prompt
-from infrastructure.management.maintenance_job_materializer import MAINTENANCE_JOB_SET_NAME
+from infrastructure.management.maintenance_job_materializer import (
+    MAINTENANCE_JOB_SET_NAME,
+)
 
 
 def build_job_run_prompt(*, job: ExtractionJobRecord) -> str:

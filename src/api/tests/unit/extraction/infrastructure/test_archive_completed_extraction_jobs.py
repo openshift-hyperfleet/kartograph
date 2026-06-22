@@ -7,12 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from extraction.application.archive_completed_extraction_jobs import (
+from extraction.infrastructure.archive_completed_extraction_jobs import (
     archive_completed_extraction_jobs,
     backfill_archival_metrics,
 )
 from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 
 def _completed_job(*, job_id: str = "job-1") -> ExtractionJobRecord:
@@ -57,7 +59,9 @@ def test_backfill_archival_metrics_reads_jsonl_and_result_json(tmp_path: Path) -
     assert metrics["applied_mutations_jsonl"]
 
 
-def test_backfill_archival_metrics_falls_back_to_operations_applied(tmp_path: Path) -> None:
+def test_backfill_archival_metrics_falls_back_to_operations_applied(
+    tmp_path: Path,
+) -> None:
     job = _completed_job()
     mutations = tmp_path / "mutations"
     mutations.mkdir()
@@ -100,7 +104,9 @@ class _FakeRepository:
 
 
 @pytest.mark.asyncio
-async def test_archive_completed_extraction_jobs_promotes_all_completed(tmp_path: Path) -> None:
+async def test_archive_completed_extraction_jobs_promotes_all_completed(
+    tmp_path: Path,
+) -> None:
     job = _completed_job()
     work_root = tmp_path / "kg-1" / job.job_id
     mutations = work_root / "mutations"

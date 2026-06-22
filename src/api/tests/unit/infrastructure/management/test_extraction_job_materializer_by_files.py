@@ -46,7 +46,9 @@ def _build_package(work_dir: Path, package_id: str, files: dict[str, bytes]) -> 
                 metadata={},
             )
         )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
@@ -54,8 +56,12 @@ def test_match_file_patterns_supports_globs() -> None:
     from extraction.domain.extraction_job import ExtractionTargetFile
 
     catalog = [
-        ExtractionTargetFile(path="src/a.py", repository_folder="repo-a", package_id="pkg-1"),
-        ExtractionTargetFile(path="docs/readme.md", repository_folder="repo-a", package_id="pkg-1"),
+        ExtractionTargetFile(
+            path="src/a.py", repository_folder="repo-a", package_id="pkg-1"
+        ),
+        ExtractionTargetFile(
+            path="docs/readme.md", repository_folder="repo-a", package_id="pkg-1"
+        ),
     ]
     matched = match_file_patterns(catalog, ("**/*.py",))
     assert [item.path for item in matched] == ["src/a.py"]
@@ -110,8 +116,13 @@ def test_materialize_by_files_batches_repository_paths(tmp_path: Path) -> None:
         "features/three.feature",
     ]
     assert [target.path for target in jobs[1].target_files] == ["features/two.feature"]
-    assert projected_job_count(
-        config.job_sets[0],
-        entity_instance_counts={},
-        matched_file_count=len(match_file_patterns(catalog, ("features/*.feature",))),
-    ) == 2
+    assert (
+        projected_job_count(
+            config.job_sets[0],
+            entity_instance_counts={},
+            matched_file_count=len(
+                match_file_patterns(catalog, ("features/*.feature",))
+            ),
+        )
+        == 2
+    )

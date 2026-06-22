@@ -7,8 +7,12 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
-from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
+from extraction.infrastructure.workload_credential_issuer import (
+    ScopedWorkloadCredentialIssuer,
+)
+from extraction.infrastructure.workload_runtime_factory import (
+    get_workload_credential_issuer,
+)
 from extraction.ports.workload_extraction_jobs import IWorkloadExtractionJobsService
 from extraction.ports.workload_graph import IWorkloadGraphReader
 from extraction.ports.workload_schema import IWorkloadSchemaService
@@ -21,7 +25,9 @@ from extraction.application.graph_management_session_journal import (
     GraphManagementSessionJournalService,
 )
 from extraction.infrastructure.repositories import ExtractionAgentSessionRepository
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
 from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
@@ -68,7 +74,9 @@ def get_workload_schema_service(
             settings=get_database_settings(),
             session=session,
         ),
-        graph_reader=GraphWorkloadGraphReader(pool=pool, settings=get_database_settings()),
+        graph_reader=GraphWorkloadGraphReader(
+            pool=pool, settings=get_database_settings()
+        ),
     )
 
 

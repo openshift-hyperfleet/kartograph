@@ -54,7 +54,9 @@ def _build_job_package(archive_dir: Path) -> str:
 
 
 @pytest.mark.asyncio
-async def test_build_materializes_ingestion_context_and_repository_files(tmp_path: Path):
+async def test_build_materializes_ingestion_context_and_repository_files(
+    tmp_path: Path,
+):
     work_dir = tmp_path / "work"
     work_dir.mkdir(parents=True, exist_ok=True)
     package_id = _build_job_package(work_dir)

@@ -23,15 +23,27 @@ def test_metrics_from_otel_log_sums_token_and_cost(tmp_path: Path) -> None:
                                         {
                                             "asDouble": 100,
                                             "attributes": [
-                                                {"key": "model", "value": {"stringValue": "claude"}},
-                                                {"key": "type", "value": {"stringValue": "input"}},
+                                                {
+                                                    "key": "model",
+                                                    "value": {"stringValue": "claude"},
+                                                },
+                                                {
+                                                    "key": "type",
+                                                    "value": {"stringValue": "input"},
+                                                },
                                             ],
                                         },
                                         {
                                             "asDouble": 40,
                                             "attributes": [
-                                                {"key": "model", "value": {"stringValue": "claude"}},
-                                                {"key": "type", "value": {"stringValue": "output"}},
+                                                {
+                                                    "key": "model",
+                                                    "value": {"stringValue": "claude"},
+                                                },
+                                                {
+                                                    "key": "type",
+                                                    "value": {"stringValue": "output"},
+                                                },
                                             ],
                                         },
                                     ]
@@ -44,7 +56,10 @@ def test_metrics_from_otel_log_sums_token_and_cost(tmp_path: Path) -> None:
                                         {
                                             "asDouble": 0.0123,
                                             "attributes": [
-                                                {"key": "model", "value": {"stringValue": "claude"}},
+                                                {
+                                                    "key": "model",
+                                                    "value": {"stringValue": "claude"},
+                                                },
                                             ],
                                         }
                                     ]

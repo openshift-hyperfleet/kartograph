@@ -6,13 +6,19 @@ from management.application.workspace_readiness import (
     evaluate_workspace_readiness,
     prepopulated_gaps_from_live_counts,
 )
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 
 
 def test_evaluate_workspace_readiness_flags_missing_prepopulated_entity_types() -> None:
     config = OntologyConfig(
         node_types=(
-            NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
+            NodeTypeDefinition(
+                label="service", prepopulated=True, prepopulated_instance_count=0
+            ),
             NodeTypeDefinition(label="team"),
         ),
         edge_types=(

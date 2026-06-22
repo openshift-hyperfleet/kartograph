@@ -40,7 +40,9 @@ def _make_extraction_result(
         content_type="text/x-python",
         metadata={},
     )
-    checkpoint = AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "deadbeef"})
+    checkpoint = AdapterCheckpoint(
+        schema_version="1.0.0", data={"commit_sha": "deadbeef"}
+    )
     return ExtractionResult(
         changeset_entries=[entry],
         content_blobs={content_ref.hex_digest: content},

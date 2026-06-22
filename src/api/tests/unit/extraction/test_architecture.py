@@ -203,4 +203,3 @@ class TestExtractionAllowedDependencies:
             .may_import("infrastructure*")
             .check("extraction")
         )
-

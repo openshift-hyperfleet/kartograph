@@ -270,7 +270,9 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         if result.rowcount == 0:  # type: ignore[attr-defined]
             raise KnowledgeGraphNotFoundError(f"Knowledge graph '{kg_id}' not found")
 
-    async def get_extraction_job_config(self, kg_id: str) -> ExtractionJobConfigDocument | None:
+    async def get_extraction_job_config(
+        self, kg_id: str
+    ) -> ExtractionJobConfigDocument | None:
         stmt = select(KnowledgeGraphModel).where(KnowledgeGraphModel.id == kg_id)
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()

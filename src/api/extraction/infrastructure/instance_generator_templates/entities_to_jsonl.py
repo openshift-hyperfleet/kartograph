@@ -91,12 +91,18 @@ def main() -> int:
         "entity_label",
         help="Entity type label matching ontology exactly (case-sensitive, e.g. APIEndpoint).",
     )
-    parser.add_argument("input", nargs="?", help="Path to JSON file; omit to read stdin.")
-    parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic node ids.")
+    parser.add_argument(
+        "input", nargs="?", help="Path to JSON file; omit to read stdin."
+    )
+    parser.add_argument(
+        "--tenant-id", default="", help="Tenant id for deterministic node ids."
+    )
     parser.add_argument("--data-source-id", default="schema-bootstrap")
     args = parser.parse_args()
 
-    raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
+    raw = (
+        Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
+    )
     instances = load_instances(json.loads(raw))
     for row in instances:
         line = instance_to_create_line(

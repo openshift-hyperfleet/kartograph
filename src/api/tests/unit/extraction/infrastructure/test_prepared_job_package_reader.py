@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
     AdapterCheckpoint,
@@ -39,7 +41,9 @@ def _build_package(work_dir: Path, package_id: str, *, with_file: bool) -> None:
                 metadata={},
             )
         )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
@@ -89,7 +93,9 @@ class TestSqlPreparedJobPackageReader:
         assert sources[0].data_source_name == "Hyperfleet API"
         assert sources[0].repository_folder == "hyperfleet-api"
 
-    async def test_skips_data_source_when_all_packages_are_empty(self, tmp_path: Path) -> None:
+    async def test_skips_data_source_when_all_packages_are_empty(
+        self, tmp_path: Path
+    ) -> None:
         empty_id = "01JEMPTY000000000000000000"
         _build_package(tmp_path, empty_id, with_file=False)
         rows = [

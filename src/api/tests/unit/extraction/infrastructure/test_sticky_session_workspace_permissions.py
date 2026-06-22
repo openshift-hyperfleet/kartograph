@@ -11,7 +11,9 @@ from extraction.infrastructure.sticky_session_workspace_permissions import (
 )
 
 
-def test_chown_grants_container_user_write_access_outside_repository_files(tmp_path: Path) -> None:
+def test_chown_grants_container_user_write_access_outside_repository_files(
+    tmp_path: Path,
+) -> None:
     session_root = tmp_path / "session"
     generators = session_root / "instance_generators" / "out"
     repo_files = session_root / "repository-files" / "hyperfleet-e2e"
@@ -33,7 +35,9 @@ def test_chown_grants_container_user_write_access_outside_repository_files(tmp_p
     assert (session_root / "instance_generators").stat().st_mode & stat.S_IWUSR
 
 
-def test_chmod_fallback_grants_owner_and_group_write_without_world_write(tmp_path: Path) -> None:
+def test_chmod_fallback_grants_owner_and_group_write_without_world_write(
+    tmp_path: Path,
+) -> None:
     session_root = tmp_path / "session"
     out_dir = session_root / "instance_generators" / "out"
     out_dir.mkdir(parents=True)

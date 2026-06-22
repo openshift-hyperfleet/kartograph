@@ -14,7 +14,9 @@ from extraction.application.skill_resolution_service import (
     ExtractionSkillResolutionService,
 )
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.graph_management_session_scope import (
+    resolve_backend_session_mode,
+)
 from extraction.domain.value_objects import (
     BootstrapIntakePath,
     ExtractionSessionMode,
@@ -64,7 +66,9 @@ class ExtractionAgentSessionService:
             "(2) guided question-by-question co-design."
         )
 
-    async def _expire_idle_sessions(self, user_id: str, knowledge_graph_id: str) -> None:
+    async def _expire_idle_sessions(
+        self, user_id: str, knowledge_graph_id: str
+    ) -> None:
         now = datetime.now(UTC)
         if self._sticky_runtime_manager is not None:
             self._sticky_runtime_manager.cleanup_expired(now=now)
@@ -145,10 +149,12 @@ class ExtractionAgentSessionService:
         )
         session.runtime_context["graph_management_ui_mode"] = ui_mode.value
         if self._skill_resolution_service is not None:
-            resolved = await self._skill_resolution_service.resolve_for_graph_management_turn(
-                knowledge_graph_id=knowledge_graph_id,
-                mode=mode,
-                ui_mode=ui_mode,
+            resolved = (
+                await self._skill_resolution_service.resolve_for_graph_management_turn(
+                    knowledge_graph_id=knowledge_graph_id,
+                    mode=mode,
+                    ui_mode=ui_mode,
+                )
             )
             session.runtime_context["agent_configuration"] = {
                 "system_prompt": resolved.system_prompt,
@@ -255,7 +261,9 @@ class ExtractionAgentSessionService:
             ui_mode=resolved_ui_mode,
         )
 
-    async def save_session(self, session: ExtractionAgentSession) -> ExtractionAgentSession:
+    async def save_session(
+        self, session: ExtractionAgentSession
+    ) -> ExtractionAgentSession:
         """Persist session mutations after a chat turn."""
         session.updated_at = datetime.now(UTC)
         await self._repository.save(session)
@@ -306,9 +314,11 @@ class ExtractionAgentSessionService:
 
         metrics_by_session: dict[str, list[ExtractionSessionRunMetric]] = {}
         if self._run_metrics_reader is not None:
-            metrics_by_session = await self._run_metrics_reader.find_metrics_by_session_ids(
-                knowledge_graph_id=knowledge_graph_id,
-                session_ids=[session.id for session in sessions],
+            metrics_by_session = (
+                await self._run_metrics_reader.find_metrics_by_session_ids(
+                    knowledge_graph_id=knowledge_graph_id,
+                    session_ids=[session.id for session in sessions],
+                )
             )
 
         return [

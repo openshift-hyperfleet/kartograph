@@ -33,7 +33,9 @@ class StickyRuntimeHealthChecker:
             attempt += 1
             yield f"Waiting for assistant container health check (attempt {attempt})…"
             try:
-                async with httpx.AsyncClient(timeout=self._request_timeout_seconds) as client:
+                async with httpx.AsyncClient(
+                    timeout=self._request_timeout_seconds
+                ) as client:
                     response = await client.get(url)
                     if response.status_code == 200:
                         yield "Assistant container is healthy"
@@ -52,7 +54,9 @@ class StickyRuntimeHealthChecker:
             return True
         url = f"{runtime_base_url.rstrip('/')}/health"
         try:
-            async with httpx.AsyncClient(timeout=self._request_timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self._request_timeout_seconds
+            ) as client:
                 response = await client.get(url)
                 return response.status_code == 200
         except httpx.HTTPError:

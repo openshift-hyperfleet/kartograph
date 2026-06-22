@@ -19,7 +19,9 @@ from infrastructure.management.maintenance_pipeline_service import (
 )
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings, get_spicedb_settings
-from management.infrastructure.git_commit_reference_service import GitCommitReferenceService
+from management.infrastructure.git_commit_reference_service import (
+    GitCommitReferenceService,
+)
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 from management.infrastructure.repositories import (
     DataSourceRepository,
@@ -77,14 +79,18 @@ def build_maintenance_pipeline_for_background(
     return MaintenancePipelineService(
         session=session,
         session_factory=session_factory,
-        knowledge_graph_repository=KnowledgeGraphRepository(session=session, outbox=outbox),
+        knowledge_graph_repository=KnowledgeGraphRepository(
+            session=session, outbox=outbox
+        ),
         data_source_repository=DataSourceRepository(session=session, outbox=outbox),
         sync_run_repository=DataSourceSyncRunRepository(session=session),
         extraction_job_repository=ExtractionJobRepository(session=session),
         authorization=authz,
         tenant_id="",
         diff_summary_service_factory=_diff_summary_service_factory(secret_store),
-        commit_reference_service_factory=_commit_reference_service_factory(secret_store),
+        commit_reference_service_factory=_commit_reference_service_factory(
+            secret_store
+        ),
     )
 
 
@@ -103,12 +109,16 @@ def get_maintenance_pipeline_service(
     return MaintenancePipelineService(
         session=session,
         session_factory=request.app.state.write_sessionmaker,
-        knowledge_graph_repository=KnowledgeGraphRepository(session=session, outbox=outbox),
+        knowledge_graph_repository=KnowledgeGraphRepository(
+            session=session, outbox=outbox
+        ),
         data_source_repository=DataSourceRepository(session=session, outbox=outbox),
         sync_run_repository=DataSourceSyncRunRepository(session=session),
         extraction_job_repository=ExtractionJobRepository(session=session),
         authorization=authz,
         tenant_id=current_user.tenant_id.value,
         diff_summary_service_factory=_diff_summary_service_factory(secret_store),
-        commit_reference_service_factory=_commit_reference_service_factory(secret_store),
+        commit_reference_service_factory=_commit_reference_service_factory(
+            secret_store
+        ),
     )

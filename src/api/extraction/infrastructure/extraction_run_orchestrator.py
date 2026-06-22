@@ -15,7 +15,9 @@ from extraction.domain.extraction_job import ExtractionRunStatus
 from extraction.infrastructure.extraction_run_reconciliation import (
     reconcile_quiescent_extraction_run,
 )
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,9 @@ class ExtractionRunOrchestrator:
         job_executor: ExtractionJobExecutor | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._job_executor = job_executor or ExtractionJobExecutor(session_factory=session_factory)
+        self._job_executor = job_executor or ExtractionJobExecutor(
+            session_factory=session_factory
+        )
         self._active: dict[str, _OrchestratorState] = {}
         self._lock = asyncio.Lock()
 
@@ -101,7 +105,9 @@ class ExtractionRunOrchestrator:
     async def request_pause(self, *, knowledge_graph_id: str) -> None:
         async with self._session_factory() as session:
             repo = ExtractionJobRepository(session)
-            await repo.set_pause_requested(knowledge_graph_id=knowledge_graph_id, pause_requested=True)
+            await repo.set_pause_requested(
+                knowledge_graph_id=knowledge_graph_id, pause_requested=True
+            )
             await repo.upsert_run(
                 knowledge_graph_id=knowledge_graph_id,
                 status=ExtractionRunStatus.PAUSING,
@@ -143,13 +149,17 @@ class ExtractionRunOrchestrator:
             )
             await session.commit()
 
-    async def _worker_loop(self, state: _OrchestratorState, *, worker_index: int) -> None:
+    async def _worker_loop(
+        self, state: _OrchestratorState, *, worker_index: int
+    ) -> None:
         worker_id = f"worker-{worker_index:02d}"
         try:
             while not state.stop_event.is_set():
                 async with self._session_factory() as session:
                     repo = ExtractionJobRepository(session)
-                    if await repo.is_pause_requested(knowledge_graph_id=state.knowledge_graph_id):
+                    if await repo.is_pause_requested(
+                        knowledge_graph_id=state.knowledge_graph_id
+                    ):
                         await repo.upsert_run(
                             knowledge_graph_id=state.knowledge_graph_id,
                             status=ExtractionRunStatus.PAUSED,
@@ -278,5 +288,7 @@ def get_extraction_run_orchestrator(
 ) -> ExtractionRunOrchestrator:
     global _orchestrator_singleton
     if _orchestrator_singleton is None:
-        _orchestrator_singleton = ExtractionRunOrchestrator(session_factory=session_factory)
+        _orchestrator_singleton = ExtractionRunOrchestrator(
+            session_factory=session_factory
+        )
     return _orchestrator_singleton

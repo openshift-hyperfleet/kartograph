@@ -74,8 +74,12 @@ def node_type_dicts_from_ontology(ontology: Any | None) -> list[dict[str, Any]]:
             {
                 "label": str(getattr(node, "label", "") or "").strip(),
                 "description": str(getattr(node, "description", "") or "").strip(),
-                "required_properties": list(getattr(node, "required_properties", None) or ()),
-                "optional_properties": list(getattr(node, "optional_properties", None) or ()),
+                "required_properties": list(
+                    getattr(node, "required_properties", None) or ()
+                ),
+                "optional_properties": list(
+                    getattr(node, "optional_properties", None) or ()
+                ),
             }
         )
     return rows
@@ -90,8 +94,16 @@ def properties_for_entity_type(
     for node in node_types:
         if str(node.get("label") or "").strip() != entity_type:
             continue
-        required = tuple(str(name).strip() for name in node.get("required_properties") or () if str(name).strip())
-        optional = tuple(str(name).strip() for name in node.get("optional_properties") or () if str(name).strip())
+        required = tuple(
+            str(name).strip()
+            for name in node.get("required_properties") or ()
+            if str(name).strip()
+        )
+        optional = tuple(
+            str(name).strip()
+            for name in node.get("optional_properties") or ()
+            if str(name).strip()
+        )
         return required + optional
     return ()
 
@@ -151,7 +163,9 @@ def _valid_relationship_keys_for_entity(
     edge_types: list[dict[str, Any]],
 ) -> set[tuple[str, str, str]]:
     keys: set[tuple[str, str, str]] = set()
-    for line in _relationship_lines_involving_entity_type(entity_type, edge_types=edge_types):
+    for line in _relationship_lines_involving_entity_type(
+        entity_type, edge_types=edge_types
+    ):
         keys.add((line.entity_type, line.relationship_label, line.counterpart_type))
     return keys
 
@@ -214,7 +228,9 @@ def per_instance_description_unknown_relationship_errors(
         return ()
     valid = _valid_relationship_keys_for_entity(entity_type, edge_types=edge_types)
     errors: list[str] = []
-    for is_ignore, line_entity, label, counterpart in _parse_relationship_lines(description):
+    for is_ignore, line_entity, label, counterpart in _parse_relationship_lines(
+        description
+    ):
         if line_entity != entity_type:
             continue
         key = (line_entity, label, counterpart)
@@ -236,9 +252,15 @@ def _relationship_lines_involving_entity_type(
     seen: set[tuple[str, str, str]] = set()
 
     for edge in edge_types:
-        source_type = str(edge.get("source_type") or edge.get("sourceType") or "").strip()
-        target_type = str(edge.get("target_type") or edge.get("targetType") or "").strip()
-        label = str(edge.get("label") or edge.get("name") or edge.get("type") or "").strip()
+        source_type = str(
+            edge.get("source_type") or edge.get("sourceType") or ""
+        ).strip()
+        target_type = str(
+            edge.get("target_type") or edge.get("targetType") or ""
+        ).strip()
+        label = str(
+            edge.get("label") or edge.get("name") or edge.get("type") or ""
+        ).strip()
         if not label:
             continue
 
@@ -267,7 +289,9 @@ def _relationship_lines_involving_entity_type(
                     )
                 )
 
-    return tuple(sorted(lines, key=lambda line: (line.relationship_label, line.counterpart_type)))
+    return tuple(
+        sorted(lines, key=lambda line: (line.relationship_label, line.counterpart_type))
+    )
 
 
 def relationship_authoring_guidance_for_entity_type(
@@ -283,7 +307,9 @@ def relationship_authoring_guidance_for_entity_type(
 
     owned: list[RelationshipAuthoringLine] = []
     ignored: list[RelationshipAuthoringLine] = []
-    for line in _relationship_lines_involving_entity_type(entity_type, edge_types=edge_types):
+    for line in _relationship_lines_involving_entity_type(
+        entity_type, edge_types=edge_types
+    ):
         counterpart_count = entity_instance_counts.get(line.counterpart_type, 0)
         if entity_count > counterpart_count:
             owned.append(line)
@@ -313,12 +339,12 @@ def relationship_authoring_lines_for_entity_type(
 
 
 def _line_key(line: RelationshipAuthoringLine) -> str:
-    return (
-        f"{line.entity_type} -> {line.relationship_label} -> {line.counterpart_type}"
-    )
+    return f"{line.entity_type} -> {line.relationship_label} -> {line.counterpart_type}"
 
 
-def _active_relationship_line_present(description: str, line: RelationshipAuthoringLine) -> bool:
+def _active_relationship_line_present(
+    description: str, line: RelationshipAuthoringLine
+) -> bool:
     key = _line_key(line).lower()
     for raw_line in description.splitlines():
         stripped = raw_line.strip()
@@ -329,7 +355,9 @@ def _active_relationship_line_present(description: str, line: RelationshipAuthor
     return False
 
 
-def _ignore_relationship_line_present(description: str, line: RelationshipAuthoringLine) -> bool:
+def _ignore_relationship_line_present(
+    description: str, line: RelationshipAuthoringLine
+) -> bool:
     key = _line_key(line).lower()
     for raw_line in description.splitlines():
         stripped = raw_line.strip()
@@ -436,7 +464,9 @@ def relationship_authoring_payload_for_entity_type(
                 "ignore_line": format_ignore_line(
                     line,
                     entity_count=entity_count,
-                    counterpart_count=entity_instance_counts.get(line.counterpart_type, 0),
+                    counterpart_count=entity_instance_counts.get(
+                        line.counterpart_type, 0
+                    ),
                 ),
             }
             for line in guidance.ignored

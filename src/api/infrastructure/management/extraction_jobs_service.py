@@ -18,7 +18,9 @@ from infrastructure.management.extraction_job_materializer import (
 from extraction.infrastructure.extraction_job_container import (
     stop_extraction_job_runtimes,
 )
-from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
+from extraction.infrastructure.extraction_run_orchestrator import (
+    get_extraction_run_orchestrator,
+)
 from extraction.infrastructure.extraction_run_reconciliation import (
     reconcile_quiescent_extraction_run,
 )
@@ -30,12 +32,20 @@ from extraction.infrastructure.extraction_job_activity import (
     serialize_job_detail,
     serialize_recent_job,
 )
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 from graph.infrastructure.bulk_data_reader import fetch_bulk_graph_data
 from infrastructure.database.connection_pool import ConnectionPool
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.extraction_job_config import (
     ExtractionJobConfigDocument,
     ExtractionJobSetDefinition,
@@ -176,7 +186,9 @@ class ExtractionJobsService:
         if errors:
             raise ValueError("; ".join(errors))
 
-        await self._knowledge_graph_repository.save_extraction_job_config(kg_id, document)
+        await self._knowledge_graph_repository.save_extraction_job_config(
+            kg_id, document
+        )
         await self._session.commit()
         return document.to_dict()
 
@@ -204,8 +216,10 @@ class ExtractionJobsService:
         )
         configured_names = {job_set.name for job_set in document.job_sets}
         enabled_names = {job_set.name for job_set in document.enabled_job_sets()}
-        blocked_names = await self._extraction_job_repository.job_set_names_with_in_progress(
-            knowledge_graph_id=kg_id,
+        blocked_names = (
+            await self._extraction_job_repository.job_set_names_with_in_progress(
+                knowledge_graph_id=kg_id,
+            )
         )
         generated, warnings = await self._extraction_job_repository.sync_pending_jobs(
             knowledge_graph_id=kg_id,
@@ -214,7 +228,9 @@ class ExtractionJobsService:
             enabled_job_set_names=enabled_names,
             blocked_job_set_names=blocked_names,
         )
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.ensure_workers_for_pending(
             tenant_id=self._tenant_id,
             knowledge_graph_id=kg_id,
@@ -322,7 +338,9 @@ class ExtractionJobsService:
         if sandboxes_stopped:
             runtime_bits.append(f"{sandboxes_stopped} OpenShell sandbox(es)")
         runtime_detail = (
-            " and ".join(runtime_bits) if runtime_bits else "no active runtime resources"
+            " and ".join(runtime_bits)
+            if runtime_bits
+            else "no active runtime resources"
         )
         return {
             "success": True,
@@ -339,14 +357,18 @@ class ExtractionJobsService:
         if kg is None:
             return None
 
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await reconcile_quiescent_extraction_run(
             session=self._session,
             knowledge_graph_id=kg_id,
             orchestrator=orchestrator,
         )
 
-        counts = await self._extraction_job_repository.count_by_status(knowledge_graph_id=kg_id)
+        counts = await self._extraction_job_repository.count_by_status(
+            knowledge_graph_id=kg_id
+        )
         jobs_by_set = await self._extraction_job_repository.count_by_job_set(
             knowledge_graph_id=kg_id
         )
@@ -450,7 +472,9 @@ class ExtractionJobsService:
         if kg is None:
             return None
 
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await reconcile_quiescent_extraction_run(
             session=self._session,
             knowledge_graph_id=kg_id,
@@ -467,7 +491,8 @@ class ExtractionJobsService:
                 "pauseRequested": False,
             }
         payload = {
-            "live": live or run.status in {ExtractionRunStatus.RUNNING, ExtractionRunStatus.PAUSING},
+            "live": live
+            or run.status in {ExtractionRunStatus.RUNNING, ExtractionRunStatus.PAUSING},
             "status": run.status.value,
             "workerCount": run.worker_count,
             "pauseRequested": run.pause_requested,
@@ -487,7 +512,8 @@ class ExtractionJobsService:
         if payload is None:
             return None
         counts = {
-            row["name"]: row["instance_count"] for row in payload.get("entity_types", [])
+            row["name"]: row["instance_count"]
+            for row in payload.get("entity_types", [])
         }
         runtime_settings = get_extraction_workload_runtime_settings()
         prepared_reader = SqlPreparedJobPackageReader(
@@ -506,7 +532,9 @@ class ExtractionJobsService:
             job_set = ExtractionJobSetDefinition.from_dict(raw)
             matched_file_count = None
             if job_set.strategy == ExtractionJobSetStrategy.BY_FILES:
-                matched_file_count = len(match_file_patterns(file_catalog, job_set.file_patterns))
+                matched_file_count = len(
+                    match_file_patterns(file_catalog, job_set.file_patterns)
+                )
             job_sets.append(
                 {
                     **raw,
@@ -530,7 +558,9 @@ class ExtractionJobsService:
         if kg is None:
             raise ValueError(f"Knowledge graph '{kg_id}' not found")
 
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.start(
             tenant_id=self._tenant_id,
             knowledge_graph_id=kg_id,
@@ -546,10 +576,15 @@ class ExtractionJobsService:
         kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
         if kg is None:
             raise ValueError(f"Knowledge graph '{kg_id}' not found")
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.request_pause(knowledge_graph_id=kg_id)
         await self._session.commit()
-        return {"success": True, "message": "Pause requested; in-flight jobs will finish first."}
+        return {
+            "success": True,
+            "message": "Pause requested; in-flight jobs will finish first.",
+        }
 
     async def halt_extraction(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         kg = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
@@ -558,7 +593,9 @@ class ExtractionJobsService:
         job_ids = await self._extraction_job_repository.list_in_progress_job_ids(
             knowledge_graph_id=kg_id,
         )
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.halt(knowledge_graph_id=kg_id)
         runtime_settings = get_extraction_workload_runtime_settings()
         containers_stopped, sandboxes_stopped = stop_extraction_job_runtimes(
@@ -573,7 +610,9 @@ class ExtractionJobsService:
         if sandboxes_stopped:
             runtime_bits.append(f"{sandboxes_stopped} OpenShell sandbox(es)")
         runtime_detail = (
-            " and ".join(runtime_bits) if runtime_bits else "no active runtime resources"
+            " and ".join(runtime_bits)
+            if runtime_bits
+            else "no active runtime resources"
         )
         return {
             "success": True,
@@ -585,7 +624,9 @@ class ExtractionJobsService:
 
     async def reset_stale_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
-        orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+        orchestrator = get_extraction_run_orchestrator(
+            session_factory=self._session_factory
+        )
         await orchestrator.stop_workers(knowledge_graph_id=kg_id)
         stopped = await self._stop_in_progress_containers(kg_id=kg_id)
         reset = await self._extraction_job_repository.reset_jobs_by_status(
@@ -643,7 +684,9 @@ class ExtractionJobsService:
         return {
             "jobId": job.job_id,
             "jobSet": job.job_set_name,
-            "runStartedAt": job.run_started_at.isoformat() if job.run_started_at else None,
+            "runStartedAt": job.run_started_at.isoformat()
+            if job.run_started_at
+            else None,
             "archivedAt": job.archived_at.isoformat() if job.archived_at else None,
             "jsonl": job.applied_mutations_jsonl or "",
             "instanceChanges": job.applied_instance_changes_jsonl or "",
@@ -663,8 +706,10 @@ class ExtractionJobsService:
         await self._session.commit()
         return {"success": True, "reset_count": reset}
 
-    async def archive_completed_jobs(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
-        from extraction.application.archive_completed_extraction_jobs import (
+    async def archive_completed_jobs(
+        self, *, user_id: str, kg_id: str
+    ) -> dict[str, Any]:
+        from extraction.infrastructure.archive_completed_extraction_jobs import (
             archive_completed_extraction_jobs,
         )
 
@@ -702,6 +747,8 @@ class ExtractionJobsService:
 
     async def reset_extraction(self, *, user_id: str, kg_id: str) -> dict[str, Any]:
         _ = await self._knowledge_graph_service.get(user_id=user_id, kg_id=kg_id)
-        reset = await self._extraction_job_repository.reset_all_non_pending(knowledge_graph_id=kg_id)
+        reset = await self._extraction_job_repository.reset_all_non_pending(
+            knowledge_graph_id=kg_id
+        )
         await self._session.commit()
         return {"success": True, "reset_count": reset}

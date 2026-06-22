@@ -44,7 +44,9 @@ def relationship_scanner_stem(*, source: str, relationship: str, target: str) ->
     return f"{source}_{relationship}_{target}"
 
 
-def relationship_output_paths(*, source: str, relationship: str, target: str) -> tuple[str, str]:
+def relationship_output_paths(
+    *, source: str, relationship: str, target: str
+) -> tuple[str, str]:
     """Return workspace-relative JSON and JSONL output paths for one relationship type."""
     stem = relationship_scanner_stem(
         source=source,

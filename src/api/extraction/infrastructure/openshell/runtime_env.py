@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 
 def apply_openshell_gateway_env(

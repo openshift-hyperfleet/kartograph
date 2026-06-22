@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from extraction.domain.extraction_job import ExtractionTargetFile, ExtractionTargetInstance
+from extraction.domain.extraction_job import (
+    ExtractionTargetFile,
+    ExtractionTargetInstance,
+)
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
 from shared_kernel.job_package.path_safety import validate_zip_entry_name
 from shared_kernel.job_package.reader import JobPackageReader
@@ -35,15 +38,23 @@ class RepositoryFilesMaterializationResult:
     sample_paths: tuple[str, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
-    def merge(self, other: RepositoryFilesMaterializationResult) -> RepositoryFilesMaterializationResult:
+    def merge(
+        self, other: RepositoryFilesMaterializationResult
+    ) -> RepositoryFilesMaterializationResult:
         combined_samples = self.sample_paths + other.sample_paths
         return RepositoryFilesMaterializationResult(
             files_written=self.files_written + other.files_written,
             packages_requested=max(self.packages_requested, other.packages_requested),
             packages_found=self.packages_found + other.packages_found,
-            packages_missing=tuple(dict.fromkeys(self.packages_missing + other.packages_missing)),
-            paths_requested=tuple(dict.fromkeys(self.paths_requested + other.paths_requested)),
-            paths_not_found=tuple(dict.fromkeys(self.paths_not_found + other.paths_not_found)),
+            packages_missing=tuple(
+                dict.fromkeys(self.packages_missing + other.packages_missing)
+            ),
+            paths_requested=tuple(
+                dict.fromkeys(self.paths_requested + other.paths_requested)
+            ),
+            paths_not_found=tuple(
+                dict.fromkeys(self.paths_not_found + other.paths_not_found)
+            ),
             sample_paths=tuple(dict.fromkeys(combined_samples))[:12],
             warnings=tuple(dict.fromkeys(self.warnings + other.warnings)),
         )
@@ -117,7 +128,9 @@ def materialize_all_repository_files(
     sample_paths: list[str] = []
 
     for source in job_packages:
-        archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        archive_path = (
+            job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        )
         if not archive_path.is_file():
             packages_missing.append(source.package_id)
             continue
@@ -146,7 +159,9 @@ def materialize_all_repository_files(
                 + ("..." if len(packages_missing) > 5 else "")
             )
         else:
-            warnings.append("JobPackages exist but no repository file content was materialized.")
+            warnings.append(
+                "JobPackages exist but no repository file content was materialized."
+            )
 
     return RepositoryFilesMaterializationResult(
         files_written=files_written,
@@ -176,7 +191,9 @@ def materialize_instance_repository_paths(
     sample_paths: list[str] = []
 
     for source in job_packages:
-        archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        archive_path = (
+            job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        )
         if not archive_path.is_file():
             packages_missing.append(source.package_id)
             continue
@@ -186,7 +203,11 @@ def materialize_instance_repository_paths(
             if change.content_ref is None or not change.path:
                 continue
             matched = next(
-                (requested for requested in paths if _path_matches(requested, str(change.path))),
+                (
+                    requested
+                    for requested in paths
+                    if _path_matches(requested, str(change.path))
+                ),
                 None,
             )
             if matched is None:
@@ -235,7 +256,9 @@ def materialize_target_files(
         source = packages_by_id.get(target_file.package_id)
         if source is None:
             continue
-        archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        archive_path = (
+            job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        )
         if not archive_path.is_file():
             packages_missing.append(target_file.package_id)
             continue
@@ -253,8 +276,11 @@ def materialize_target_files(
 
     return RepositoryFilesMaterializationResult(
         files_written=files_written,
-        packages_requested=len({target_file.package_id for target_file in target_files}),
-        packages_found=len({target_file.package_id for target_file in target_files}) - len(packages_missing),
+        packages_requested=len(
+            {target_file.package_id for target_file in target_files}
+        ),
+        packages_found=len({target_file.package_id for target_file in target_files})
+        - len(packages_missing),
         packages_missing=tuple(packages_missing),
         sample_paths=tuple(sample_paths),
     )

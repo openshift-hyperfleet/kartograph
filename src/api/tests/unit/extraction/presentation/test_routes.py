@@ -10,7 +10,11 @@ from fastapi.testclient import TestClient
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.value_objects import BootstrapIntakePath, ExtractionSessionMode, GraphManagementUiMode
+from extraction.domain.value_objects import (
+    BootstrapIntakePath,
+    ExtractionSessionMode,
+    GraphManagementUiMode,
+)
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 
@@ -88,16 +92,22 @@ class _InMemoryAgentSessionRepository:
 
 
 class _AllowAllAuthz:
-    async def check_permission(self, resource: str, permission: str, subject: str) -> bool:
+    async def check_permission(
+        self, resource: str, permission: str, subject: str
+    ) -> bool:
         return True
 
-    async def write_relationship(self, resource: str, relation: str, subject: str) -> None:
+    async def write_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
         return None
 
     async def write_relationships(self, relationships: list) -> None:
         return None
 
-    async def delete_relationship(self, resource: str, relation: str, subject: str) -> None:
+    async def delete_relationship(
+        self, resource: str, relation: str, subject: str
+    ) -> None:
         return None
 
     async def delete_relationships(self, relationships: list) -> None:
@@ -178,14 +188,18 @@ class TestExtractionSessionRoutes:
         client, _ = extraction_client
         started = client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/start-session",
-            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value
+            },
         )
         assert started.status_code == status.HTTP_200_OK
         old_id = started.json()["id"]
 
         response = client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat",
-            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value
+            },
         )
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
@@ -201,7 +215,9 @@ class TestExtractionSessionRoutes:
         assert history_resp.status_code == status.HTTP_200_OK
         history = history_resp.json()["sessions"]
         assert len(history) == 2
-        assert any(row["id"] == old_id and row["archived_at"] is not None for row in history)
+        assert any(
+            row["id"] == old_id and row["archived_at"] is not None for row in history
+        )
 
     def test_active_session_endpoint_returns_404_when_not_started(
         self, extraction_client
@@ -209,7 +225,9 @@ class TestExtractionSessionRoutes:
         client, _ = extraction_client
         response = client.get(
             "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/active",
-            params={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
+            params={
+                "graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value
+            },
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -217,11 +235,15 @@ class TestExtractionSessionRoutes:
         client, _ = extraction_client
         first = client.post(
             "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/start-session",
-            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value
+            },
         )
         second = client.post(
             "/extraction/knowledge-graphs/kg-999/sessions/schema_bootstrap/start-session",
-            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value
+            },
         )
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
@@ -231,7 +253,9 @@ class TestExtractionSessionRoutes:
         client, _ = extraction_client
         started = client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/schema_bootstrap/start-session",
-            json={"graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.INITIAL_SCHEMA_DESIGN.value
+            },
         )
         assert started.status_code == status.HTTP_200_OK
 
@@ -254,14 +278,18 @@ class TestExtractionSessionRoutes:
         client, _ = extraction_client
         started = client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/start-session",
-            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value
+            },
         )
         assert started.status_code == status.HTTP_200_OK
         archived_id = started.json()["id"]
 
         client.post(
             "/extraction/knowledge-graphs/kg-123/sessions/extraction_operations/clear-chat",
-            json={"graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value},
+            json={
+                "graph_management_ui_mode": GraphManagementUiMode.EXTRACTION_JOBS.value
+            },
         )
 
         response = client.get(
@@ -270,9 +298,7 @@ class TestExtractionSessionRoutes:
         assert response.status_code == status.HTTP_200_OK
         payload = response.json()
         assert payload["count"] == 2
-        archived = next(
-            row for row in payload["sessions"] if row["id"] == archived_id
-        )
+        archived = next(row for row in payload["sessions"] if row["id"] == archived_id)
         assert archived["archived_at"] is not None
         assert archived["updated_at"] is not None
         assert archived["run_metrics"] == []

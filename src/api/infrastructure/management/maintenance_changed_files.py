@@ -8,7 +8,9 @@ from infrastructure.management.extraction_job_materializer import (
     build_repository_file_catalog,
     match_file_patterns,
 )
-from infrastructure.management.maintenance_job_materializer import ChangedMaintenanceFile
+from infrastructure.management.maintenance_job_materializer import (
+    ChangedMaintenanceFile,
+)
 from management.domain.aggregates import DataSource
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
 
@@ -40,7 +42,9 @@ async def collect_changed_maintenance_files(
         if package is None:
             continue
         patterns = tuple(
-            f"**/{entry['path']}" for entry in summary.changed_files if entry.get("path")
+            f"**/{entry['path']}"
+            for entry in summary.changed_files
+            if entry.get("path")
         )
         matched = match_file_patterns(catalog, patterns) if patterns else []
         matched_by_path = {
@@ -69,9 +73,7 @@ async def collect_changed_maintenance_files(
                     baseline_commit=baseline_commit,
                     head_commit=head_commit,
                     patch=(
-                        str(entry["patch"])
-                        if entry.get("patch") is not None
-                        else None
+                        str(entry["patch"]) if entry.get("patch") is not None else None
                     ),
                 )
             )

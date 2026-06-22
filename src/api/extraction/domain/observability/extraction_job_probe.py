@@ -18,7 +18,9 @@ class ExtractionJobMaterializationObservation:
 
 
 class ExtractionJobProbe(Protocol):
-    def repository_files_materialized(self, observation: ExtractionJobMaterializationObservation) -> None:
+    def repository_files_materialized(
+        self, observation: ExtractionJobMaterializationObservation
+    ) -> None:
         """Emit when a job workspace repository-files tree is prepared."""
 
 
@@ -30,7 +32,9 @@ class LoggingExtractionJobProbe:
 
         self._logger = sink or logging.getLogger("kartograph.extraction.jobs")
 
-    def repository_files_materialized(self, observation: ExtractionJobMaterializationObservation) -> None:
+    def repository_files_materialized(
+        self, observation: ExtractionJobMaterializationObservation
+    ) -> None:
         if observation.files_written > 0:
             self._logger.info(
                 "extraction_job_repository_files_materialized job_id=%s kg_id=%s files=%s paths_requested=%s",

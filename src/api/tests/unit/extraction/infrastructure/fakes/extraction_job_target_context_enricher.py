@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from extraction.application.extraction_job_target_context import enrich_target_instances_for_context
+from extraction.application.extraction_job_target_context import (
+    enrich_target_instances_for_context,
+)
 from extraction.domain.extraction_job import ExtractionTargetInstance
-from extraction.ports.extraction_job_target_context import IExtractionJobTargetContextEnricher
+from extraction.ports.extraction_job_target_context import (
+    IExtractionJobTargetContextEnricher,
+)
 from extraction.ports.workload_graph import WorkloadGraphNode
 
 
@@ -39,7 +43,11 @@ class FakeExtractionJobTargetContextEnricher(IExtractionJobTargetContextEnricher
                 {
                     "label": "Adapter",
                     "required_properties": ["name", "slug"],
-                    "optional_properties": ["transport", "resource_types", "config_file_path"],
+                    "optional_properties": [
+                        "transport",
+                        "resource_types",
+                        "config_file_path",
+                    ],
                 }
             ],
         )

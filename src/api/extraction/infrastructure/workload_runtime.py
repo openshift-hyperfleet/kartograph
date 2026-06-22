@@ -16,6 +16,15 @@ from extraction.ports.runtime import (
     StickySessionRuntimeBootstrap,
     StickySessionRuntimeLease,
 )
+from extraction.infrastructure.workload_credential_issuer import (
+    ScopedWorkloadCredentialIssuer,
+)
+
+__all__ = [
+    "InMemoryEphemeralExtractionWorkerLauncher",
+    "InMemoryStickySessionRuntimeManager",
+    "ScopedWorkloadCredentialIssuer",
+]
 
 
 class InMemoryStickySessionRuntimeManager(IStickySessionRuntimeManager):
@@ -179,4 +188,3 @@ class InMemoryEphemeralExtractionWorkerLauncher(IEphemeralExtractionWorkerLaunch
 
     def complete_worker(self, worker_id: str) -> None:
         self._active_workers.pop(worker_id, None)
-

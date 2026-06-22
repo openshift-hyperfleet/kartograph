@@ -1,6 +1,8 @@
 """Unit tests for extraction job materialization."""
 
-from infrastructure.management.extraction_job_materializer import materialize_jobs_from_config
+from infrastructure.management.extraction_job_materializer import (
+    materialize_jobs_from_config,
+)
 from management.domain.extraction_job_config import (
     ExtractionJobConfigDocument,
     ExtractionJobSetDefinition,

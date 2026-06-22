@@ -171,7 +171,9 @@ class _SessionedIngestionEventHandler:
     ) -> str | None:
         """Resolve latest tracked branch head commit for GitHub sources."""
         try:
-            owner, repo, branch = self._parse_github_connection_config(connection_config)
+            owner, repo, branch = self._parse_github_connection_config(
+                connection_config
+            )
         except ValueError:
             return None
 
@@ -266,7 +268,9 @@ class _SessionedIngestionEventHandler:
             enriched_payload = dict(payload)
 
             data_source_id = str(payload.get("data_source_id", ""))
-            tenant_id = str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            tenant_id = (
+                str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            )
             adapter_type = str(payload.get("adapter_type", ""))
             credentials: dict[str, str] = {}
             if data_source_id and adapter_type == "github":
@@ -284,7 +288,11 @@ class _SessionedIngestionEventHandler:
                     if baseline_commit:
                         enriched_payload["baseline_commit"] = baseline_commit
 
-                    if ds.credentials_path and tenant_id and credential_reader is not None:
+                    if (
+                        ds.credentials_path
+                        and tenant_id
+                        and credential_reader is not None
+                    ):
                         try:
                             credentials = await credential_reader.retrieve(
                                 path=ds.credentials_path,
@@ -367,7 +375,6 @@ class _SessionedExtractionEventHandler:
         return self._SUPPORTED
 
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
-
         from infrastructure.outbox.repository import OutboxRepository
         from extraction.infrastructure.event_handler import ExtractionEventHandler
         from extraction.infrastructure.runtime_context_builder import (
@@ -396,7 +403,9 @@ class _SessionedExtractionEventHandler:
                 worker_launcher=create_ephemeral_extraction_worker_launcher(),
             )
 
-            tenant_id = str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            tenant_id = (
+                str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            )
             knowledge_graph_id = str(payload.get("knowledge_graph_id", ""))
             if not tenant_id and knowledge_graph_id:
                 kg = await kg_repo.get_by_id(KnowledgeGraphId(value=knowledge_graph_id))
@@ -550,6 +559,21 @@ async def kartograph_lifespan(app: FastAPI):
     """
     # Startup: initialize database engines
     init_database_engines(app)
+
+    from infrastructure.management.extraction_baseline_hook import (
+        register_extraction_baseline_advancer,
+    )
+    from management.infrastructure.extraction_baseline_updater import (
+        advance_extraction_baselines_for_knowledge_graph,
+    )
+
+    async def _advance_extraction_baselines(*, session, knowledge_graph_id: str) -> int:
+        return await advance_extraction_baselines_for_knowledge_graph(
+            session=session,
+            knowledge_graph_id=knowledge_graph_id,
+        )
+
+    register_extraction_baseline_advancer(_advance_extraction_baselines)
 
     # Startup: create shared SpiceDB client for bootstrap and outbox worker
     spicedb_settings = get_spicedb_settings()

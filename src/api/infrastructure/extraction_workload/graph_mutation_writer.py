@@ -18,7 +18,9 @@ from graph.infrastructure.mutation_applier import MutationApplier
 from graph.infrastructure.postgres_kg_type_definition_store import (
     PostgresKnowledgeGraphTypeDefinitionStore,
 )
-from graph.infrastructure.type_definition_repository import InMemoryTypeDefinitionRepository
+from graph.infrastructure.type_definition_repository import (
+    InMemoryTypeDefinitionRepository,
+)
 from infrastructure.database.connection import ConnectionFactory
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.settings import DatabaseSettings

@@ -20,8 +20,7 @@ class IStickySessionRuntimeService(Protocol):
         knowledge_graph_id: str,
         mode: ExtractionSessionMode,
         ui_mode: GraphManagementUiMode,
-    ) -> AsyncIterator[dict[str, Any]]:
-        ...
+    ) -> AsyncIterator[dict[str, Any]]: ...
 
     async def ensure_runtime_for_chat(
         self,
@@ -32,5 +31,4 @@ class IStickySessionRuntimeService(Protocol):
         mode: ExtractionSessionMode,
         ui_mode: GraphManagementUiMode,
         session: ExtractionAgentSession,
-    ) -> AsyncIterator[dict[str, Any]]:
-        ...
+    ) -> AsyncIterator[dict[str, Any]]: ...

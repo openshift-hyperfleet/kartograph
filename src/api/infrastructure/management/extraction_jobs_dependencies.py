@@ -14,7 +14,9 @@ from infrastructure.database.dependencies import get_write_session
 from infrastructure.dependencies import get_age_connection_pool
 from infrastructure.management.extraction_jobs_service import ExtractionJobsService
 from infrastructure.outbox.repository import OutboxRepository
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.dependencies.knowledge_graph import get_knowledge_graph_service
 from management.infrastructure.repositories.knowledge_graph_repository import (
     KnowledgeGraphRepository,

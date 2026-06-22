@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from extraction.domain.extraction_job import ExtractionJobRecord
-from infrastructure.management.maintenance_job_materializer import MAINTENANCE_JOB_SET_NAME
+from infrastructure.management.maintenance_job_materializer import (
+    MAINTENANCE_JOB_SET_NAME,
+)
 
 EXTRACTION_PROMPT_FILENAME = "extraction_prompt.md"
 MUTATIONS_HELPER = "helpers/workload-mutations.sh"
@@ -62,15 +64,19 @@ def build_maintenance_target_files_prompt_section(*, job: ExtractionJobRecord) -
         baseline = target_file.baseline_commit or "<baseline>"
         head = target_file.head_commit or "<head>"
         status = target_file.change_status or "modified"
+        lines.append(f"- [{status}] {target_file.repository_folder}/{target_file.path}")
         lines.append(
-            f"- [{status}] {target_file.repository_folder}/{target_file.path}"
+            f"  - baseline: repository-files/{baseline}/{target_file.repository_folder}/{target_file.path}"
         )
-        lines.append(f"  - baseline: repository-files/{baseline}/{target_file.repository_folder}/{target_file.path}")
         if status != "removed":
             lines.append(
                 f"  - head: repository-files/{head}/{target_file.repository_folder}/{target_file.path}"
             )
-        if target_file.patch and target_file.baseline_commit and target_file.head_commit:
+        if (
+            target_file.patch
+            and target_file.baseline_commit
+            and target_file.head_commit
+        ):
             lines.append(
                 "  - diff: "
                 f"repository-files/diffs/{target_file.baseline_commit}..{target_file.head_commit}/"
@@ -87,7 +93,8 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
         "JobPackage sources, and repository-files materialization status.",
         "",
         "## Job instructions",
-        job.description.strip() or "Extract graph entities and relationships for the assigned targets.",
+        job.description.strip()
+        or "Extract graph entities and relationships for the assigned targets.",
         "",
     ]
     if job.target_instances:
@@ -178,7 +185,7 @@ def build_extraction_job_prompt(*, job: ExtractionJobRecord) -> str:
             "",
             "Manual curl (only if helpers fail): base `{api_base_url}/extraction/workloads`,",
             "header `X-Workload-Token: <workload_token>`, POST `/mutations/validate` or",
-            "`/mutations/apply` with JSON body `{\"jsonl\": \"<file contents>\"}`.",
+            '`/mutations/apply` with JSON body `{"jsonl": "<file contents>"}`.',
             "",
             "Other useful GET endpoints (prefer workload-graph-read.sh):",
             "- `/schema/authoring-guide` — JSONL mutation shapes and rules",

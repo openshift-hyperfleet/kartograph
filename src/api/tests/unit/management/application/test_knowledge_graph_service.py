@@ -515,7 +515,9 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         assert result is not None
         assert result.readiness.has_minimum_entity_types is False
         assert result.readiness.has_minimum_relationship_types is False
-        assert "At least one entity type is required" in result.readiness.blocking_reasons
+        assert (
+            "At least one entity type is required" in result.readiness.blocking_reasons
+        )
         assert (
             "At least one relationship type is required"
             in result.readiness.blocking_reasons
@@ -530,7 +532,9 @@ class TestKnowledgeGraphServiceWorkspaceStatus:
         kg = _make_kg()
         ontology_config = OntologyConfig(
             node_types=(
-                NodeTypeDefinition(label="test", prepopulated=True, prepopulated_instance_count=1),
+                NodeTypeDefinition(
+                    label="test", prepopulated=True, prepopulated_instance_count=1
+                ),
                 NodeTypeDefinition(
                     label="api_endpoint",
                     prepopulated=True,
@@ -668,7 +672,9 @@ class TestKnowledgeGraphServiceWorkspaceCommands:
 
         assert result.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
         assert result.transition_eligible is False
-        assert result.session_pointers.active_extraction_operations_session_id is not None
+        assert (
+            result.session_pointers.active_extraction_operations_session_id is not None
+        )
 
     @pytest.mark.asyncio
     async def test_transition_workspace_rejects_when_not_ready(
@@ -1384,7 +1390,15 @@ class TestKnowledgeGraphMaintenanceScheduling:
 
     @pytest.mark.asyncio
     async def test_upsert_maintenance_schedule_persists_timezone_and_next_run(
-        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
     ):
         """Upserting schedule stores config and computes a next_run_at timestamp."""
         kg = _make_kg(kg_id="kg-maint-001", tenant_id=tenant_id)
@@ -1418,7 +1432,15 @@ class TestKnowledgeGraphMaintenanceScheduling:
 
     @pytest.mark.asyncio
     async def test_trigger_maintenance_run_records_no_changes_outcome(
-        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
     ):
         """When no DS has commit deltas, trigger records NO_CHANGES."""
         kg = _make_kg(kg_id="kg-maint-002", tenant_id=tenant_id)
@@ -1461,7 +1483,15 @@ class TestKnowledgeGraphMaintenanceScheduling:
 
     @pytest.mark.asyncio
     async def test_trigger_maintenance_run_delegates_to_pipeline(
-        self, mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id, user_id
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
     ):
         """Maintenance trigger delegates ingest orchestration to the pipeline service."""
         kg = _make_kg(kg_id="kg-maint-003", tenant_id=tenant_id)

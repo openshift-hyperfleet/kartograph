@@ -28,14 +28,20 @@ from scanner_common import dedupe_instances, generate_slug
 def scan(repository_files: Path) -> list[dict]:
     """Find every instance of this entity type across all data sources."""
     instances: list[dict[str, Any]] = []
-    files = sorted(path for path in repository_files.rglob("*_test.go") if path.is_file())
+    files = sorted(
+        path for path in repository_files.rglob("*_test.go") if path.is_file()
+    )
     print(f"Found {len(files)} candidate file(s)...", file=sys.stderr)
 
     for index, file_path in enumerate(files):
         if index > 0 and index % 25 == 0:
             print(f"Progress: {index}/{len(files)} files scanned...", file=sys.stderr)
         data_source_dir = next(
-            (parent for parent in file_path.parents if parent.parent == repository_files),
+            (
+                parent
+                for parent in file_path.parents
+                if parent.parent == repository_files
+            ),
             repository_files,
         )
         rel = file_path.relative_to(data_source_dir)

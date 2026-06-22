@@ -30,7 +30,9 @@ class SessionRunMetricResponse(BaseModel):
     operation_counts: dict[str, int] = Field(default_factory=dict)
 
     @classmethod
-    def from_domain(cls, metric: ExtractionSessionRunMetric) -> "SessionRunMetricResponse":
+    def from_domain(
+        cls, metric: ExtractionSessionRunMetric
+    ) -> "SessionRunMetricResponse":
         return cls(
             sync_run_id=metric.sync_run_id,
             mutation_log_id=metric.mutation_log_id,
@@ -58,7 +60,9 @@ class ExtractionSessionResponse(BaseModel):
     archived_at: datetime | None = None
 
     @classmethod
-    def from_domain(cls, session: ExtractionAgentSession) -> "ExtractionSessionResponse":
+    def from_domain(
+        cls, session: ExtractionAgentSession
+    ) -> "ExtractionSessionResponse":
         return cls(
             id=session.id,
             user_id=session.user_id,
@@ -137,17 +141,23 @@ class BootstrapIntakePathSelectionRequest(BaseModel):
 class GraphManagementSessionRequest(BaseModel):
     """Request model for graph-management session lifecycle actions."""
 
-    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    graph_management_ui_mode: GraphManagementUiMode = (
+        GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
 
 class ExtractionChatTurnRequest(BaseModel):
     """Request model for a graph-management chat turn."""
 
     message: str = Field(min_length=1)
-    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    graph_management_ui_mode: GraphManagementUiMode = (
+        GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
 
 
 class StickyRuntimeWarmupRequest(BaseModel):
     """Request model for proactive sticky runtime warmup."""
 
-    graph_management_ui_mode: GraphManagementUiMode = GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    graph_management_ui_mode: GraphManagementUiMode = (
+        GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )

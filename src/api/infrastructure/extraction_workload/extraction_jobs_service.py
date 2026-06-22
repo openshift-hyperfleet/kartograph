@@ -15,13 +15,23 @@ from infrastructure.management.extraction_job_materializer import (
     materialize_jobs_from_config,
     projected_job_count,
 )
-from infrastructure.management.extraction_jobs_service import _format_pending_sync_message
+from infrastructure.management.extraction_jobs_service import (
+    _format_pending_sync_message,
+)
 from extraction.domain.extraction_job import ExtractionJobStatus
 from extraction.infrastructure.extraction_job_activity import serialize_recent_job
-from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from extraction.infrastructure.workload_runtime_settings import get_extraction_workload_runtime_settings
+from extraction.infrastructure.extraction_run_orchestrator import (
+    get_extraction_run_orchestrator,
+)
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    get_extraction_workload_runtime_settings,
+)
 from graph.infrastructure.bulk_data_reader import fetch_bulk_graph_data
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.outbox.repository import OutboxRepository
@@ -54,7 +64,9 @@ class GraphWorkloadExtractionJobsService:
         self._connection_pool = connection_pool
         self._session_factory = session_factory
         outbox = OutboxRepository(session=session)
-        self._knowledge_graph_repository = KnowledgeGraphRepository(session=session, outbox=outbox)
+        self._knowledge_graph_repository = KnowledgeGraphRepository(
+            session=session, outbox=outbox
+        )
         self._extraction_job_repository = ExtractionJobRepository(session=session)
 
     async def _assert_knowledge_graph_in_tenant(
@@ -96,7 +108,9 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
             graph_data=graph_data,
         )
-        ontology = await self._knowledge_graph_repository.get_ontology(knowledge_graph_id)
+        ontology = await self._knowledge_graph_repository.get_ontology(
+            knowledge_graph_id
+        )
         edge_types = edge_type_dicts_from_ontology(ontology)
         entity_types = [
             {"name": name, "instance_count": count}
@@ -135,9 +149,13 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
             graph_data=graph_data,
         )
-        ontology = await self._knowledge_graph_repository.get_ontology(knowledge_graph_id)
+        ontology = await self._knowledge_graph_repository.get_ontology(
+            knowledge_graph_id
+        )
         edge_types = edge_type_dicts_from_ontology(ontology)
-        from management.domain.extraction_relationship_authoring import node_type_dicts_from_ontology
+        from management.domain.extraction_relationship_authoring import (
+            node_type_dicts_from_ontology,
+        )
 
         node_types = node_type_dicts_from_ontology(ontology)
         errors = document.validation_errors(
@@ -170,8 +188,10 @@ class GraphWorkloadExtractionJobsService:
         )
         configured_names = {job_set.name for job_set in document.job_sets}
         enabled_names = {job_set.name for job_set in document.enabled_job_sets()}
-        blocked_names = await self._extraction_job_repository.job_set_names_with_in_progress(
-            knowledge_graph_id=knowledge_graph_id,
+        blocked_names = (
+            await self._extraction_job_repository.job_set_names_with_in_progress(
+                knowledge_graph_id=knowledge_graph_id,
+            )
         )
         generated, warnings = await self._extraction_job_repository.sync_pending_jobs(
             knowledge_graph_id=knowledge_graph_id,
@@ -181,7 +201,9 @@ class GraphWorkloadExtractionJobsService:
             blocked_job_set_names=blocked_names,
         )
         if self._session_factory is not None:
-            orchestrator = get_extraction_run_orchestrator(session_factory=self._session_factory)
+            orchestrator = get_extraction_run_orchestrator(
+                session_factory=self._session_factory
+            )
             await orchestrator.ensure_workers_for_pending(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -213,7 +235,8 @@ class GraphWorkloadExtractionJobsService:
             knowledge_graph_id=knowledge_graph_id,
         )
         counts = {
-            row["name"]: row["instance_count"] for row in document_payload.get("entity_types", [])
+            row["name"]: row["instance_count"]
+            for row in document_payload.get("entity_types", [])
         }
         runtime_settings = get_extraction_workload_runtime_settings()
         prepared_reader = SqlPreparedJobPackageReader(
@@ -232,7 +255,9 @@ class GraphWorkloadExtractionJobsService:
             job_set = ExtractionJobSetDefinition.from_dict(raw)
             matched_file_count = None
             if job_set.strategy == ExtractionJobSetStrategy.BY_FILES:
-                matched_file_count = len(match_file_patterns(file_catalog, job_set.file_patterns))
+                matched_file_count = len(
+                    match_file_patterns(file_catalog, job_set.file_patterns)
+                )
             job_sets.append(
                 {
                     **raw,
@@ -243,7 +268,10 @@ class GraphWorkloadExtractionJobsService:
                     ),
                 }
             )
-        return {"job_sets": job_sets, "entity_types": document_payload.get("entity_types", [])}
+        return {
+            "job_sets": job_sets,
+            "entity_types": document_payload.get("entity_types", []),
+        }
 
     async def get_database_status(
         self,
@@ -298,5 +326,6 @@ class GraphWorkloadExtractionJobsService:
             "entitiesByType": entity_counts,
             "entitiesTotal": sum(entity_counts.values()),
             **token_metrics,
-            "hasInProgressJobs": counts.get(ExtractionJobStatus.IN_PROGRESS.value, 0) > 0,
+            "hasInProgressJobs": counts.get(ExtractionJobStatus.IN_PROGRESS.value, 0)
+            > 0,
         }

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from graph.domain.value_objects import EntityType, MutationOperation, MutationOperationType
+from graph.domain.value_objects import (
+    EntityType,
+    MutationOperation,
+    MutationOperationType,
+)
 from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
@@ -34,7 +38,9 @@ def test_split_operations_separates_define_and_instance_ops() -> None:
         ),
     ]
 
-    define_ops, instance_ops = GraphWorkloadGraphMutationWriter.split_operations(operations)
+    define_ops, instance_ops = GraphWorkloadGraphMutationWriter.split_operations(
+        operations
+    )
 
     assert len(define_ops) == 1
     assert define_ops[0].op == MutationOperationType.DEFINE

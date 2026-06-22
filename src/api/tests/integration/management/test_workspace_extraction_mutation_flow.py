@@ -8,10 +8,16 @@ import pytest
 from sqlalchemy import text
 
 from management.application.services.data_source_service import DataSourceService
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.aggregates import KnowledgeGraph
 from management.domain.entities.data_source_sync_run import MutationLogRunMetadata
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 from management.presentation.data_sources.models import SyncRunResponse
 from shared_kernel.datasource_types import DataSourceAdapterType
 from tests.fakes.authorization import InMemoryAuthorizationProvider
@@ -135,7 +141,10 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
         kg_id=knowledge_graph.id.value,
     )
     assert transitioned.workspace_mode.value == "extraction_operations"
-    assert transitioned.session_pointers.active_extraction_operations_session_id is not None
+    assert (
+        transitioned.session_pointers.active_extraction_operations_session_id
+        is not None
+    )
 
     data_source = await ds_service.create(
         user_id=user_id,
@@ -172,12 +181,17 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
     async with async_session.begin():
         await data_source_sync_run_repository.save(sync_run)
 
-    runs = await data_source_sync_run_repository.find_by_data_source(data_source.id.value)
+    runs = await data_source_sync_run_repository.find_by_data_source(
+        data_source.id.value
+    )
     assert len(runs) == 1
     projected = SyncRunResponse.from_domain(runs[0])
 
     assert projected.mutation_log_id == "mlog-int-001"
-    assert projected.session_id == transitioned.session_pointers.active_extraction_operations_session_id
+    assert (
+        projected.session_id
+        == transitioned.session_pointers.active_extraction_operations_session_id
+    )
     assert projected.token_usage_total == 2048
     assert projected.cost_total_usd == pytest.approx(1.37)
     assert projected.operation_counts == {"create_node": 12, "create_edge": 8}

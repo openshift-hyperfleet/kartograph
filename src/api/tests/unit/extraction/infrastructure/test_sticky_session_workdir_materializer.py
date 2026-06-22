@@ -58,12 +58,17 @@ def _build_package(work_dir: Path, package_id: str, *, with_file: bool) -> None:
                 metadata={},
             )
         )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
 def test_validate_session_id_accepts_ulid_like_identifiers() -> None:
-    assert validate_session_id("01JTESTPACK0000000000000000") == "01JTESTPACK0000000000000000"
+    assert (
+        validate_session_id("01JTESTPACK0000000000000000")
+        == "01JTESTPACK0000000000000000"
+    )
 
 
 def test_validate_session_id_rejects_path_traversal() -> None:
@@ -82,7 +87,9 @@ def test_materializer_rejects_unsafe_session_id(tmp_path: Path) -> None:
         )
 
 
-def test_materializer_extracts_job_package_into_session_workspace(tmp_path: Path) -> None:
+def test_materializer_extracts_job_package_into_session_workspace(
+    tmp_path: Path,
+) -> None:
     package_id = "01JTESTPACK0000000000000000"
     _build_package(tmp_path, package_id, with_file=True)
     materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
@@ -93,11 +100,15 @@ def test_materializer_extracts_job_package_into_session_workspace(tmp_path: Path
         job_packages=(_source(package_id=package_id),),
     )
 
-    repo_file = session_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go"
+    repo_file = (
+        session_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go"
+    )
     assert repo_file.read_text(encoding="utf-8") == "print('hello')\n"
 
 
-def test_materializer_does_not_materialize_when_job_packages_empty(tmp_path: Path) -> None:
+def test_materializer_does_not_materialize_when_job_packages_empty(
+    tmp_path: Path,
+) -> None:
     package_id = "01JTESTPACK0000000000000001"
     _build_package(tmp_path, package_id, with_file=True)
     materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
@@ -128,7 +139,9 @@ def test_materializer_skips_empty_job_packages(tmp_path: Path) -> None:
     )
 
     assert not (session_root / "repository-files" / "empty-source").exists()
-    assert (session_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go").exists()
+    assert (
+        session_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go"
+    ).exists()
 
 
 def test_materializer_writes_sources_index(tmp_path: Path) -> None:
@@ -139,7 +152,9 @@ def test_materializer_writes_sources_index(tmp_path: Path) -> None:
     session_root = materializer.prepare(
         session_id="session-index",
         knowledge_graph_id="kg-1",
-        job_packages=(_source(package_id=package_id, data_source_name="Hyperfleet E2E"),),
+        job_packages=(
+            _source(package_id=package_id, data_source_name="Hyperfleet E2E"),
+        ),
     )
 
     index_path = session_root / "sources-index.json"
@@ -175,7 +190,9 @@ def test_materializer_refresh_preserves_session_root_directory(tmp_path: Path) -
     )
 
     assert first_root == second_root
-    assert (second_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go").exists()
+    assert (
+        second_root / "repository-files" / "hyperfleet-api" / "pkg/api/example.go"
+    ).exists()
 
 
 def test_materializer_copies_instance_generator_templates(tmp_path: Path) -> None:

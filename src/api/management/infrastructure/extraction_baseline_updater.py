@@ -30,7 +30,9 @@ async def advance_extraction_baselines_for_knowledge_graph(
     if data_source_repository is None:
         data_source_repository = _default_data_source_repository(session)
 
-    data_sources = await data_source_repository.find_by_knowledge_graph(knowledge_graph_id)
+    data_sources = await data_source_repository.find_by_knowledge_graph(
+        knowledge_graph_id
+    )
     updated = 0
     for data_source in data_sources:
         before = data_source.last_extraction_baseline_commit
@@ -52,7 +54,9 @@ async def seed_unset_extraction_baselines_for_knowledge_graph(
     if data_source_repository is None:
         data_source_repository = _default_data_source_repository(session)
 
-    data_sources = await data_source_repository.find_by_knowledge_graph(knowledge_graph_id)
+    data_sources = await data_source_repository.find_by_knowledge_graph(
+        knowledge_graph_id
+    )
     updated = 0
     for data_source in data_sources:
         if data_source.last_extraction_baseline_commit is not None:

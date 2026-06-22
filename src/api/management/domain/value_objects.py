@@ -261,7 +261,9 @@ class KnowledgeGraphMaintenanceRunRecord:
                 else None
             ),
             worker_count=(
-                int(data["worker_count"]) if data.get("worker_count") is not None else None
+                int(data["worker_count"])
+                if data.get("worker_count") is not None
+                else None
             ),
         )
 

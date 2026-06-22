@@ -17,7 +17,9 @@ class FilesystemExtractionRuntimeContextBuilder:
     def __init__(self, *, work_dir: Path) -> None:
         self._work_dir = work_dir
 
-    def build(self, *, sync_run_id: str, job_package_id: str) -> ExtractionRuntimeContext:
+    def build(
+        self, *, sync_run_id: str, job_package_id: str
+    ) -> ExtractionRuntimeContext:
         package_id = JobPackageId(value=job_package_id)
         archive_path = self._work_dir / package_id.archive_name()
         reader = JobPackageReader(archive_path)

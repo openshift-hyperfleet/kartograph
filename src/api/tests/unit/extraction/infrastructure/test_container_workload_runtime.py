@@ -11,8 +11,12 @@ from extraction.infrastructure.container_workload_runtime import (
     ContainerEphemeralExtractionWorkerLauncher,
     ContainerStickySessionRuntimeManager,
 )
-from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+)
+from extraction.infrastructure.workload_credential_issuer import (
+    ScopedWorkloadCredentialIssuer,
+)
 from extraction.ports.runtime import EphemeralWorkerLaunchRequest
 from shared_kernel.container_runtime.ports import ContainerRunResult, ContainerRunSpec
 
@@ -156,7 +160,9 @@ class TestContainerStickySessionRuntimeManager:
             mode="schema_bootstrap",
         )
 
-        terminated = manager.cleanup_expired(now=lease.expires_at + timedelta(seconds=1))
+        terminated = manager.cleanup_expired(
+            now=lease.expires_at + timedelta(seconds=1)
+        )
 
         assert terminated == ["container-1"]
 
@@ -173,7 +179,10 @@ class TestContainerEphemeralExtractionWorkerLauncher:
             worker_image="busybox:1.36",
             worker_command=("sleep", "3600"),
         )
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",
@@ -197,7 +206,10 @@ class TestContainerEphemeralExtractionWorkerLauncher:
             worker_image="busybox:1.36",
             worker_command=("sleep", "3600"),
         )
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         wrong_scope = issuer.issue(tenant_id="tenant-2", knowledge_graph_id="kg-2")
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",
@@ -222,7 +234,10 @@ class TestContainerEphemeralExtractionWorkerLauncher:
             worker_image="busybox:1.36",
             worker_command=("sleep", "3600"),
         )
-        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        )
         credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",

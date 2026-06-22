@@ -33,7 +33,9 @@ def _format_row(index: int, row: dict[str, Any]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Preview entity scanner JSON output.")
-    parser.add_argument("entity_label", help="Entity type label (matches scanner filename).")
+    parser.add_argument(
+        "entity_label", help="Entity type label (matches scanner filename)."
+    )
     parser.add_argument(
         "input",
         nargs="?",
@@ -42,7 +44,9 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=5, help="Max instances to print.")
     args = parser.parse_args()
 
-    input_path = Path(args.input) if args.input else _default_input_path(args.entity_label)
+    input_path = (
+        Path(args.input) if args.input else _default_input_path(args.entity_label)
+    )
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise ValueError("Scanner output must be a JSON array")

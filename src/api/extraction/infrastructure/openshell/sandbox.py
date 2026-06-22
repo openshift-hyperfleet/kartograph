@@ -18,8 +18,16 @@ from extraction.infrastructure.openshell.audit import (
     OpenShellRuntimeProbe,
     OpenShellSandboxLifecycleObservation,
 )
-from extraction.infrastructure.openshell.cli import OpenShellCliError, openshell_subprocess_env, popen_openshell, run_openshell
-from extraction.infrastructure.openshell.policy import resolve_endpoints, resolve_enforcement
+from extraction.infrastructure.openshell.cli import (
+    OpenShellCliError,
+    openshell_subprocess_env,
+    popen_openshell,
+    run_openshell,
+)
+from extraction.infrastructure.openshell.policy import (
+    resolve_endpoints,
+    resolve_enforcement,
+)
 from extraction.infrastructure.vertex_runtime_env import GCLOUD_ADC_FILENAME
 
 _CONTAINER_NAME_SAFE = re.compile(r"[^a-zA-Z0-9_.-]+")
@@ -206,7 +214,9 @@ def upload_directory_contents(*, sandbox_name: str, local_dir: str, dest: str) -
         with tarfile.open(local_tar, "w") as archive:
             for entry in sorted(source.iterdir()):
                 archive.add(entry, arcname=entry.name)
-        upload_path(sandbox_name=sandbox_name, local_path=str(local_tar), dest=remote_tar)
+        upload_path(
+            sandbox_name=sandbox_name, local_path=str(local_tar), dest=remote_tar
+        )
         extract_cmd = (
             f"mkdir -p {shlex.quote(dest)} && "
             f"tar -xf {shlex.quote(remote_tar)} -C {shlex.quote(dest)} && "
@@ -322,8 +332,7 @@ def upload_gcloud_adc(
     remote_dir = container_config_path.rstrip("/")
     remote_adc = f"{remote_dir}/{GCLOUD_ADC_FILENAME}"
     prepare_cmd = (
-        f"mkdir -p {shlex.quote(remote_dir)} && "
-        f"chmod 755 {shlex.quote(remote_dir)}"
+        f"mkdir -p {shlex.quote(remote_dir)} && chmod 755 {shlex.quote(remote_dir)}"
     )
     run_openshell(
         [
@@ -390,7 +399,11 @@ def apply_policy(
 
     binaries = policy_binaries
     if binaries is None:
-        binaries = _EXTRACTION_POLICY_BINARIES if workload == "extraction_job" else _GMA_POLICY_BINARIES
+        binaries = (
+            _EXTRACTION_POLICY_BINARIES
+            if workload == "extraction_job"
+            else _GMA_POLICY_BINARIES
+        )
 
     args = [
         "policy",
@@ -421,7 +434,9 @@ def apply_policy(
 
 def _forwards_state_dir() -> Path:
     config_home = (
-        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", "").strip()
+        os.environ.get(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", ""
+        ).strip()
         or os.environ.get("XDG_CONFIG_HOME", "").strip()
         or str(Path.home() / ".config")
     )
@@ -482,7 +497,9 @@ def exec_background(
     env: dict[str, str],
     command: tuple[str, ...],
 ) -> None:
-    exports = " ".join(f"export {key}={shlex.quote(value)};" for key, value in sorted(env.items()))
+    exports = " ".join(
+        f"export {key}={shlex.quote(value)};" for key, value in sorted(env.items())
+    )
     shell_command = f"{exports} exec {' '.join(shlex.quote(part) for part in command)}"
     run_openshell(
         [

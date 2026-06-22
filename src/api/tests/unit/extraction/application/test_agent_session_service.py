@@ -13,13 +13,17 @@ from extraction.application.graph_management_session_journal import (
     append_applied_jsonl_to_session,
 )
 from extraction.domain.entities.agent_session import ExtractionAgentSession
-from extraction.domain.graph_management_session_scope import resolve_backend_session_mode
+from extraction.domain.graph_management_session_scope import (
+    resolve_backend_session_mode,
+)
 from extraction.domain.value_objects import (
     BootstrapIntakePath,
     ExtractionSessionMode,
     GraphManagementUiMode,
 )
-from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
+from extraction.infrastructure.workload_runtime import (
+    InMemoryStickySessionRuntimeManager,
+)
 
 
 class _InMemoryAgentSessionRepository:
@@ -356,7 +360,10 @@ class TestExtractionAgentSessionService:
         )
 
         assert len(sessions) == 2
-        assert any(session.id == first.id and session.archived_at is not None for session in sessions)
+        assert any(
+            session.id == first.id and session.archived_at is not None
+            for session in sessions
+        )
 
     async def test_new_session_initializes_runtime_context_from_skill_resolution(self):
         repo = _InMemoryAgentSessionRepository()
@@ -377,7 +384,11 @@ class TestExtractionAgentSessionService:
         assert config["system_prompt"] == "Bootstrap system prompt"
         assert config["skills"]["schema_modeling"] == "bootstrap schema guidance"
         assert skill_resolution.calls == [
-            ("kg-1", ExtractionSessionMode.SCHEMA_BOOTSTRAP, GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
+            (
+                "kg-1",
+                ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+                GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            )
         ]
 
     async def test_bootstrap_session_seeds_capabilities_intake_prompt_state(self):
@@ -416,7 +427,10 @@ class TestExtractionAgentSessionService:
         intake = updated.runtime_context["bootstrap_intake"]
         assert intake["selected_path"] == BootstrapIntakePath.GUIDED_CO_DESIGN.value
         assert intake["status"] == "path_selected"
-        assert intake["capabilities_goals"] == "I can provide domain terms but need guidance."
+        assert (
+            intake["capabilities_goals"]
+            == "I can provide domain terms but need guidance."
+        )
         assert updated.id == session.id
 
 
@@ -481,9 +495,9 @@ class TestOrphanedStickySessionReconciliation:
 
 
 def test_resolve_backend_session_mode_maps_ui_modes() -> None:
-    assert resolve_backend_session_mode(GraphManagementUiMode.INITIAL_SCHEMA_DESIGN) == (
-        ExtractionSessionMode.SCHEMA_BOOTSTRAP
-    )
+    assert resolve_backend_session_mode(
+        GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    ) == (ExtractionSessionMode.SCHEMA_BOOTSTRAP)
     assert resolve_backend_session_mode(GraphManagementUiMode.EXTRACTION_JOBS) == (
         ExtractionSessionMode.EXTRACTION_OPERATIONS
     )

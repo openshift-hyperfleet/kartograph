@@ -22,7 +22,11 @@ def upgrade() -> None:
     """Add maintenance schedule and run history JSONB columns."""
     op.add_column(
         "knowledge_graphs",
-        sa.Column("maintenance_schedule", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "maintenance_schedule",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=True,
+        ),
     )
     op.add_column(
         "knowledge_graphs",

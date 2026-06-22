@@ -27,4 +27,6 @@ def job_package_archive_exists(*, work_dir: Path, job_package_id: str | None) ->
     """Return whether the JobPackage ZIP archive exists locally."""
     if not job_package_id or not job_package_id.strip():
         return False
-    return job_package_archive_path(work_dir=work_dir, job_package_id=job_package_id).is_file()
+    return job_package_archive_path(
+        work_dir=work_dir, job_package_id=job_package_id
+    ).is_file()

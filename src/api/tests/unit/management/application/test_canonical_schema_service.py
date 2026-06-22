@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from management.domain.value_objects import (
     EdgeTypeDefinition,
     NodeTypeDefinition,
@@ -151,7 +153,9 @@ class TestKnowledgeGraphServiceCanonicalSchema:
         kg_repo.seed(kg)
         await _grant_kg_edit(authz, kg.id.value, user_id)
 
-        with pytest.raises(ValueError, match="Canonical schema repository is not configured"):
+        with pytest.raises(
+            ValueError, match="Canonical schema repository is not configured"
+        ):
             await service_without_canonical.save_ontology(
                 user_id=user_id,
                 kg_id=kg.id.value,

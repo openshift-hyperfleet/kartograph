@@ -29,7 +29,9 @@ class ExtractionMutationVerdict:
             applied=bool(payload.get("applied")),
             operations_applied=int(payload.get("operations_applied") or 0),
             errors=tuple(str(item) for item in payload.get("errors") or []),
-            http_status=int(payload["http_status"]) if payload.get("http_status") is not None else None,
+            http_status=int(payload["http_status"])
+            if payload.get("http_status") is not None
+            else None,
             valid=bool(payload["valid"]) if "valid" in payload else None,
             operation_count=int(payload["operation_count"])
             if payload.get("operation_count") is not None

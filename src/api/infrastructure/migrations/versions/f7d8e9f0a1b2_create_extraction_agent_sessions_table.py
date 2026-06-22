@@ -72,4 +72,3 @@ def downgrade() -> None:
         "idx_extract_sessions_scope_active", table_name="extraction_agent_sessions"
     )
     op.drop_table("extraction_agent_sessions")
-

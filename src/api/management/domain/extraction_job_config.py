@@ -12,6 +12,8 @@ from management.domain.extraction_relationship_authoring import (
     per_instance_description_relationship_errors,
     per_instance_description_unknown_relationship_errors,
 )
+
+
 class ExtractionJobSetStrategy(StrEnum):
     """Batching strategy for an extraction job set."""
 
@@ -58,7 +60,9 @@ class ExtractionJobSetDefinition:
                     )
             per_job = self.instances_per_job
             if per_job is None or not isinstance(per_job, int) or per_job < 1:
-                errors.append(f"{self.name}: instances_per_job must be an integer >= 1.")
+                errors.append(
+                    f"{self.name}: instances_per_job must be an integer >= 1."
+                )
             if not self.description or not self.description.strip():
                 errors.append(
                     f"{self.name}: per-instance extraction description is required."
@@ -92,7 +96,9 @@ class ExtractionJobSetDefinition:
                 )
         elif self.strategy == ExtractionJobSetStrategy.BY_FILES:
             if not self.file_patterns:
-                errors.append(f"{self.name}: at least one file pattern is required for by_files.")
+                errors.append(
+                    f"{self.name}: at least one file pattern is required for by_files."
+                )
             per_job = self.files_per_job
             if per_job is None or not isinstance(per_job, int) or per_job < 1:
                 errors.append(f"{self.name}: files_per_job must be an integer >= 1.")
@@ -122,21 +128,32 @@ class ExtractionJobSetDefinition:
         strategy = ExtractionJobSetStrategy(str(data["strategy"]))
         raw_patterns = data.get("file_patterns") or []
         enabled_raw = data.get("enabled", True)
-        enabled = bool(enabled_raw) if not isinstance(enabled_raw, str) else enabled_raw.lower() not in {
-            "0",
-            "false",
-            "no",
-        }
+        enabled = (
+            bool(enabled_raw)
+            if not isinstance(enabled_raw, str)
+            else enabled_raw.lower()
+            not in {
+                "0",
+                "false",
+                "no",
+            }
+        )
         return cls(
             name=str(data["name"]),
             strategy=strategy,
-            description=str(data["description"]).strip() if data.get("description") else None,
-            entity_type=str(data["entity_type"]).strip() if data.get("entity_type") else None,
+            description=str(data["description"]).strip()
+            if data.get("description")
+            else None,
+            entity_type=str(data["entity_type"]).strip()
+            if data.get("entity_type")
+            else None,
             instances_per_job=int(data["instances_per_job"])
             if data.get("instances_per_job") is not None
             else None,
             file_patterns=tuple(str(pattern) for pattern in raw_patterns),
-            files_per_job=int(data["files_per_job"]) if data.get("files_per_job") is not None else None,
+            files_per_job=int(data["files_per_job"])
+            if data.get("files_per_job") is not None
+            else None,
             enabled=enabled,
         )
 
@@ -180,13 +197,17 @@ class ExtractionJobConfigDocument:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> ExtractionJobConfigDocument | None:
+    def from_dict(
+        cls, data: dict[str, Any] | None
+    ) -> ExtractionJobConfigDocument | None:
         if not data:
             return None
         raw_sets = data.get("job_sets") or []
         return cls(
             version=str(data.get("version") or "1.0"),
-            job_sets=tuple(ExtractionJobSetDefinition.from_dict(row) for row in raw_sets),
+            job_sets=tuple(
+                ExtractionJobSetDefinition.from_dict(row) for row in raw_sets
+            ),
         )
 
     @classmethod

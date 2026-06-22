@@ -14,7 +14,9 @@ from extraction.infrastructure.container_workload_runtime import (
 from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager import (
     OpenShellStickySessionRuntimeManager,
 )
-from extraction.infrastructure.deterministic_chat_agent import DeterministicExtractionChatAgent
+from extraction.infrastructure.deterministic_chat_agent import (
+    DeterministicExtractionChatAgent,
+)
 from extraction.infrastructure.remote_sticky_container_chat_agent import (
     RemoteStickyContainerChatAgent,
 )
@@ -58,8 +60,13 @@ def resolve_workload_token_signing_key(
     if configured:
         return normalize_workload_token_signing_key(configured)
     if _allows_dev_workload_signing_key_fallback():
-        if len(DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY.encode("utf-8")) < MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN:
-            raise RuntimeError("built-in development workload signing key is misconfigured")
+        if (
+            len(DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY.encode("utf-8"))
+            < MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN
+        ):
+            raise RuntimeError(
+                "built-in development workload signing key is misconfigured"
+            )
         logger.warning(
             "KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY is unset; "
             "using the built-in development signing key. Do not use this in production."

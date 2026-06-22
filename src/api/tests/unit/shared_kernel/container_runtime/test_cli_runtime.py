@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from shared_kernel.container_runtime.cli_runtime import CliContainerRuntime
-from shared_kernel.container_runtime.ports import ContainerRunSpec, ContainerRuntimeError
+from shared_kernel.container_runtime.ports import (
+    ContainerRunSpec,
+    ContainerRuntimeError,
+)
 
 
 class TestCliContainerRuntime:
@@ -159,6 +162,8 @@ class TestCliContainerRuntime:
         runtime = CliContainerRuntime(binary="docker")
 
         with patch("shared_kernel.container_runtime.cli_runtime.subprocess.run") as run:
-            run.return_value = MagicMock(returncode=1, stdout="", stderr="no such object")
+            run.return_value = MagicMock(
+                returncode=1, stdout="", stderr="no such object"
+            )
 
             assert runtime.remove_by_name("missing") is False

@@ -7,7 +7,9 @@ from management.domain.relationship_pairing import is_primary_relationship_for_d
 from management.domain.value_objects import OntologyConfig, WorkspaceReadinessStatus
 
 
-def evaluate_workspace_readiness(ontology: OntologyConfig | None) -> WorkspaceReadinessStatus:
+def evaluate_workspace_readiness(
+    ontology: OntologyConfig | None,
+) -> WorkspaceReadinessStatus:
     """Evaluate transition readiness flags from canonical schema metadata."""
     node_type_count = len(ontology.node_types) if ontology else 0
     edge_type_count = len(ontology.edge_types) if ontology else 0
@@ -80,13 +82,15 @@ def prepopulated_gaps_from_live_counts(
     entity_gaps = tuple(
         node_type.label
         for node_type in ontology.node_types
-        if node_type.prepopulated and entity_instance_counts.get(node_type.label, 0) <= 0
+        if node_type.prepopulated
+        and entity_instance_counts.get(node_type.label, 0) <= 0
     )
     relationship_gaps = tuple(
         relationship_readiness_key(edge_type)
         for edge_type in ontology.edge_types
         if edge_type.prepopulated
-        and relationship_instance_counts.get(relationship_readiness_key(edge_type), 0) <= 0
+        and relationship_instance_counts.get(relationship_readiness_key(edge_type), 0)
+        <= 0
         and is_primary_relationship_for_display(edge_type)
     )
     return {

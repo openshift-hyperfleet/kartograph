@@ -80,7 +80,9 @@ def _materialize_head_from_job_package(
     head_commit = target_file.head_commit
     if not head_commit:
         return False
-    archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+    archive_path = (
+        job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+    )
     if not archive_path.is_file():
         return False
     reader = JobPackageReader(archive_path)
@@ -127,7 +129,10 @@ async def materialize_maintenance_target_files(
         data_source_id = target_file.data_source_id or source.data_source_id
 
         if status in _HEAD_STATUSES:
-            archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+            archive_path = (
+                job_package_work_dir
+                / JobPackageId(value=source.package_id).archive_name()
+            )
             if not archive_path.is_file():
                 packages_missing.append(target_file.package_id)
             elif head_commit and _materialize_head_from_job_package(
@@ -188,7 +193,9 @@ async def materialize_maintenance_target_files(
 
     return RepositoryFilesMaterializationResult(
         files_written=files_written,
-        packages_requested=len({target_file.package_id for target_file in target_files}),
+        packages_requested=len(
+            {target_file.package_id for target_file in target_files}
+        ),
         packages_found=len({target_file.package_id for target_file in target_files})
         - len(set(packages_missing)),
         packages_missing=tuple(packages_missing),
@@ -237,7 +244,11 @@ def write_maintenance_sources_index(
             None,
         )
         baseline_commit = next(
-            (target.baseline_commit for target in source_targets if target.baseline_commit),
+            (
+                target.baseline_commit
+                for target in source_targets
+                if target.baseline_commit
+            ),
             None,
         )
         sources.append(

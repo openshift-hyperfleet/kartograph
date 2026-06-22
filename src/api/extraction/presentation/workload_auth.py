@@ -15,7 +15,9 @@ from extraction.infrastructure.workload_credential_issuer import (
     WORKLOAD_SCOPE_READ,
     WORKLOAD_SCOPE_WRITE,
 )
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import (
+    ScopedWorkloadCredentialIssuer,
+)
 from extraction.ports.runtime import ScopedWorkloadCredentials
 from infrastructure.extraction_workload.dependencies import (
     get_extraction_workload_credential_issuer,
@@ -41,7 +43,9 @@ _WRITE_SCOPES = frozenset(
 _ADMIN_SCOPES = frozenset({WORKLOAD_SCOPE_CHAT, WORKLOAD_SCOPE_ADMIN})
 
 
-def _require_any_scope(auth: WorkloadAuthContext, allowed: frozenset[str], *, detail: str) -> None:
+def _require_any_scope(
+    auth: WorkloadAuthContext, allowed: frozenset[str], *, detail: str
+) -> None:
     if not allowed.intersection(auth.credentials.scopes):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
@@ -101,7 +105,8 @@ class WorkloadAuthContext:
 def get_workload_auth_context(
     workload_token: Annotated[str | None, Header(alias="X-Workload-Token")] = None,
     issuer: Annotated[
-        ScopedWorkloadCredentialIssuer, Depends(get_extraction_workload_credential_issuer)
+        ScopedWorkloadCredentialIssuer,
+        Depends(get_extraction_workload_credential_issuer),
     ] = ...,
 ) -> WorkloadAuthContext:
     """Validate a sticky-session or worker runtime token."""
@@ -137,7 +142,9 @@ def get_workload_auth_context(
         else None
     )
     job_id = (
-        validate_workload_scope_id(job_scope, field="job") if job_scope is not None else None
+        validate_workload_scope_id(job_scope, field="job")
+        if job_scope is not None
+        else None
     )
 
     return WorkloadAuthContext(

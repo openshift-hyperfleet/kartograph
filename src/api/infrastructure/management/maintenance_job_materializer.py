@@ -36,7 +36,9 @@ class ChangedMaintenanceFile:
     patch: str | None = None
 
 
-def _batch_items(items: Sequence[ChangedMaintenanceFile], batch_size: int) -> list[list[ChangedMaintenanceFile]]:
+def _batch_items(
+    items: Sequence[ChangedMaintenanceFile], batch_size: int
+) -> list[list[ChangedMaintenanceFile]]:
     size = max(1, batch_size)
     materialized = list(items)
     return [list(materialized[i : i + size]) for i in range(0, len(materialized), size)]
@@ -47,12 +49,16 @@ def _generate_job_id(batch_idx: int, content_hash: str) -> str:
     return f"{MAINTENANCE_JOB_SET_NAME}_batch_{batch_idx:04d}_{hash_suffix}"
 
 
-def _build_maintenance_description(changed_files: Sequence[ChangedMaintenanceFile]) -> str:
+def _build_maintenance_description(
+    changed_files: Sequence[ChangedMaintenanceFile],
+) -> str:
     lines = [_DEFAULT_MAINTENANCE_DESCRIPTION, "", "## Changed files in this job"]
     for changed in changed_files:
         lines.append(f"- [{changed.status}] {changed.repository_folder}/{changed.path}")
         if changed.patch:
-            lines.extend(["", f"### Diff: {changed.path}", "```diff", changed.patch, "```"])
+            lines.extend(
+                ["", f"### Diff: {changed.path}", "```diff", changed.patch, "```"]
+            )
     lines.extend(
         [
             "",
@@ -81,7 +87,9 @@ def materialize_maintenance_jobs(
         return []
 
     jobs: list[ExtractionJobRecord] = []
-    for batch_idx, batch in enumerate(_batch_items(changed_files, files_per_job), start=1):
+    for batch_idx, batch in enumerate(
+        _batch_items(changed_files, files_per_job), start=1
+    ):
         content_hash = "|".join(
             f"{item.repository_folder}:{item.path}:{item.status}" for item in batch
         )

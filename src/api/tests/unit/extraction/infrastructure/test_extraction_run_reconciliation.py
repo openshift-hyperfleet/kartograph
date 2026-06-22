@@ -49,22 +49,17 @@ async def test_reconcile_finishes_active_run_and_advances_baselines() -> None:
         orchestrator_pid=None,
     )
     orchestrator = MagicMock()
+    advance_baselines = AsyncMock(return_value=2)
 
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-            return_value=2,
-        ) as advance_baselines,
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
     ):
         reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
             knowledge_graph_id="kg-001",
             orchestrator=orchestrator,
+            advance_baselines=advance_baselines,
         )
 
     assert reconciled is True
@@ -94,20 +89,16 @@ async def test_reconcile_does_not_advance_baselines_when_run_already_idle() -> N
         completed_at=None,
         orchestrator_pid=None,
     )
+    advance_baselines = AsyncMock()
 
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-        ) as advance_baselines,
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
     ):
         reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
             knowledge_graph_id="kg-001",
+            advance_baselines=advance_baselines,
         )
 
     assert reconciled is False
@@ -118,7 +109,9 @@ async def test_reconcile_does_not_advance_baselines_when_run_already_idle() -> N
 
 
 @pytest.mark.asyncio
-async def test_reconcile_finishes_run_without_advancing_when_failed_jobs_remain() -> None:
+async def test_reconcile_finishes_run_without_advancing_when_failed_jobs_remain() -> (
+    None
+):
     session = AsyncMock()
     repo = AsyncMock()
     repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 2}
@@ -133,21 +126,17 @@ async def test_reconcile_finishes_run_without_advancing_when_failed_jobs_remain(
         orchestrator_pid=None,
     )
     orchestrator = MagicMock()
+    advance_baselines = AsyncMock()
 
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-        ) as advance_baselines,
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
     ):
         reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
             knowledge_graph_id="kg-001",
             orchestrator=orchestrator,
+            advance_baselines=advance_baselines,
         )
 
     assert reconciled is True

@@ -25,16 +25,26 @@ from extraction.infrastructure.maintenance_repository_files import (
     materialize_maintenance_target_files,
     write_maintenance_sources_index,
 )
-from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.infrastructure.extraction_job_workdir_layout import (
+    prepare_agentic_ci_workspace,
+)
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
 from infrastructure.extraction_workload.maintenance_baseline_fetcher import (
     MaintenanceBaselineContentFetcher,
 )
 from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrator
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
-from extraction.ports.extraction_job_target_context import IExtractionJobTargetContextEnricher
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
+from extraction.ports.extraction_job_target_context import (
+    IExtractionJobTargetContextEnricher,
+)
 from extraction.ports.runtime import ScopedWorkloadCredentials
-from infrastructure.management.maintenance_job_materializer import MAINTENANCE_JOB_SET_NAME
+from infrastructure.management.maintenance_job_materializer import (
+    MAINTENANCE_JOB_SET_NAME,
+)
 
 
 class ExtractionJobWorkdirMaterializer:
@@ -63,7 +73,11 @@ class ExtractionJobWorkdirMaterializer:
         tenant_id: str,
         credentials: ScopedWorkloadCredentials,
     ) -> Path:
-        job_root = Path(self._settings.extraction_job_work_dir) / job.knowledge_graph_id / job.job_id
+        job_root = (
+            Path(self._settings.extraction_job_work_dir)
+            / job.knowledge_graph_id
+            / job.job_id
+        )
         if job_root.exists():
             shutil.rmtree(job_root)
         job_root.mkdir(parents=True, exist_ok=True)
@@ -78,8 +92,10 @@ class ExtractionJobWorkdirMaterializer:
             )
             hydration_warnings.extend(hydration.errors)
 
-        job_packages = await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
-            knowledge_graph_id=job.knowledge_graph_id,
+        job_packages = (
+            await self._prepared_job_package_reader.list_latest_for_knowledge_graph(
+                knowledge_graph_id=job.knowledge_graph_id,
+            )
         )
         packages_by_id = {source.package_id: source for source in job_packages}
         materialization = await self._materialize_repository_files(

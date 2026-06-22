@@ -33,7 +33,11 @@ def scan(repository_files: Path) -> list[dict[str, Any]]:
         if index > 0 and index % 40 == 0:
             print(f"Progress: {index}/{len(files)}...", file=sys.stderr)
         data_source = next(
-            (parent.name for parent in file_path.parents if parent.parent == repository_files),
+            (
+                parent.name
+                for parent in file_path.parents
+                if parent.parent == repository_files
+            ),
             "unknown",
         )
         rel = file_path.relative_to(repository_files / data_source)
@@ -41,7 +45,11 @@ def scan(repository_files: Path) -> list[dict[str, Any]]:
         for pattern in _ROUTE_PATTERNS:
             for match in pattern.finditer(content):
                 path_value = match.group(match.lastindex or 1)
-                method = match.group(1).upper() if match.lastindex and match.lastindex > 1 else "GET"
+                method = (
+                    match.group(1).upper()
+                    if match.lastindex and match.lastindex > 1
+                    else "GET"
+                )
                 slug = generate_slug(f"{method}-{path_value}")
                 instances.append(
                     {

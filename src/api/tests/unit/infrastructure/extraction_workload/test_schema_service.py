@@ -19,7 +19,9 @@ async def test_apply_mutation_jsonl_routes_instance_ops_to_graph_writer() -> Non
     mutation_writer.apply_instance_operations = AsyncMock(
         return_value={"applied": True, "errors": [], "operations_applied": 1}
     )
-    service = GraphWorkloadSchemaService(session=session, mutation_writer=mutation_writer)
+    service = GraphWorkloadSchemaService(
+        session=session, mutation_writer=mutation_writer
+    )
     service._repository = MagicMock()
     service._repository.get_ontology = AsyncMock(return_value=None)
     service._repository.apply_mutation_log = AsyncMock()
@@ -44,7 +46,9 @@ async def test_apply_mutation_jsonl_routes_instance_ops_to_graph_writer() -> Non
 
 
 @pytest.mark.asyncio
-async def test_apply_mutation_jsonl_rejects_duplicate_create_when_reader_reports_existing() -> None:
+async def test_apply_mutation_jsonl_rejects_duplicate_create_when_reader_reports_existing() -> (
+    None
+):
     session = MagicMock()
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
@@ -55,7 +59,9 @@ async def test_apply_mutation_jsonl_rejects_duplicate_create_when_reader_reports
         return_value=frozenset({"service:0123456789abcdef"})
     )
     graph_reader.find_existing_edge_ids = AsyncMock(return_value=frozenset())
-    graph_reader.find_existing_slugs_for_entity_type = AsyncMock(return_value=frozenset())
+    graph_reader.find_existing_slugs_for_entity_type = AsyncMock(
+        return_value=frozenset()
+    )
 
     service = GraphWorkloadSchemaService(
         session=session,
@@ -87,7 +93,9 @@ async def test_apply_mutation_jsonl_routes_define_ops_to_canonical_repo() -> Non
     session.rollback = AsyncMock()
     mutation_writer = MagicMock()
     mutation_writer.apply_instance_operations = AsyncMock()
-    service = GraphWorkloadSchemaService(session=session, mutation_writer=mutation_writer)
+    service = GraphWorkloadSchemaService(
+        session=session, mutation_writer=mutation_writer
+    )
     service._repository = MagicMock()
     service._repository.get_ontology = AsyncMock(return_value=None)
     service._repository.apply_mutation_log = AsyncMock()

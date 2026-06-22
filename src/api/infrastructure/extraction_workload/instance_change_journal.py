@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from graph.domain.value_objects import EntityType, MutationOperation, MutationOperationType
+from graph.domain.value_objects import (
+    EntityType,
+    MutationOperation,
+    MutationOperationType,
+)
 from extraction.domain.instance_change_record import build_instance_change_record
-from extraction.ports.workload_graph import IWorkloadGraphReader, WorkloadGraphNode, WorkloadGraphRelationship
+from extraction.ports.workload_graph import (
+    IWorkloadGraphReader,
+    WorkloadGraphNode,
+    WorkloadGraphRelationship,
+)
 
 _INSTANCE_OPS = frozenset(
     {
@@ -78,14 +86,24 @@ def build_instance_change_records(
             before_props = (
                 None
                 if op.op == MutationOperationType.CREATE
-                else dict(before_node.properties) if before_node else None
+                else dict(before_node.properties)
+                if before_node
+                else None
             )
             after_props = (
                 None
                 if op.op == MutationOperationType.DELETE
-                else dict(after_node.properties) if after_node else dict(op.set_properties or {})
+                else dict(after_node.properties)
+                if after_node
+                else dict(op.set_properties or {})
             )
-            label = op.label or (after_node.entity_type if after_node else before_node.entity_type if before_node else None)
+            label = op.label or (
+                after_node.entity_type
+                if after_node
+                else before_node.entity_type
+                if before_node
+                else None
+            )
             records.append(
                 build_instance_change_record(
                     op=op.op.value,
@@ -103,18 +121,38 @@ def build_instance_change_records(
         before_props = (
             None
             if op.op == MutationOperationType.CREATE
-            else dict(before_edge.properties) if before_edge else None
+            else dict(before_edge.properties)
+            if before_edge
+            else None
         )
         after_props = (
             None
             if op.op == MutationOperationType.DELETE
-            else dict(after_edge.properties) if after_edge else dict(op.set_properties or {})
+            else dict(after_edge.properties)
+            if after_edge
+            else dict(op.set_properties or {})
         )
         label = op.label or (
-            after_edge.relationship_type if after_edge else before_edge.relationship_type if before_edge else None
+            after_edge.relationship_type
+            if after_edge
+            else before_edge.relationship_type
+            if before_edge
+            else None
         )
-        start_id = op.start_id or (after_edge.start_id if after_edge else before_edge.start_id if before_edge else None)
-        end_id = op.end_id or (after_edge.end_id if after_edge else before_edge.end_id if before_edge else None)
+        start_id = op.start_id or (
+            after_edge.start_id
+            if after_edge
+            else before_edge.start_id
+            if before_edge
+            else None
+        )
+        end_id = op.end_id or (
+            after_edge.end_id
+            if after_edge
+            else before_edge.end_id
+            if before_edge
+            else None
+        )
         records.append(
             build_instance_change_record(
                 op=op.op.value,

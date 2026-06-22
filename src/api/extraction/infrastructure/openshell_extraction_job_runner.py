@@ -24,7 +24,9 @@ from extraction.infrastructure.extraction_job_activity import (
     format_activity_log_line,
     format_claude_code_stream_line,
 )
-from extraction.infrastructure.extraction_job_metrics import merge_extraction_job_metrics
+from extraction.infrastructure.extraction_job_metrics import (
+    merge_extraction_job_metrics,
+)
 from extraction.infrastructure.extraction_job_mutation_metrics import (
     reconcile_mutation_metrics,
 )
@@ -52,8 +54,12 @@ from extraction.infrastructure.openshell.inference_env import (
 from extraction.infrastructure.openshell.cli import OpenShellCliError
 from extraction.infrastructure.openshell.runtime_env import apply_openshell_cli_env
 from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
-from extraction.infrastructure.workload_credential_issuer import INTERACTIVE_WORKLOAD_SCOPES
-from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
+from extraction.infrastructure.workload_credential_issuer import (
+    INTERACTIVE_WORKLOAD_SCOPES,
+)
+from extraction.infrastructure.workload_runtime_factory import (
+    get_workload_credential_issuer,
+)
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
     get_extraction_workload_runtime_settings,
@@ -99,7 +105,9 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         tenant_id: str,
     ) -> PreparedExtractionJobRun:
         if self._workdir_materializer is None:
-            raise RuntimeError("OpenShellExtractionJobRunner requires a workdir materializer")
+            raise RuntimeError(
+                "OpenShellExtractionJobRunner requires a workdir materializer"
+            )
         credentials = get_workload_credential_issuer().issue(
             tenant_id=tenant_id,
             knowledge_graph_id=job.knowledge_graph_id,
@@ -110,7 +118,9 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
             tenant_id=tenant_id,
             credentials=credentials,
         )
-        _patch_job_context_api_base(workdir, self._settings.sandbox_reachable_api_base_url())
+        _patch_job_context_api_base(
+            workdir, self._settings.sandbox_reachable_api_base_url()
+        )
         prompt = build_job_run_prompt(job=job)
         return PreparedExtractionJobRun(workdir=workdir, prompt=prompt)
 
@@ -210,7 +220,9 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
                     sandbox_name=sandbox_name,
                     workload="extraction_job",
                     policy_dir=self._settings.openshell_policy_dir or None,
-                    api_host=_api_host_from_base_url(self._settings.sandbox_reachable_api_base_url()),
+                    api_host=_api_host_from_base_url(
+                        self._settings.sandbox_reachable_api_base_url()
+                    ),
                     vertex_region=(
                         self._settings.vertex_region
                         if self._settings.vertex_enabled()
@@ -220,7 +232,9 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
                     probe=self._probe,
                 )
 
-            otel_proc, otel_port, otel_log_path, otel_rate_file = otel.start_collector(run_dir)
+            otel_proc, otel_port, otel_log_path, otel_rate_file = otel.start_collector(
+                run_dir
+            )
             otel_log = Path(otel_log_path)
             model = self._resolve_model()
             invoke_prompt = build_extraction_job_invoke_prompt(workspace_dir=work_mount)
@@ -244,7 +258,9 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
                 timeout_seconds=self._settings.agentic_ci_timeout_seconds,
                 activity_log_path=log_path,
             )
-            append_activity_line(log_path, f"✅ OpenShell sandbox finished with exit code {rc}")
+            append_activity_line(
+                log_path, f"✅ OpenShell sandbox finished with exit code {rc}"
+            )
             if otel_proc is not None:
                 otel.stop_collector(otel_proc)
                 otel_proc = None
@@ -252,8 +268,7 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
                 detail = self._read_activity_log_tail(log_path)
                 raise RuntimeError(
                     "OpenShell extraction sandbox exited with code "
-                    f"{rc} for job {job.job_id}"
-                    + (f": {detail}" if detail else "")
+                    f"{rc} for job {job.job_id}" + (f": {detail}" if detail else "")
                 )
             self._sync_mutation_artifacts_from_sandbox(
                 sandbox_name=sandbox_name,
@@ -423,7 +438,7 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         cmd = [
             "bash",
             "-c",
-            f". {_AGENTIC_CI_ENV_SCRIPT} && cd {work_mount} && exec \"$@\"",
+            f'. {_AGENTIC_CI_ENV_SCRIPT} && cd {work_mount} && exec "$@"',
             "--",
             *agent_args,
         ]
@@ -436,10 +451,13 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         stream_log_path = activity_log_path.parent / "agent_stream.jsonl"
         try:
             assert proc.stdout is not None
-            with activity_log_path.open("a", encoding="utf-8") as log_handle, stream_log_path.open(
-                "a",
-                encoding="utf-8",
-            ) as stream_handle:
+            with (
+                activity_log_path.open("a", encoding="utf-8") as log_handle,
+                stream_log_path.open(
+                    "a",
+                    encoding="utf-8",
+                ) as stream_handle,
+            ):
                 for line in proc.stdout:
                     if time.monotonic() - started > timeout_seconds:
                         proc.kill()
@@ -461,11 +479,15 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
                     if parsed:
                         ts = datetime.now(UTC).isoformat()
                         for kind, text in parsed:
-                            log_handle.write(f"{ts} {format_activity_log_line(kind=kind, text=text)}\n")
+                            log_handle.write(
+                                f"{ts} {format_activity_log_line(kind=kind, text=text)}\n"
+                            )
                             captured_tail.append(text)
                     else:
                         ts = datetime.now(UTC).isoformat()
-                        log_handle.write(f"{ts} {format_activity_log_line(kind='info', text=cleaned)}\n")
+                        log_handle.write(
+                            f"{ts} {format_activity_log_line(kind='info', text=cleaned)}\n"
+                        )
                         captured_tail.append(cleaned)
                     log_handle.flush()
                     if len(captured_tail) > 20:

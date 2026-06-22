@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import Awaitable, Callable, TYPE_CHECKING
 
 from extraction.domain.extraction_job import ExtractionRunStatus
 from extraction.infrastructure.repositories.extraction_job_repository import (
     ExtractionJobRepository,
-)
-from management.infrastructure.extraction_baseline_updater import (
-    advance_extraction_baselines_for_knowledge_graph,
 )
 
 if TYPE_CHECKING:
@@ -20,12 +17,15 @@ if TYPE_CHECKING:
         ExtractionRunOrchestrator,
     )
 
+AdvanceBaselines = Callable[..., Awaitable[int]]
+
 
 async def reconcile_quiescent_extraction_run(
     *,
     session: AsyncSession,
     knowledge_graph_id: str,
     orchestrator: ExtractionRunOrchestrator | None = None,
+    advance_baselines: AdvanceBaselines | None = None,
 ) -> tuple[bool, bool]:
     """Finish active runs and advance baselines when the job queue has drained.
 
@@ -57,10 +57,18 @@ async def reconcile_quiescent_extraction_run(
     )
 
     if counts.get("failed", 0) == 0:
-        await advance_extraction_baselines_for_knowledge_graph(
-            session=session,
-            knowledge_graph_id=knowledge_graph_id,
-        )
+        advancer = advance_baselines
+        if advancer is None:
+            from infrastructure.management.extraction_baseline_hook import (
+                get_extraction_baseline_advancer,
+            )
+
+            advancer = get_extraction_baseline_advancer()
+        if advancer is not None:
+            await advancer(
+                session=session,
+                knowledge_graph_id=knowledge_graph_id,
+            )
 
     await session.commit()
 

@@ -38,8 +38,12 @@ def test_group_archived_jobs_by_run_and_set() -> None:
     run_b = datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
     grouped = group_archived_jobs_by_run_and_set(
         [
-            _job(job_id="job-a1", job_set="Adapter Deep Extraction", run_started_at=run_a),
-            _job(job_id="job-a2", job_set="Adapter Deep Extraction", run_started_at=run_a),
+            _job(
+                job_id="job-a1", job_set="Adapter Deep Extraction", run_started_at=run_a
+            ),
+            _job(
+                job_id="job-a2", job_set="Adapter Deep Extraction", run_started_at=run_a
+            ),
             _job(job_id="job-b1", job_set="Resource Extraction", run_started_at=run_b),
         ]
     )

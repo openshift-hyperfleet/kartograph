@@ -11,14 +11,18 @@ from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_pr
 
 
 def test_ensure_vertex_provider_skips_when_provider_exists() -> None:
-    with patch(
-        "extraction.infrastructure.openshell.vertex_provider.provider_exists",
-        return_value=True,
-    ) as exists, patch(
-        "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
-    ) as inference, patch(
-        "extraction.infrastructure.openshell.vertex_provider.run_openshell",
-    ) as run:
+    with (
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.provider_exists",
+            return_value=True,
+        ) as exists,
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
+        ) as inference,
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.run_openshell",
+        ) as run,
+    ):
         ensure_vertex_provider(
             provider_name="kartograph-gma",
             project_id="proj",
@@ -40,14 +44,18 @@ def test_ensure_vertex_provider_creates_google_vertex_ai_from_adc(tmp_path) -> N
     adc_file = adc_dir / "application_default_credentials.json"
     adc_file.write_text('{"type":"authorized_user"}', encoding="utf-8")
 
-    with patch(
-        "extraction.infrastructure.openshell.vertex_provider.provider_exists",
-        return_value=False,
-    ), patch(
-        "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
-    ) as inference, patch(
-        "extraction.infrastructure.openshell.vertex_provider.run_openshell",
-    ) as run:
+    with (
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.provider_exists",
+            return_value=False,
+        ),
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
+        ) as inference,
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.run_openshell",
+        ) as run,
+    ):
         ensure_vertex_provider(
             provider_name="kartograph-gma",
             project_id="my-project",

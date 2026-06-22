@@ -25,7 +25,9 @@ def upgrade() -> None:
         sa.Column("knowledge_graph_id", sa.String(length=26), nullable=False),
         sa.Column("entity_type", sa.String(length=16), nullable=False),
         sa.Column("label", sa.String(length=255), nullable=False),
-        sa.Column("description", sa.String(length=2048), nullable=False, server_default=""),
+        sa.Column(
+            "description", sa.String(length=2048), nullable=False, server_default=""
+        ),
         sa.Column(
             "required_properties",
             postgresql.JSONB(astext_type=sa.Text()),

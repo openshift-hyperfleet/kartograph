@@ -12,7 +12,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
-from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
+from management.infrastructure.job_package_archive_reader import (
+    SqlJobPackageArchiveReader,
+)
 from shared_kernel.job_package.archive_availability import job_package_archive_exists
 
 logger = logging.getLogger(__name__)
@@ -63,8 +65,10 @@ class JobPackageArchiveHydrator:
         errors: list[str] = []
         for row in rows:
             data_source_id = str(row["id"])
-            package_id = await self._archive_reader.latest_job_package_id_for_data_source(
-                data_source_id=data_source_id,
+            package_id = (
+                await self._archive_reader.latest_job_package_id_for_data_source(
+                    data_source_id=data_source_id,
+                )
             )
             if job_package_archive_exists(
                 work_dir=self._job_package_work_dir,
@@ -102,7 +106,9 @@ class JobPackageArchiveHydrator:
             errors=tuple(errors),
         )
 
-    async def _load_data_sources(self, *, knowledge_graph_id: str) -> list[dict[str, Any]]:
+    async def _load_data_sources(
+        self, *, knowledge_graph_id: str
+    ) -> list[dict[str, Any]]:
         result = await self._session.execute(
             text(
                 """
@@ -150,7 +156,9 @@ class JobPackageArchiveHydrator:
         from infrastructure.settings import get_management_settings
         from ingestion.application.services.ingestion_service import IngestionService
         from ingestion.infrastructure.adapters.github import GitHubAdapter
-        from management.infrastructure.repositories.fernet_secret_store import FernetSecretStore
+        from management.infrastructure.repositories.fernet_secret_store import (
+            FernetSecretStore,
+        )
 
         data_source_id = str(row["id"])
         adapter_type = str(row["adapter_type"])
@@ -164,7 +172,9 @@ class JobPackageArchiveHydrator:
                 if key.strip()
             ]
             if not encryption_keys:
-                raise RuntimeError("No encryption keys configured for credential retrieval")
+                raise RuntimeError(
+                    "No encryption keys configured for credential retrieval"
+                )
             credential_reader = FernetSecretStore(
                 session=self._session,
                 encryption_keys=encryption_keys,
@@ -188,7 +198,8 @@ class JobPackageArchiveHydrator:
             credentials_path=str(credentials_path) if credentials_path else None,
             tenant_id=tenant_id,
             credentials=credentials,
-            baseline_commit=row.get("clone_head_commit") or row.get("last_prepared_commit"),
+            baseline_commit=row.get("clone_head_commit")
+            or row.get("last_prepared_commit"),
             pipeline_mode="ingest_only",
         )
         if ingestion_result.entry_count <= 0:

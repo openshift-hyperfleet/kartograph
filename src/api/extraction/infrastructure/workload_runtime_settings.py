@@ -216,7 +216,9 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             return None
         return value
 
-    @field_validator("sticky_command", "worker_command", "container_tmpfs_mounts", mode="before")
+    @field_validator(
+        "sticky_command", "worker_command", "container_tmpfs_mounts", mode="before"
+    )
     @classmethod
     def _parse_command(cls, value: object) -> tuple[str, ...]:
         if isinstance(value, tuple):

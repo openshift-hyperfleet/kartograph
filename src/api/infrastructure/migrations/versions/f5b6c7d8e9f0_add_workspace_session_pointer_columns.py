@@ -25,17 +25,23 @@ def upgrade() -> None:
     """Add workspace session pointer columns."""
     op.add_column(
         "knowledge_graphs",
-        sa.Column("active_schema_bootstrap_session_id", sa.String(length=26), nullable=True),
-    )
-    op.add_column(
-        "knowledge_graphs",
         sa.Column(
-            "active_extraction_operations_session_id", sa.String(length=26), nullable=True
+            "active_schema_bootstrap_session_id", sa.String(length=26), nullable=True
         ),
     )
     op.add_column(
         "knowledge_graphs",
-        sa.Column("most_recent_completed_session_id", sa.String(length=26), nullable=True),
+        sa.Column(
+            "active_extraction_operations_session_id",
+            sa.String(length=26),
+            nullable=True,
+        ),
+    )
+    op.add_column(
+        "knowledge_graphs",
+        sa.Column(
+            "most_recent_completed_session_id", sa.String(length=26), nullable=True
+        ),
     )
 
 

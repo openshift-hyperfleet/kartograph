@@ -46,7 +46,9 @@ def _ensure_journal(session: ExtractionAgentSession) -> dict[str, object]:
 
 
 def _journal_token_total(journal: dict[str, object]) -> int:
-    return int(journal.get("input_tokens") or 0) + int(journal.get("output_tokens") or 0)
+    return int(journal.get("input_tokens") or 0) + int(
+        journal.get("output_tokens") or 0
+    )
 
 
 def _job_set_name_for_session(session: ExtractionAgentSession) -> str:
@@ -104,7 +106,9 @@ def append_turn_usage_to_session(
     journal = _ensure_journal(session)
     for key in _USAGE_KEYS:
         journal[key] = int(journal.get(key) or 0) + int(usage.get(key) or 0)
-    journal["cost_usd"] = float(journal.get("cost_usd") or 0.0) + float(usage.get("cost_usd") or 0.0)
+    journal["cost_usd"] = float(journal.get("cost_usd") or 0.0) + float(
+        usage.get("cost_usd") or 0.0
+    )
     session.runtime_context["mutation_journal"] = journal
 
 
@@ -163,7 +167,9 @@ class GraphManagementSessionJournalService:
         """Write one ARCHIVED extraction job row for the full GMA session."""
         journal = session.runtime_context.get("mutation_journal") or {}
         jsonl = str(journal.get("jsonl") or "").strip()
-        instance_changes_jsonl = str(journal.get("instance_changes_jsonl") or "").strip()
+        instance_changes_jsonl = str(
+            journal.get("instance_changes_jsonl") or ""
+        ).strip()
         metrics = metrics_from_mutation_jsonl(jsonl) if jsonl else {}
         write_ops = int(metrics.get("write_ops") or 0)
         if write_ops <= 0:

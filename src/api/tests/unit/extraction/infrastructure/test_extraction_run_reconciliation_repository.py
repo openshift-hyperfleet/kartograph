@@ -17,20 +17,16 @@ async def test_reconcile_skips_baseline_advance_when_no_active_run() -> None:
     repo = AsyncMock()
     repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
     repo.get_run.return_value = None
+    advance_baselines = AsyncMock()
 
-    with (
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
-            return_value=repo,
-        ),
-        patch(
-            "extraction.infrastructure.extraction_run_reconciliation.advance_extraction_baselines_for_knowledge_graph",
-            new_callable=AsyncMock,
-        ) as advance_baselines,
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
     ):
         reconciled, run_was_active = await reconcile_quiescent_extraction_run(
             session=session,
             knowledge_graph_id="kg-001",
+            advance_baselines=advance_baselines,
         )
 
     assert reconciled is False

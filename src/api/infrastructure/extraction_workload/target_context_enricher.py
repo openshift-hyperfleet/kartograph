@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from extraction.application.extraction_job_target_context import enrich_target_instances_for_context
+from extraction.application.extraction_job_target_context import (
+    enrich_target_instances_for_context,
+)
 from extraction.domain.extraction_job import ExtractionTargetInstance
-from extraction.ports.extraction_job_target_context import IExtractionJobTargetContextEnricher
+from extraction.ports.extraction_job_target_context import (
+    IExtractionJobTargetContextEnricher,
+)
 from extraction.ports.workload_graph import IWorkloadGraphReader, WorkloadGraphNode
 from extraction.ports.workload_schema import IWorkloadSchemaService
 
@@ -18,8 +22,12 @@ def _node_type_dicts_from_ontology(ontology: Any | None) -> list[dict[str, Any]]
     return [
         {
             "label": str(getattr(node, "label", "") or "").strip(),
-            "required_properties": list(getattr(node, "required_properties", None) or ()),
-            "optional_properties": list(getattr(node, "optional_properties", None) or ()),
+            "required_properties": list(
+                getattr(node, "required_properties", None) or ()
+            ),
+            "optional_properties": list(
+                getattr(node, "optional_properties", None) or ()
+            ),
         }
         for node in node_types
     ]
@@ -47,7 +55,9 @@ class GraphExtractionJobTargetContextEnricher(IExtractionJobTargetContextEnriche
         if not instances:
             return []
 
-        ontology = await self._schema_service.get_ontology(knowledge_graph_id=knowledge_graph_id)
+        ontology = await self._schema_service.get_ontology(
+            knowledge_graph_id=knowledge_graph_id
+        )
         graph_nodes_by_slug: dict[str, WorkloadGraphNode] = {}
         for instance in instances:
             matches = await self._graph_reader.search_by_slug(

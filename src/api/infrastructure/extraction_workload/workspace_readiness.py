@@ -15,7 +15,11 @@ from management.domain.relationship_pairing import (
     resolve_inverse_label_for_primary,
     twin_validation_errors,
 )
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 
 
 def _entity_scanner_path(label: str) -> str:
@@ -33,7 +37,9 @@ def _relationship_scanner_path(*, source: str, relationship: str, target: str) -
     return f"instance_generators/{source}_{relationship}_{target}.py"
 
 
-def _relationship_output_paths(*, source: str, relationship: str, target: str) -> tuple[str, str]:
+def _relationship_output_paths(
+    *, source: str, relationship: str, target: str
+) -> tuple[str, str]:
     stem = f"{source}_{relationship}_{target}"
     return (
         f"instance_generators/out/{stem}_instances.json",
@@ -70,8 +76,12 @@ def _build_prepopulation_tasks(
                 "run_command": (
                     f"python3 instance_generators/run_scanner.py {label} --entity"
                 ),
-                "required_properties": list(node_type.required_properties) if node_type else [],
-                "optional_properties": list(node_type.optional_properties) if node_type else [],
+                "required_properties": list(node_type.required_properties)
+                if node_type
+                else [],
+                "optional_properties": list(node_type.optional_properties)
+                if node_type
+                else [],
                 "action": (
                     f"Copy _entity_scanner.example.py to {_entity_scanner_path(label)} "
                     f"(filename must match label exactly), then "
@@ -86,8 +96,12 @@ def _build_prepopulation_tasks(
             (et for et in ontology.edge_types if relationship_readiness_key(et) == key),
             None,
         )
-        source = edge_type.source_labels[0] if edge_type and edge_type.source_labels else ""
-        target = edge_type.target_labels[0] if edge_type and edge_type.target_labels else ""
+        source = (
+            edge_type.source_labels[0] if edge_type and edge_type.source_labels else ""
+        )
+        target = (
+            edge_type.target_labels[0] if edge_type and edge_type.target_labels else ""
+        )
         rel = edge_type.label if edge_type else ""
         scanner = (
             _relationship_scanner_path(source=source, relationship=rel, target=target)
@@ -156,9 +170,7 @@ def _build_next_action(
             "printed jsonl_path."
         )
     if transition_eligible:
-        return (
-            "All prepopulated types have live instances. Bootstrap prepopulation is complete."
-        )
+        return "All prepopulated types have live instances. Bootstrap prepopulation is complete."
     if blocking_reasons:
         return "Resolve blocking_reasons before continuing prepopulation."
     return "Review kartograph_get_workspace_readiness and continue schema bootstrap."
@@ -166,12 +178,14 @@ def _build_next_action(
 
 async def build_workload_readiness_snapshot(
     *,
-    ontology: OntologyConfig | None,
+    ontology: OntologyConfig | dict[str, object] | None,
     knowledge_graph_id: str,
     tenant_id: str,
     graph_reader,
 ) -> dict[str, object]:
     """Merge canonical readiness metadata with live graph instance counts."""
+    if isinstance(ontology, dict):
+        ontology = OntologyConfig.from_dict(ontology)
     metadata_readiness = evaluate_workspace_readiness(ontology)
 
     entity_instance_counts: dict[str, int] = {}
@@ -181,7 +195,9 @@ async def build_workload_readiness_snapshot(
         for node_type in ontology.node_types:
             if not node_type.prepopulated:
                 continue
-            entity_instance_counts[node_type.label] = await graph_reader.count_entity_instances_by_type(
+            entity_instance_counts[
+                node_type.label
+            ] = await graph_reader.count_entity_instances_by_type(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
                 entity_type=node_type.label,
@@ -191,9 +207,15 @@ async def build_workload_readiness_snapshot(
             if not edge_type.prepopulated:
                 continue
             key = relationship_readiness_key(edge_type)
-            source_label = edge_type.source_labels[0] if edge_type.source_labels else None
-            target_label = edge_type.target_labels[0] if edge_type.target_labels else None
-            relationship_instance_counts[key] = await graph_reader.count_relationship_instances(
+            source_label = (
+                edge_type.source_labels[0] if edge_type.source_labels else None
+            )
+            target_label = (
+                edge_type.target_labels[0] if edge_type.target_labels else None
+            )
+            relationship_instance_counts[
+                key
+            ] = await graph_reader.count_relationship_instances(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
                 relationship_type=edge_type.label,
@@ -225,8 +247,12 @@ async def build_workload_readiness_snapshot(
         {
             "key": relationship_readiness_key(edge_type),
             "relationship_type": edge_type.label,
-            "source_entity_type": edge_type.source_labels[0] if edge_type.source_labels else "",
-            "target_entity_type": edge_type.target_labels[0] if edge_type.target_labels else "",
+            "source_entity_type": edge_type.source_labels[0]
+            if edge_type.source_labels
+            else "",
+            "target_entity_type": edge_type.target_labels[0]
+            if edge_type.target_labels
+            else "",
             "metadata_instance_count": edge_type.prepopulated_instance_count,
             "live_instance_count": relationship_instance_counts.get(
                 relationship_readiness_key(edge_type),
@@ -234,9 +260,13 @@ async def build_workload_readiness_snapshot(
             ),
             "required_properties": list(edge_type.properties),
             "scanner_path": _relationship_scanner_path(
-                source=edge_type.source_labels[0] if edge_type.source_labels else "source",
+                source=edge_type.source_labels[0]
+                if edge_type.source_labels
+                else "source",
                 relationship=edge_type.label,
-                target=edge_type.target_labels[0] if edge_type.target_labels else "target",
+                target=edge_type.target_labels[0]
+                if edge_type.target_labels
+                else "target",
             ),
             "needs_instances": relationship_instance_counts.get(
                 relationship_readiness_key(edge_type),
@@ -250,10 +280,14 @@ async def build_workload_readiness_snapshot(
 
     live_entity_gaps = live_gaps["entity_types_without_instances"]
     live_relationship_gaps = live_gaps["relationship_types_without_instances"]
-    live_prepopulated_ready = len(live_entity_gaps) == 0 and len(live_relationship_gaps) == 0
+    live_prepopulated_ready = (
+        len(live_entity_gaps) == 0 and len(live_relationship_gaps) == 0
+    )
 
     blocking_reasons = list(metadata_readiness.blocking_reasons)
-    if live_entity_gaps and not any("Prepopulated entity types" in reason for reason in blocking_reasons):
+    if live_entity_gaps and not any(
+        "Prepopulated entity types" in reason for reason in blocking_reasons
+    ):
         blocking_reasons.append(
             "Live graph missing prepopulated entity instances: "
             + ", ".join(live_entity_gaps)
@@ -269,7 +303,11 @@ async def build_workload_readiness_snapshot(
     if ontology is not None and graph_reader is not None:
         bidirectional_counts: dict[str, int] = {}
         for edge_type in ontology.edge_types:
-            if edge_type.auto_generated or edge_type.inverse_of or not edge_type.bidirectional:
+            if (
+                edge_type.auto_generated
+                or edge_type.inverse_of
+                or not edge_type.bidirectional
+            ):
                 continue
             if not edge_type.source_labels or not edge_type.target_labels:
                 continue
@@ -286,14 +324,18 @@ async def build_workload_readiness_snapshot(
                 relationship_label=inverse_label,
                 target_label=source_label,
             )
-            bidirectional_counts[primary_key] = await graph_reader.count_relationship_instances(
+            bidirectional_counts[
+                primary_key
+            ] = await graph_reader.count_relationship_instances(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
                 relationship_type=edge_type.label,
                 source_entity_type=source_label,
                 target_entity_type=target_label,
             )
-            bidirectional_counts[inverse_key] = await graph_reader.count_relationship_instances(
+            bidirectional_counts[
+                inverse_key
+            ] = await graph_reader.count_relationship_instances(
                 tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
                 relationship_type=inverse_label,
@@ -340,7 +382,9 @@ async def build_workload_readiness_snapshot(
             metadata_readiness.prepopulated_relationship_types_without_instances
         ),
         "prepopulated_entity_types_without_instances_live": list(live_entity_gaps),
-        "prepopulated_relationship_types_without_instances_live": list(live_relationship_gaps),
+        "prepopulated_relationship_types_without_instances_live": list(
+            live_relationship_gaps
+        ),
         "prepopulated_entity_types": prepopulated_entity_types,
         "prepopulated_relationship_types": prepopulated_relationship_types,
         "prepopulation_tasks": prepopulation_tasks,

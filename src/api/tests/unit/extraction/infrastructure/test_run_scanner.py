@@ -98,7 +98,11 @@ def test_run_scanner_entity_pipeline(tmp_path: Path) -> None:
 
     jsonl_path = workspace / summary["jsonl_path"]
     assert jsonl_path.is_file()
-    lines = [line for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    lines = [
+        line
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert len(lines) == 2
     assert json.loads(lines[0])["label"] == "Resource"
 

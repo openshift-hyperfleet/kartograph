@@ -7,10 +7,16 @@ from typing import Any
 
 from extraction.domain.extraction_job import ExtractionJobRecord, ExtractionJobStatus
 from extraction.infrastructure.extraction_job_activity import job_workdir
-from extraction.infrastructure.extraction_job_mutation_metrics import reconcile_mutation_metrics
+from extraction.infrastructure.extraction_job_mutation_metrics import (
+    reconcile_mutation_metrics,
+)
 from extraction.infrastructure.extraction_job_verdict import load_mutation_verdict
-from extraction.infrastructure.repositories.extraction_job_repository import ExtractionJobRepository
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.repositories.extraction_job_repository import (
+    ExtractionJobRepository,
+)
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 
 def backfill_archival_metrics(

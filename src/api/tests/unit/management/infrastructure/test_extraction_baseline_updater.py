@@ -63,7 +63,9 @@ async def test_advance_extraction_baselines_updates_all_sources_on_kg() -> None:
 
 
 @pytest.mark.asyncio
-async def test_advance_extraction_baselines_skips_sources_without_tracked_head() -> None:
+async def test_advance_extraction_baselines_skips_sources_without_tracked_head() -> (
+    None
+):
     ds = _make_ds(last_extraction_baseline_commit="keep-me")
     mock_repo = AsyncMock()
     mock_repo.find_by_knowledge_graph.return_value = [ds]

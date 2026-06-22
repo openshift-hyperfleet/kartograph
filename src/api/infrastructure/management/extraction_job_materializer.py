@@ -43,7 +43,9 @@ def entity_instance_counts_from_graph(
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     for node in graph_data.get("nodes", []):
-        if node.get("knowledge_graph_id") != knowledge_graph_id or node.get("_redacted"):
+        if node.get("knowledge_graph_id") != knowledge_graph_id or node.get(
+            "_redacted"
+        ):
             continue
         entity_type = str(node.get("type") or "unknown")
         counts[entity_type] = counts.get(entity_type, 0) + 1
@@ -58,9 +60,13 @@ def entity_instances_by_type_from_graph(
     grouped: dict[str, list[ExtractionTargetInstance]] = {}
     for node in sorted(
         graph_data.get("nodes", []),
-        key=lambda item: str(item.get("slug") or item.get("domainId") or item.get("id") or ""),
+        key=lambda item: str(
+            item.get("slug") or item.get("domainId") or item.get("id") or ""
+        ),
     ):
-        if node.get("knowledge_graph_id") != knowledge_graph_id or node.get("_redacted"):
+        if node.get("knowledge_graph_id") != knowledge_graph_id or node.get(
+            "_redacted"
+        ):
             continue
         entity_type = str(node.get("type") or "unknown")
         slug = str(node.get("slug") or node.get("domainId") or node.get("id") or "")
@@ -82,7 +88,9 @@ def entity_instances_by_type_from_graph(
             and not str(key).startswith("_")
         }
         grouped.setdefault(entity_type, []).append(
-            ExtractionTargetInstance(slug=slug, entity_type=entity_type, properties=properties)
+            ExtractionTargetInstance(
+                slug=slug, entity_type=entity_type, properties=properties
+            )
         )
     return grouped
 
@@ -95,7 +103,9 @@ def build_repository_file_catalog(
     """Collect repository file paths from the latest prepared JobPackages."""
     catalog: list[ExtractionTargetFile] = []
     for source in job_packages:
-        archive_path = job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        archive_path = (
+            job_package_work_dir / JobPackageId(value=source.package_id).archive_name()
+        )
         if not archive_path.is_file():
             continue
         try:
@@ -176,7 +186,9 @@ def materialize_jobs_from_config(
             if per_job < 1 or not instances:
                 continue
             description = (job_set.description or "").strip()
-            for batch_idx, batch in enumerate(_batch_items(instances, per_job), start=1):
+            for batch_idx, batch in enumerate(
+                _batch_items(instances, per_job), start=1
+            ):
                 content_hash = "|".join(instance.slug for instance in batch)
                 job_id = _generate_job_id(job_set.name, batch_idx, content_hash)
                 jobs.append(
@@ -201,10 +213,15 @@ def materialize_jobs_from_config(
         per_job = int(job_set.files_per_job or 1)
         if per_job < 1 or not matched_files:
             continue
-        description = (job_set.description or "").strip() or f"Extract entities from files in {job_set.name}."
-        for batch_idx, batch in enumerate(_batch_items(matched_files, per_job), start=1):
+        description = (
+            job_set.description or ""
+        ).strip() or f"Extract entities from files in {job_set.name}."
+        for batch_idx, batch in enumerate(
+            _batch_items(matched_files, per_job), start=1
+        ):
             content_hash = "|".join(
-                f"{target_file.repository_folder}:{target_file.path}" for target_file in batch
+                f"{target_file.repository_folder}:{target_file.path}"
+                for target_file in batch
             )
             job_id = _generate_job_id(job_set.name, batch_idx, content_hash)
             jobs.append(

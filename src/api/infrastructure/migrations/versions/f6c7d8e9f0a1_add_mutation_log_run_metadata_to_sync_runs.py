@@ -26,7 +26,9 @@ def upgrade() -> None:
     """Add nullable JSONB mutation log run metadata column."""
     op.add_column(
         "data_source_sync_runs",
-        sa.Column("mutation_log_run", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "mutation_log_run", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
     )
 
 

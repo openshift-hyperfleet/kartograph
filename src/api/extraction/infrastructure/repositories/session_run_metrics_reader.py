@@ -75,7 +75,9 @@ class ExtractionSessionRunMetricsReader(IExtractionSessionRunMetricsReader):
                     ),
                     operation_counts={
                         str(key): int(value)
-                        for key, value in (payload.get("operation_counts") or {}).items()
+                        for key, value in (
+                            payload.get("operation_counts") or {}
+                        ).items()
                     },
                 )
             )

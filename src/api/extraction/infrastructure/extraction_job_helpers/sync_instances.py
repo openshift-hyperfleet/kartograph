@@ -35,10 +35,14 @@ def parse_current_nodes(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict):
         nodes = payload.get("nodes")
         if isinstance(nodes, list):
-            return [_normalize_current_node(node, index) for index, node in enumerate(nodes)]
+            return [
+                _normalize_current_node(node, index) for index, node in enumerate(nodes)
+            ]
         raise ValueError("Current snapshot object must include a nodes array")
     if isinstance(payload, list):
-        return [_normalize_current_node(node, index) for index, node in enumerate(payload)]
+        return [
+            _normalize_current_node(node, index) for index, node in enumerate(payload)
+        ]
     raise ValueError("Current snapshot must be a JSON object or array")
 
 
@@ -73,13 +77,17 @@ def parse_desired_instances(payload: Any) -> dict[str, dict[str, Any]]:
                 desired[slug] = {"properties": {}}
                 continue
             if not isinstance(row, dict):
-                raise ValueError(f"Desired entry at index {index} must be a slug string or object")
+                raise ValueError(
+                    f"Desired entry at index {index} must be a slug string or object"
+                )
             slug = row.get("slug")
             if not slug or not str(slug).strip():
                 raise ValueError(f"Desired entry at index {index} is missing slug")
             properties = row.get("properties") or {}
             if not isinstance(properties, dict):
-                raise ValueError(f"Desired entry at index {index} properties must be an object")
+                raise ValueError(
+                    f"Desired entry at index {index} properties must be an object"
+                )
             desired[str(slug).strip()] = {"properties": dict(properties)}
         return desired
     raise ValueError("Desired snapshot must be a JSON array")
@@ -146,7 +154,9 @@ def build_sync_mutations(
 
     if create_missing:
         if not data_source_id.strip():
-            raise ValueError("--data-source-id is required when --create-missing is set")
+            raise ValueError(
+                "--data-source-id is required when --create-missing is set"
+            )
         for slug in sorted(desired_slugs - current_slugs):
             desired = desired_by_slug[slug]
             lines.append(
@@ -203,7 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="data_source_id for CREATE lines when --create-missing is set.",
     )
-    parser.add_argument("--tenant-id", default="", help="Tenant id for deterministic CREATE ids.")
+    parser.add_argument(
+        "--tenant-id", default="", help="Tenant id for deterministic CREATE ids."
+    )
     args = parser.parse_args(argv)
 
     current_nodes = parse_current_nodes(_load_json(Path(args.current)))

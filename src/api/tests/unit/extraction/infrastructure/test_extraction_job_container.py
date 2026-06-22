@@ -19,7 +19,9 @@ def test_extraction_job_container_name_is_stable_and_short() -> None:
 
 
 @patch("extraction.infrastructure.extraction_job_container.create_container_runtime")
-def test_stop_extraction_job_containers_stops_each_job(mock_create_runtime: MagicMock) -> None:
+def test_stop_extraction_job_containers_stops_each_job(
+    mock_create_runtime: MagicMock,
+) -> None:
     runtime = MagicMock()
     runtime.remove_by_name.side_effect = [True, False]
     mock_create_runtime.return_value = runtime
@@ -38,9 +40,13 @@ def test_stop_extraction_job_containers_stops_each_job(mock_create_runtime: Magi
 
 
 @patch("extraction.infrastructure.extraction_job_container.create_container_runtime")
-def test_stop_extraction_job_container_delegates_to_runtime(mock_create_runtime: MagicMock) -> None:
+def test_stop_extraction_job_container_delegates_to_runtime(
+    mock_create_runtime: MagicMock,
+) -> None:
     runtime = MagicMock()
     runtime.remove_by_name.return_value = True
     mock_create_runtime.return_value = runtime
 
-    assert stop_extraction_job_container(job_id="job-a", container_engine="docker") is True
+    assert (
+        stop_extraction_job_container(job_id="job-a", container_engine="docker") is True
+    )

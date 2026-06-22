@@ -9,8 +9,12 @@ from typing import Any
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.application.job_package_gate import resolve_job_package_gate
-from extraction.application.sticky_session_materialization import should_materialize_job_packages
-from extraction.application.skill_resolution_service import ExtractionSkillResolutionService
+from extraction.application.sticky_session_materialization import (
+    should_materialize_job_packages,
+)
+from extraction.application.skill_resolution_service import (
+    ExtractionSkillResolutionService,
+)
 from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
@@ -18,15 +22,13 @@ from extraction.domain.value_objects import (
     SessionJobPackagePhase,
 )
 from extraction.ports.ingestion_readiness import IIngestionReadinessReader
-from extraction.ports.runtime import IStickySessionRuntimeManager, StickySessionRuntimeLease
+from extraction.ports.runtime import (
+    IStickySessionRuntimeManager,
+    StickySessionRuntimeLease,
+)
 from extraction.ports.sticky_runtime_health import IStickyRuntimeHealthChecker
 from extraction.ports.sticky_session_bootstrap import IStickySessionBootstrapBuilder
 from shared_kernel.container_runtime.ports import ContainerRuntimeError
-
-try:
-    from extraction.infrastructure.openshell.cli import OpenShellCliError
-except ImportError:  # pragma: no cover - defensive import ordering
-    OpenShellCliError = RuntimeError  # type: ignore[misc,assignment]
 
 from extraction.application.thinking_activity import thinking_event
 
@@ -133,9 +135,15 @@ class StickySessionRuntimeService:
                 knowledge_graph_id=knowledge_graph_id,
                 include_job_packages=include_job_packages,
             )
-            stored_materialization = session.runtime_context.get("workspace_materialization", {})
-            stored_package_ids = tuple(stored_materialization.get("job_package_ids") or ())
-            expected_package_ids = tuple(source.package_id for source in expected_packages)
+            stored_materialization = session.runtime_context.get(
+                "workspace_materialization", {}
+            )
+            stored_package_ids = tuple(
+                stored_materialization.get("job_package_ids") or ()
+            )
+            expected_package_ids = tuple(
+                source.package_id for source in expected_packages
+            )
             if (
                 await self._health_checker.is_healthy(runtime_base_url=runtime_base_url)
                 and stored_package_ids == expected_package_ids
@@ -171,13 +179,17 @@ class StickySessionRuntimeService:
         emit_terminal: bool,
     ) -> AsyncIterator[dict[str, Any]]:
         recent: list[str] = []
-        recent, event = thinking_event(recent, "Preparing Graph Management Assistant runtime…")
+        recent, event = thinking_event(
+            recent, "Preparing Graph Management Assistant runtime…"
+        )
         yield event
 
-        resolved_skills = await self._skill_resolution_service.resolve_for_graph_management_turn(
-            knowledge_graph_id=knowledge_graph_id,
-            mode=mode,
-            ui_mode=ui_mode,
+        resolved_skills = (
+            await self._skill_resolution_service.resolve_for_graph_management_turn(
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode,
+                ui_mode=ui_mode,
+            )
         )
         session.runtime_context["agent_configuration"] = {
             "system_prompt": resolved_skills.system_prompt,
@@ -198,7 +210,9 @@ class StickySessionRuntimeService:
         }
 
         if gate.phase == SessionJobPackagePhase.AWAITING_PREPARE:
-            wait_message = gate.wait_message or "Waiting for JobPackage ingestion context."
+            wait_message = (
+                gate.wait_message or "Waiting for JobPackage ingestion context."
+            )
             session.runtime_context["activity_lines"] = [wait_message]
             session.runtime_context["sticky_runtime"] = {
                 "phase": "awaiting_job_package",
@@ -207,7 +221,9 @@ class StickySessionRuntimeService:
             if persist_session:
                 await self._session_service.save_session(session)
             yield {"type": "wait", "phase": gate.phase.value, "message": wait_message}
-            recent, event = thinking_event(recent, "Waiting for JobPackage ingestion context…")
+            recent, event = thinking_event(
+                recent, "Waiting for JobPackage ingestion context…"
+            )
             yield event
             recent, event = thinking_event(recent, wait_message)
             yield event
@@ -230,7 +246,9 @@ class StickySessionRuntimeService:
                 mode=mode.value,
                 bootstrap=None,
             )
-            session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
+            session.runtime_context["sticky_runtime"] = self._lease_context(
+                lease, phase="ready"
+            )
             if persist_session:
                 await self._session_service.save_session(session)
             recent, event = thinking_event(recent, "In-memory assistant runtime ready")
@@ -263,7 +281,9 @@ class StickySessionRuntimeService:
             "job_package_ids": [source.package_id for source in job_packages],
             "repository_folders": [source.repository_folder for source in job_packages],
         }
-        recent, event = thinking_event(recent, "Starting isolated Claude Agent SDK container")
+        recent, event = thinking_event(
+            recent, "Starting isolated Claude Agent SDK container"
+        )
         yield event
         lease: StickySessionRuntimeLease
         try:
@@ -275,7 +295,7 @@ class StickySessionRuntimeService:
                 mode=mode.value,
                 bootstrap=bootstrap,
             )
-        except (ContainerRuntimeError, OpenShellCliError) as exc:
+        except (ContainerRuntimeError, RuntimeError) as exc:
             session.runtime_context["sticky_runtime"] = {
                 "phase": "failed",
                 "status": "failed",
@@ -293,7 +313,9 @@ class StickySessionRuntimeService:
             }
             return
 
-        session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="starting")
+        session.runtime_context["sticky_runtime"] = self._lease_context(
+            lease, phase="starting"
+        )
         recent, event = thinking_event(
             recent,
             f"Container {lease.container_id[:8]} launched",
@@ -321,7 +343,9 @@ class StickySessionRuntimeService:
             }
             return
 
-        session.runtime_context["sticky_runtime"] = self._lease_context(lease, phase="ready")
+        session.runtime_context["sticky_runtime"] = self._lease_context(
+            lease, phase="ready"
+        )
         session.runtime_context.pop("activity_lines", None)
         session.updated_at = datetime.now(UTC)
         if persist_session:
@@ -331,7 +355,9 @@ class StickySessionRuntimeService:
         yield {"type": "done", "ok": True, "ready": True}
 
     @staticmethod
-    def _lease_context(lease: StickySessionRuntimeLease, *, phase: str) -> dict[str, Any]:
+    def _lease_context(
+        lease: StickySessionRuntimeLease, *, phase: str
+    ) -> dict[str, Any]:
         context: dict[str, Any] = {
             "container_id": lease.container_id,
             "status": lease.status,

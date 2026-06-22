@@ -1,6 +1,8 @@
 """Unit tests for repository workspace folder naming."""
 
-from extraction.application.repository_workspace_paths import repository_folder_for_data_source
+from extraction.domain.repository_workspace_paths import (
+    repository_folder_for_data_source,
+)
 
 
 def test_repository_folder_slugifies_data_source_name() -> None:

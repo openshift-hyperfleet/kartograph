@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
 from infrastructure.database.dependencies import get_write_session
-from infrastructure.management.extraction_jobs_dependencies import get_write_sessionmaker
-from extraction.infrastructure.extraction_run_orchestrator import get_extraction_run_orchestrator
-from extraction.infrastructure.extraction_run_reconciliation import (
-    reconcile_quiescent_extraction_run,
+from infrastructure.management.extraction_run_control import (
+    reconcile_data_source_extraction_run,
+)
+from infrastructure.management.extraction_jobs_dependencies import (
+    get_write_sessionmaker,
 )
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
@@ -27,7 +28,9 @@ from management.infrastructure.git_commit_reference_service import (
     GitCommitReferenceService,
 )
 from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
-from management.infrastructure.job_package_archive_reader import SqlJobPackageArchiveReader
+from management.infrastructure.job_package_archive_reader import (
+    SqlJobPackageArchiveReader,
+)
 from management.ports.exceptions import DuplicateDataSourceNameError, UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
 from shared_kernel.job_package.archive_availability import (
@@ -297,13 +300,10 @@ async def list_data_sources(
         HTTPException: 500 for unexpected errors
     """
     try:
-        orchestrator = get_extraction_run_orchestrator(
-            session_factory=get_write_sessionmaker(request),
-        )
-        await reconcile_quiescent_extraction_run(
+        await reconcile_data_source_extraction_run(
             session=session,
             knowledge_graph_id=kg_id,
-            orchestrator=orchestrator,
+            session_factory=get_write_sessionmaker(request),
         )
         data_sources = await service.list_for_knowledge_graph(
             user_id=current_user.user_id.value,
@@ -542,7 +542,9 @@ async def control_sync_runs(
         return RunControlResponse(
             action=action,
             affected_count=result.affected_count,
-            updated_runs=[SyncRunResponse.from_domain(run) for run in result.updated_runs],
+            updated_runs=[
+                SyncRunResponse.from_domain(run) for run in result.updated_runs
+            ],
             started_run=(
                 SyncRunResponse.from_domain(result.started_run)
                 if result.started_run is not None

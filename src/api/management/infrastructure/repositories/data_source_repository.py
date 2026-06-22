@@ -84,7 +84,9 @@ class DataSourceRepository(IDataSourceRepository):
                 model.last_extraction_baseline_commit = (
                     data_source.last_extraction_baseline_commit
                 )
-                model.tracked_branch_head_commit = data_source.tracked_branch_head_commit
+                model.tracked_branch_head_commit = (
+                    data_source.tracked_branch_head_commit
+                )
                 model.last_prepared_commit = data_source.last_prepared_commit
                 model.last_prepared_file_count = data_source.last_prepared_file_count
                 model.updated_at = data_source.updated_at

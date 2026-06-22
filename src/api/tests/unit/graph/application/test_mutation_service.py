@@ -109,8 +109,7 @@ class TestGraphMutationServiceApplyMutations:
         assert "slug" in saved_type_def.required_properties
 
     def test_apply_define_edge_type_adds_edge_system_properties(self):
-        """DEFINE for edge type adds data_source_id but NOT slug or source_path.
-        """
+        """DEFINE for edge type adds data_source_id but NOT slug or source_path."""
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()

@@ -9,7 +9,9 @@ from uuid import UUID
 import pytest
 
 from extraction.infrastructure.event_handler import ExtractionEventHandler
-from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+)
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     ScopedWorkloadCredentialIssuer,
@@ -72,7 +74,9 @@ class _RecordingExtractionService:
 
 
 class _StaticRuntimeContextBuilder:
-    def build(self, *, sync_run_id: str, job_package_id: str) -> ExtractionRuntimeContext:
+    def build(
+        self, *, sync_run_id: str, job_package_id: str
+    ) -> ExtractionRuntimeContext:
         return ExtractionRuntimeContext(
             ingestion_context_dir="/tmp/ingestion-context",
             repository_files_dir="/tmp/repository-files",
@@ -95,7 +99,12 @@ def _handler(
     *,
     service: _RecordingExtractionService | None = None,
     launcher: InMemoryEphemeralExtractionWorkerLauncher | None = None,
-) -> tuple[ExtractionEventHandler, _RecordingOutbox, _RecordingExtractionService, InMemoryEphemeralExtractionWorkerLauncher]:
+) -> tuple[
+    ExtractionEventHandler,
+    _RecordingOutbox,
+    _RecordingExtractionService,
+    InMemoryEphemeralExtractionWorkerLauncher,
+]:
     outbox = _RecordingOutbox()
     extraction_service = service or _RecordingExtractionService()
     worker_launcher = launcher or InMemoryEphemeralExtractionWorkerLauncher()
@@ -103,7 +112,10 @@ def _handler(
         extraction_service=extraction_service,
         outbox=outbox,
         runtime_context_builder=_StaticRuntimeContextBuilder(),
-        credential_issuer=ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10)),
+        credential_issuer=ScopedWorkloadCredentialIssuer(
+            signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+            default_ttl=timedelta(minutes=10),
+        ),
         worker_launcher=worker_launcher,
     )
     return handler, outbox, extraction_service, worker_launcher
@@ -113,7 +125,9 @@ def _handler(
 async def test_scoped_credentials_are_injected_at_runtime_only() -> None:
     handler, outbox, service, launcher = _handler()
 
-    await handler.handle("JobPackageProduced", _payload(), tenant_id="tenant-integration")
+    await handler.handle(
+        "JobPackageProduced", _payload(), tenant_id="tenant-integration"
+    )
 
     assert len(service.calls) == 1
     credentials = service.calls[0]["workload_credentials"]

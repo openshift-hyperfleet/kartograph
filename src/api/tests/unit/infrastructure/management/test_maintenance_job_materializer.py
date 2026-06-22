@@ -53,8 +53,11 @@ def test_materialize_maintenance_jobs_batches_across_sources() -> None:
 
 
 def test_materialize_maintenance_jobs_returns_empty_for_no_changes() -> None:
-    assert materialize_maintenance_jobs(
-        knowledge_graph_id="kg-001",
-        changed_files=[],
-        files_per_job=2,
-    ) == []
+    assert (
+        materialize_maintenance_jobs(
+            knowledge_graph_id="kg-001",
+            changed_files=[],
+            files_per_job=2,
+        )
+        == []
+    )

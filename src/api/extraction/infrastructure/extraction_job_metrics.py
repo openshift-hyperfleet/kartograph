@@ -10,7 +10,9 @@ from extraction.infrastructure.extraction_job_mutation_metrics import (
     applied_mutation_jsonl_from_workdir,
     metrics_from_mutation_workdir,
 )
-from extraction.infrastructure.job_mutation_artifact_store import read_instance_changes_from_workdir
+from extraction.infrastructure.job_mutation_artifact_store import (
+    read_instance_changes_from_workdir,
+)
 
 
 def merge_extraction_job_metrics(
@@ -20,7 +22,9 @@ def merge_extraction_job_metrics(
     activity_log: Path | None = None,
 ) -> dict[str, Any]:
     """Combine OTEL token metrics, Claude stream fallback, and applied JSONL graph writes."""
-    metrics = metrics_from_otel_log(otel_log) if otel_log is not None else _empty_metrics()
+    metrics = (
+        metrics_from_otel_log(otel_log) if otel_log is not None else _empty_metrics()
+    )
     if _token_total(metrics) == 0:
         stream_log = workdir / "agent_stream.jsonl"
         stream_metrics = metrics_from_claude_stream_log(stream_log)
@@ -80,7 +84,9 @@ def metrics_from_claude_stream_log(activity_log: Path) -> dict[str, Any]:
 
 
 def _token_total(metrics: dict[str, Any]) -> int:
-    return int(metrics.get("input_tokens") or 0) + int(metrics.get("output_tokens") or 0)
+    return int(metrics.get("input_tokens") or 0) + int(
+        metrics.get("output_tokens") or 0
+    )
 
 
 def metrics_from_otel_log(otel_log: Path) -> dict[str, Any]:
@@ -103,10 +109,18 @@ def metrics_from_otel_log(otel_log: Path) -> dict[str, Any]:
 
     token_totals, cost_totals, _api_requests, _active_time = parse_metrics(records)
     input_tokens = int(
-        sum(count for (_model, token_type), count in token_totals.items() if token_type == "input")
+        sum(
+            count
+            for (_model, token_type), count in token_totals.items()
+            if token_type == "input"
+        )
     )
     output_tokens = int(
-        sum(count for (_model, token_type), count in token_totals.items() if token_type == "output")
+        sum(
+            count
+            for (_model, token_type), count in token_totals.items()
+            if token_type == "output"
+        )
     )
     cache_read_tokens = int(
         sum(

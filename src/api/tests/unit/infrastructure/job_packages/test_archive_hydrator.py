@@ -37,7 +37,9 @@ def _write_package(work_dir: Path, package_id: str) -> None:
             metadata={},
         )
     )
-    builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
+    builder.set_checkpoint(
+        AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"})
+    )
     builder.build(work_dir)
 
 
@@ -111,15 +113,17 @@ async def test_hydrator_runs_ingestion_when_archive_missing(tmp_path: Path) -> N
         branch_file_count=10,
         prepared_commit_sha="def",
     )
-    with patch.object(
-        hydrator._archive_reader,
-        "latest_job_package_id_for_data_source",
-        AsyncMock(return_value=None),
-    ), patch(
-        "ingestion.application.services.ingestion_service.IngestionService"
-    ) as ingestion_cls, patch(
-        "infrastructure.outbox.repository.OutboxRepository"
-    ) as outbox_cls:
+    with (
+        patch.object(
+            hydrator._archive_reader,
+            "latest_job_package_id_for_data_source",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "ingestion.application.services.ingestion_service.IngestionService"
+        ) as ingestion_cls,
+        patch("infrastructure.outbox.repository.OutboxRepository") as outbox_cls,
+    ):
         ingestion_service = AsyncMock()
         ingestion_service.run = AsyncMock(return_value=ingestion_result)
         ingestion_cls.return_value = ingestion_service

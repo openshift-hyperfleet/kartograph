@@ -44,10 +44,56 @@ class GraphWorkloadSchemaService:
         self._mutation_writer = mutation_writer
         self._graph_reader = graph_reader
 
-    async def get_ontology(self, *, knowledge_graph_id: str) -> OntologyConfig | None:
+    async def get_ontology(
+        self, *, knowledge_graph_id: str
+    ) -> dict[str, object] | None:
+        config = await self._fetch_ontology(knowledge_graph_id=knowledge_graph_id)
+        if config is None:
+            return None
+        return config.to_dict()
+
+    async def _fetch_ontology(
+        self, *, knowledge_graph_id: str
+    ) -> OntologyConfig | None:
         return await self._repository.get_ontology(knowledge_graph_id)
 
     async def replace_ontology(
+        self,
+        *,
+        knowledge_graph_id: str,
+        config: dict[str, object],
+    ) -> dict[str, object]:
+        from management.domain.relationship_pairing import (
+            ontology_config_from_authoring_payload,
+        )
+
+        ontology = ontology_config_from_authoring_payload(config)
+        await self._repository.replace_ontology(knowledge_graph_id, ontology)
+        await self._session.commit()
+        return ontology.to_dict()
+
+    async def replace_ontology_from_authoring_payload(
+        self,
+        *,
+        knowledge_graph_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from management.domain.ontology_prepopulation import (
+            PrepopulationValidationError,
+        )
+        from management.domain.relationship_pairing import (
+            ontology_config_from_authoring_payload,
+        )
+
+        try:
+            config = ontology_config_from_authoring_payload(payload)
+            await self._repository.replace_ontology(knowledge_graph_id, config)
+            await self._session.commit()
+            return config.to_dict()
+        except (PrepopulationValidationError, CanonicalSchemaMutationError) as exc:
+            raise ValueError(str(exc)) from exc
+
+    async def _replace_ontology_config(
         self,
         *,
         knowledge_graph_id: str,
@@ -57,8 +103,10 @@ class GraphWorkloadSchemaService:
         await self._session.commit()
         return config
 
-    async def _existing_type_keys(self, knowledge_graph_id: str) -> frozenset[tuple[str, str]]:
-        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+    async def _existing_type_keys(
+        self, knowledge_graph_id: str
+    ) -> frozenset[tuple[str, str]]:
+        ontology = await self._fetch_ontology(knowledge_graph_id=knowledge_graph_id)
         if ontology is None:
             return frozenset()
         keys: set[tuple[str, str]] = set()
@@ -75,7 +123,7 @@ class GraphWorkloadSchemaService:
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:
-        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+        ontology = await self._fetch_ontology(knowledge_graph_id=knowledge_graph_id)
         errors = await validate_mutation_jsonl(
             jsonl_content=jsonl,
             tenant_id=tenant_id,
@@ -105,7 +153,7 @@ class GraphWorkloadSchemaService:
         knowledge_graph_id: str,
         jsonl: str,
     ) -> dict[str, object]:
-        ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+        ontology = await self._fetch_ontology(knowledge_graph_id=knowledge_graph_id)
         preflight_errors = await validate_mutation_jsonl(
             jsonl_content=jsonl,
             tenant_id=tenant_id,
@@ -126,8 +174,8 @@ class GraphWorkloadSchemaService:
             return {"applied": False, "errors": prep_errors}
         assert operations is not None
         try:
-            define_ops, instance_ops = GraphWorkloadGraphMutationWriter.split_operations(
-                operations
+            define_ops, instance_ops = (
+                GraphWorkloadGraphMutationWriter.split_operations(operations)
             )
         except CanonicalSchemaMutationError as exc:
             return {"applied": False, "errors": [str(exc)]}
@@ -147,10 +195,13 @@ class GraphWorkloadSchemaService:
 
         if define_ops:
             define_jsonl = "\n".join(
-                json.dumps(operation.model_dump(mode="json")) for operation in define_ops
+                json.dumps(operation.model_dump(mode="json"))
+                for operation in define_ops
             )
             try:
-                await self._repository.apply_mutation_log(knowledge_graph_id, define_jsonl)
+                await self._repository.apply_mutation_log(
+                    knowledge_graph_id, define_jsonl
+                )
             except CanonicalSchemaMutationError as exc:
                 errors.append(str(exc))
 
@@ -182,7 +233,7 @@ class GraphWorkloadSchemaService:
             return {"applied": False, "errors": errors}
 
         if instance_ops and self._graph_reader is not None:
-            ontology = await self.get_ontology(knowledge_graph_id=knowledge_graph_id)
+            ontology = await self._fetch_ontology(knowledge_graph_id=knowledge_graph_id)
             if ontology is not None:
                 synced = await sync_prepopulated_instance_counts(
                     ontology=ontology,
@@ -191,7 +242,10 @@ class GraphWorkloadSchemaService:
                     graph_reader=self._graph_reader,
                 )
                 if synced is not ontology:
-                    await self._repository.replace_ontology(knowledge_graph_id, synced)
+                    await self._replace_ontology_config(
+                        knowledge_graph_id=knowledge_graph_id,
+                        config=synced,
+                    )
 
         await self._session.commit()
         applied_jsonl = "\n".join(

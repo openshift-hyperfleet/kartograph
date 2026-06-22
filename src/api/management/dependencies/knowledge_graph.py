@@ -16,7 +16,9 @@ from infrastructure.database.dependencies import get_write_session
 from infrastructure.outbox.repository import OutboxRepository
 from infrastructure.settings import get_management_settings
 from management.application.observability import DefaultKnowledgeGraphServiceProbe
-from management.application.services.knowledge_graph_service import KnowledgeGraphService
+from management.application.services.knowledge_graph_service import (
+    KnowledgeGraphService,
+)
 from infrastructure.management.maintenance_pipeline_dependencies import (
     get_maintenance_pipeline_service,
 )

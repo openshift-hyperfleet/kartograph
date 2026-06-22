@@ -45,7 +45,9 @@ def scan(repository_files: Path) -> list[dict[str, Any]]:
         if index > 0 and index % 20 == 0:
             print(f"Progress: {index}/{len(files)}...", file=sys.stderr)
         data_source = next(
-            parent.name for parent in file_path.parents if parent.parent == repository_files
+            parent.name
+            for parent in file_path.parents
+            if parent.parent == repository_files
         )
         rel = file_path.relative_to(repository_files / data_source)
         content = file_path.read_text(encoding="utf-8", errors="replace")

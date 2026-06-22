@@ -27,4 +27,3 @@ __all__ = [
     "EphemeralWorkerLaunchRequest",
     "EphemeralWorkerLaunchResult",
 ]
-

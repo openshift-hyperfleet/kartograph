@@ -1060,9 +1060,15 @@ class TestDataSourceServiceRunControls:
         authz.grant_all()
         ds_repo.seed(ds)
         sync_run_repo.seed(
-            _make_sync_run(run_id="run-1", data_source_id=ds.id.value, status="ingesting"),
-            _make_sync_run(run_id="run-2", data_source_id=ds.id.value, status="applying"),
-            _make_sync_run(run_id="run-3", data_source_id=ds.id.value, status="completed"),
+            _make_sync_run(
+                run_id="run-1", data_source_id=ds.id.value, status="ingesting"
+            ),
+            _make_sync_run(
+                run_id="run-2", data_source_id=ds.id.value, status="applying"
+            ),
+            _make_sync_run(
+                run_id="run-3", data_source_id=ds.id.value, status="completed"
+            ),
         )
 
         result = await service.apply_run_control(
@@ -1106,7 +1112,9 @@ class TestDataSourceServiceRunControls:
         ds = _make_ds()
         authz.grant_all()
         ds_repo.seed(ds)
-        failed = _make_sync_run(run_id="run-1", data_source_id=ds.id.value, status="failed")
+        failed = _make_sync_run(
+            run_id="run-1", data_source_id=ds.id.value, status="failed"
+        )
         failed.error = "old error"
         failed.completed_at = datetime.now(UTC)
         sync_run_repo.seed(failed)

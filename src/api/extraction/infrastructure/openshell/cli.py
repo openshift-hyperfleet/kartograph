@@ -9,7 +9,11 @@ from typing import Sequence
 
 logger = logging.getLogger("kartograph.extraction.openshell.cli")
 
-_SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "KARTOGRAPH_RUNTIME_AUTH_TOKEN=")
+_SECRET_PREFIXES = (
+    "private_key=",
+    "GCP_SA_ACCESS_TOKEN=",
+    "KARTOGRAPH_RUNTIME_AUTH_TOKEN=",
+)
 
 
 class OpenShellCliError(RuntimeError):
@@ -20,19 +24,25 @@ def openshell_subprocess_env() -> dict[str, str]:
     """Build subprocess env so openshell uses the mounted host gateway config."""
     env = os.environ.copy()
     config_home = (
-        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", "").strip()
+        os.environ.get(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME", ""
+        ).strip()
         or os.environ.get("XDG_CONFIG_HOME", "").strip()
     )
     if config_home:
         env["XDG_CONFIG_HOME"] = config_home
     gateway_name = (
-        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME", "").strip()
+        os.environ.get(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME", ""
+        ).strip()
         or os.environ.get("OPENSHELL_GATEWAY", "").strip()
     )
     if gateway_name:
         env["OPENSHELL_GATEWAY"] = gateway_name
     gateway_url = (
-        os.environ.get("KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL", "").strip()
+        os.environ.get(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL", ""
+        ).strip()
         or os.environ.get("OPENSHELL_GATEWAY_ENDPOINT", "").strip()
     )
     if gateway_url:
@@ -75,7 +85,9 @@ def run_openshell(
             "openshell CLI not found on PATH; install OpenShell to use the openshell backend"
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise OpenShellCliError(f"openshell command timed out: {' '.join(redact_args(command))}") from exc
+        raise OpenShellCliError(
+            f"openshell command timed out: {' '.join(redact_args(command))}"
+        ) from exc
     if check and result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip() or "unknown error"
         raise OpenShellCliError(f"openshell {' '.join(args)} failed: {detail}")

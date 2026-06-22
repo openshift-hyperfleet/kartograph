@@ -13,7 +13,9 @@ from extraction.infrastructure.extraction_job_prompt import (
     EXTRACTION_JOB_INVOKE_PROMPT,
     write_extraction_prompt_file,
 )
-from extraction.infrastructure.workload_runtime_settings import ExtractionWorkloadRuntimeSettings
+from extraction.infrastructure.workload_runtime_settings import (
+    ExtractionWorkloadRuntimeSettings,
+)
 
 
 def test_strip_harness_binary_removes_leading_claude() -> None:
@@ -78,7 +80,9 @@ def test_build_binds_mounts_full_gcloud_config_for_vertex() -> None:
     assert "/host/.config/gcloud:/gcloud/config:ro,z" in binds
 
 
-def test_build_container_env_sets_google_application_credentials_for_vertex(monkeypatch) -> None:
+def test_build_container_env_sets_google_application_credentials_for_vertex(
+    monkeypatch,
+) -> None:
     monkeypatch.setenv("CLAUDE_CODE_USE_VERTEX", "1")
     runner = AgenticCiExtractionJobRunner(
         settings=ExtractionWorkloadRuntimeSettings(

@@ -52,7 +52,9 @@ def missing_properties_for_instance(
 ) -> tuple[str, ...]:
     """Return ontology property names absent or empty on one live graph node."""
     missing: list[str] = []
-    for property_name in _properties_for_entity_type(entity_type, node_types=node_types):
+    for property_name in _properties_for_entity_type(
+        entity_type, node_types=node_types
+    ):
         if property_name in _PLATFORM_MANAGED_PROPERTIES:
             continue
         if _property_is_missing(node_properties, property_name):

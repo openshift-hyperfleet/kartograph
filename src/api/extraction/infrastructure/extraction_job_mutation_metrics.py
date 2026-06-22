@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from extraction.domain.mutation_jsonl_metrics import metrics_from_mutation_jsonl
-from extraction.infrastructure.job_mutation_artifact_store import read_instance_changes_from_workdir
+from extraction.infrastructure.job_mutation_artifact_store import (
+    read_instance_changes_from_workdir,
+)
 
 __all__ = [
     "applied_mutation_jsonl_from_workdir",
@@ -28,9 +30,7 @@ def metrics_from_mutation_workdir(job_root: Path) -> dict[str, int]:
     if not jsonl_files:
         return _empty_metrics()
 
-    combined = "\n".join(
-        path.read_text(encoding="utf-8") for path in jsonl_files
-    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in jsonl_files)
     return metrics_from_mutation_jsonl(combined)
 
 
@@ -39,7 +39,9 @@ def applied_mutation_jsonl_from_workdir(job_root: Path) -> str | None:
     mutations_dir = job_root / "mutations"
     if not mutations_dir.is_dir():
         return None
-    jsonl_files = sorted(path for path in mutations_dir.glob("*.jsonl") if path.is_file())
+    jsonl_files = sorted(
+        path for path in mutations_dir.glob("*.jsonl") if path.is_file()
+    )
     if not jsonl_files:
         return None
     parts = [path.read_text(encoding="utf-8") for path in jsonl_files]

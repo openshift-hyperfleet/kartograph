@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from extraction.infrastructure.agentic_ci_extraction_job_runner import AgenticCiExtractionJobRunner
-from extraction.infrastructure.openshell_extraction_job_runner import OpenShellExtractionJobRunner
+from extraction.infrastructure.agentic_ci_extraction_job_runner import (
+    AgenticCiExtractionJobRunner,
+)
+from extraction.infrastructure.openshell_extraction_job_runner import (
+    OpenShellExtractionJobRunner,
+)
 from extraction.infrastructure.extraction_job_workdir_materializer import (
     ExtractionJobWorkdirMaterializer,
 )
-from extraction.infrastructure.prepared_job_package_reader import SqlPreparedJobPackageReader
+from extraction.infrastructure.prepared_job_package_reader import (
+    SqlPreparedJobPackageReader,
+)
 from extraction.infrastructure.stub_extraction_job_runner import StubExtractionJobRunner
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
@@ -18,7 +24,9 @@ from extraction.infrastructure.workload_runtime_settings import (
 from extraction.ports.extraction_job_runner import IExtractionJobRunner
 from infrastructure.database.connection_pool import ConnectionPool
 from infrastructure.dependencies import get_age_connection_pool
-from infrastructure.extraction_workload.graph_mutation_writer import GraphWorkloadGraphMutationWriter
+from infrastructure.extraction_workload.graph_mutation_writer import (
+    GraphWorkloadGraphMutationWriter,
+)
 from infrastructure.extraction_workload.graph_reader import GraphWorkloadGraphReader
 from infrastructure.extraction_workload.schema_service import GraphWorkloadSchemaService
 from infrastructure.extraction_workload.target_context_enricher import (

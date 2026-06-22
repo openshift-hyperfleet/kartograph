@@ -8,7 +8,11 @@ from infrastructure.extraction_workload.workspace_readiness import (
     build_workload_readiness_snapshot,
     sync_prepopulated_instance_counts,
 )
-from management.domain.value_objects import EdgeTypeDefinition, NodeTypeDefinition, OntologyConfig
+from management.domain.value_objects import (
+    EdgeTypeDefinition,
+    NodeTypeDefinition,
+    OntologyConfig,
+)
 
 
 class _FakeGraphReader:
@@ -22,11 +26,15 @@ class _FakeGraphReader:
 
 
 @pytest.mark.asyncio
-async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps() -> None:
+async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps() -> (
+    None
+):
     ontology = OntologyConfig(
         node_types=(
             NodeTypeDefinition(label="folder", prepopulated=True),
-            NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),
+            NodeTypeDefinition(
+                label="service", prepopulated=True, prepopulated_instance_count=0
+            ),
         ),
         edge_types=(
             EdgeTypeDefinition(
@@ -52,7 +60,10 @@ async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps(
     assert "folder" in snapshot["next_action"]
     assert snapshot["prepopulation_tasks"]
     assert snapshot["prepopulation_tasks"][0]["kind"] == "entity"
-    assert snapshot["prepopulation_tasks"][0]["scanner_path"] == "instance_generators/folder.py"
+    assert (
+        snapshot["prepopulation_tasks"][0]["scanner_path"]
+        == "instance_generators/folder.py"
+    )
     assert snapshot["prepopulation_tasks"][0]["order"] == 1
     assert snapshot["prepopulation_tasks"][0]["run_command"] == (
         "python3 instance_generators/run_scanner.py folder --entity"
@@ -64,7 +75,11 @@ async def test_build_workload_readiness_snapshot_reports_live_relationship_gaps(
 @pytest.mark.asyncio
 async def test_sync_prepopulated_instance_counts_updates_metadata() -> None:
     ontology = OntologyConfig(
-        node_types=(NodeTypeDefinition(label="service", prepopulated=True, prepopulated_instance_count=0),),
+        node_types=(
+            NodeTypeDefinition(
+                label="service", prepopulated=True, prepopulated_instance_count=0
+            ),
+        ),
         edge_types=(
             EdgeTypeDefinition(
                 label="contains",

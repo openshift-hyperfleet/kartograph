@@ -7,14 +7,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
-from extraction.application.graph_management_session_journal import append_turn_usage_to_session
+from extraction.application.graph_management_session_journal import (
+    append_turn_usage_to_session,
+)
 from extraction.ports.sticky_session_runtime import IStickySessionRuntimeService
 from extraction.domain.value_objects import (
     ExtractionSessionMode,
     GraphManagementUiMode,
     SessionJobPackagePhase,
 )
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
+from extraction.ports.runtime import IWorkloadCredentialIssuer
 from extraction.ports.chat_agent import IExtractionChatAgent
 
 
@@ -27,7 +29,7 @@ class ExtractionChatTurnService:
         session_service: ExtractionAgentSessionService,
         runtime_service: IStickySessionRuntimeService,
         chat_agent: IExtractionChatAgent,
-        credential_issuer: ScopedWorkloadCredentialIssuer | None = None,
+        credential_issuer: IWorkloadCredentialIssuer | None = None,
     ) -> None:
         self._session_service = session_service
         self._runtime_service = runtime_service
@@ -103,7 +105,9 @@ class ExtractionChatTurnService:
         job_package_phase = session.runtime_context.get("job_package", {}).get("phase")
         if job_package_phase == SessionJobPackagePhase.AWAITING_PREPARE.value:
             wait_message = (
-                session.runtime_context.get("activity_lines", ["Waiting for JobPackage ingestion context."])[0]
+                session.runtime_context.get(
+                    "activity_lines", ["Waiting for JobPackage ingestion context."]
+                )[0]
                 if session.runtime_context.get("activity_lines")
                 else "Waiting for JobPackage ingestion context."
             )
@@ -113,7 +117,9 @@ class ExtractionChatTurnService:
                 "I'll respond with full repository-aware guidance once JobPackage "
                 "material is prepared for this knowledge graph."
             )
-            session.message_history.append({"role": "assistant", "content": assistant_reply})
+            session.message_history.append(
+                {"role": "assistant", "content": assistant_reply}
+            )
             session.updated_at = datetime.now(UTC)
             await self._session_service.save_session(session)
             yield {"type": "done", "ok": True, "reply": assistant_reply, "wait": True}
@@ -173,7 +179,9 @@ class ExtractionChatTurnService:
 
         if assistant_reply:
             session.message_history.append({"role": "user", "content": trimmed})
-            session.message_history.append({"role": "assistant", "content": assistant_reply})
+            session.message_history.append(
+                {"role": "assistant", "content": assistant_reply}
+            )
             session.updated_at = datetime.now(UTC)
             session.runtime_context.pop("activity_lines", None)
             await self._session_service.save_session(session)

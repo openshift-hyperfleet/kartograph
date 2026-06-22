@@ -24,10 +24,14 @@ class TestIGraphReadOnlyRepositoryProtocol:
             def count_nodes_by_label(self, node_type: str, **kwargs) -> int:
                 return 0
 
-            def find_relationship_instances(self, relationship_label: str, **kwargs) -> list:
+            def find_relationship_instances(
+                self, relationship_label: str, **kwargs
+            ) -> list:
                 return []
 
-            def count_relationship_instances(self, relationship_label: str, **kwargs) -> int:
+            def count_relationship_instances(
+                self, relationship_label: str, **kwargs
+            ) -> int:
                 return 0
 
             def get_neighbors(self, node_id: str) -> NodeNeighborsResult:
@@ -72,10 +76,14 @@ class TestIGraphReadOnlyRepositoryProtocol:
             def count_nodes_by_label(self, node_type: str, **kwargs) -> int:
                 return 0
 
-            def find_relationship_instances(self, relationship_label: str, **kwargs) -> list:
+            def find_relationship_instances(
+                self, relationship_label: str, **kwargs
+            ) -> list:
                 return []
 
-            def count_relationship_instances(self, relationship_label: str, **kwargs) -> int:
+            def count_relationship_instances(
+                self, relationship_label: str, **kwargs
+            ) -> int:
                 return 0
 
             def get_neighbors(self, node_id: str) -> NodeNeighborsResult:

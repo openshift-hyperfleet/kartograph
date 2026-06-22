@@ -35,7 +35,9 @@ class DeterministicExtractionChatAgent:
                 "Reviewing session message history",
             ],
         }
-        skills = session.runtime_context.get("agent_configuration", {}).get("skills", {})
+        skills = session.runtime_context.get("agent_configuration", {}).get(
+            "skills", {}
+        )
         skill_keys = ", ".join(sorted(skills.keys())[:3]) or "default skills"
         reply = (
             f"**Graph Management Assistant ({ui_mode.value})**\n\n"

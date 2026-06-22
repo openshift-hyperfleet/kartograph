@@ -1,6 +1,6 @@
 version: 1
 name: gma-initial-schema-design
-enforcement: soft
+enforcement: hard_requirement
 description: Sticky session policy for initial schema design mode.
 endpoints:
   - "api:8000:read-write"

@@ -67,7 +67,7 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
         runtime_host: str = "127.0.0.1",
         forward_port_base: int = 18787,
         policy_dir: str | None = None,
-        policy_enforcement: str = "soft",
+        policy_enforcement: str = "hard_requirement",
         probe: OpenShellRuntimeProbe | None = None,
     ) -> None:
         self._sticky_image = sticky_image

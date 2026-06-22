@@ -355,7 +355,7 @@ def apply_policy(
     policy_dir: str | None = None,
     api_host: str | None = None,
     vertex_region: str | None = None,
-    policy_enforcement: str = "soft",
+    policy_enforcement: str = "hard_requirement",
     policy_binaries: tuple[str, ...] | None = None,
     probe: OpenShellRuntimeProbe | None = None,
 ) -> None:

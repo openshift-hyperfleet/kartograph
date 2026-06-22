@@ -28,7 +28,12 @@ def test_resolve_endpoints_rewrites_api_host() -> None:
 
 def test_resolve_enforcement_from_bundled_policy() -> None:
     enforcement = resolve_enforcement(ui_mode="initial-schema-design")
-    assert enforcement in {"soft", "hard_requirement"}
+    assert enforcement == "hard_requirement"
+
+
+def test_resolve_enforcement_for_extraction_job_policy() -> None:
+    enforcement = resolve_enforcement(workload="extraction_job")
+    assert enforcement == "hard_requirement"
 
 
 def test_resolve_endpoints_includes_vertex_oauth_for_gma_modes() -> None:

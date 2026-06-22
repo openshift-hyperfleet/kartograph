@@ -97,7 +97,7 @@ def resolve_enforcement(
     ui_mode: str | None = None,
     workload: Literal["gma", "extraction_job"] = "gma",
     policy_dir: str | None = None,
-    default: PolicyEnforcement = "soft",
+    default: PolicyEnforcement = "hard_requirement",
 ) -> PolicyEnforcement:
     path = resolve_policy_path(ui_mode=ui_mode, workload=workload, policy_dir=policy_dir)
     document = load_policy_yaml(path)

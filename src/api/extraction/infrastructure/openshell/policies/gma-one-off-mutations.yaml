@@ -1,6 +1,6 @@
 version: 1
 name: gma-one-off-mutations
-enforcement: soft
+enforcement: hard_requirement
 description: Sticky session policy for one-off graph mutations mode.
 endpoints:
   - "api:8000:read-write"

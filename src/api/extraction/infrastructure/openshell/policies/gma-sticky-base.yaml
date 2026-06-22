@@ -1,6 +1,6 @@
 version: 1
 name: gma-sticky-base
-enforcement: soft
+enforcement: hard_requirement
 description: Base network policy for graph-management sticky sessions.
 endpoints:
   - "api:8000:read-write"

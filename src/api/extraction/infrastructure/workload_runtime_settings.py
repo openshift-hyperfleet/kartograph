@@ -144,7 +144,7 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
         description="Directory containing OpenShell policy YAML files. Empty uses bundled defaults.",
     )
     openshell_policy_enforcement: Literal["soft", "hard_requirement"] = Field(
-        default="soft",
+        default="hard_requirement",
         description="Landlock enforcement mode for OpenShell policies (hard_requirement in prod).",
     )
 

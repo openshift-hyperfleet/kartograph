@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+
+from jose import jwt
 
 from extraction.infrastructure.workload_credential_issuer import (
     DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+    WORKLOAD_TOKEN_ALGORITHM,
+    WORKLOAD_TOKEN_AUDIENCE,
+    WORKLOAD_TOKEN_ISSUER,
     ScopedWorkloadCredentialIssuer,
 )
 
@@ -95,3 +100,43 @@ def test_rejects_short_signing_key() -> None:
 
 def test_default_dev_signing_key_is_stable() -> None:
     assert DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+
+
+def test_verify_rejects_token_without_issuer_and_audience() -> None:
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(minutes=5)
+    legacy_token = jwt.encode(
+        {
+            "sub": "workload",
+            "jti": "legacy-token",
+            "scopes": ["tenant:tenant-1", "knowledge_graph:kg-1", "workload:extraction"],
+            "iat": int(now.timestamp()),
+            "exp": int(expires_at.timestamp()),
+        },
+        _TEST_SIGNING_KEY,
+        algorithm=WORKLOAD_TOKEN_ALGORITHM,
+    )
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY)
+
+    assert issuer.verify(str(legacy_token)) is None
+
+
+def test_verify_rejects_token_with_wrong_audience() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY)
+    credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+    now = datetime.now(UTC)
+    tampered = jwt.encode(
+        {
+            "sub": "workload",
+            "iss": WORKLOAD_TOKEN_ISSUER,
+            "aud": "other-service",
+            "jti": "wrong-aud",
+            "scopes": list(credentials.scopes),
+            "iat": int(now.timestamp()),
+            "exp": int(credentials.expires_at.timestamp()),
+        },
+        _TEST_SIGNING_KEY,
+        algorithm=WORKLOAD_TOKEN_ALGORITHM,
+    )
+
+    assert issuer.verify(str(tampered)) is None

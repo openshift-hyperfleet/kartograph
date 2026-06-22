@@ -11,6 +11,8 @@ from ulid import ULID
 from extraction.ports.runtime import ScopedWorkloadCredentials
 
 WORKLOAD_TOKEN_ALGORITHM = "HS256"
+WORKLOAD_TOKEN_ISSUER = "kartograph"
+WORKLOAD_TOKEN_AUDIENCE = "extraction-workload"
 MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN = 32
 DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY = "kartograph-dev-workload-token-signing-key"
 
@@ -58,6 +60,8 @@ class ScopedWorkloadCredentialIssuer:
         token = jwt.encode(
             {
                 "sub": "workload",
+                "iss": WORKLOAD_TOKEN_ISSUER,
+                "aud": WORKLOAD_TOKEN_AUDIENCE,
                 "jti": str(ULID()),
                 "scopes": list(scopes),
                 "iat": int(now.timestamp()),
@@ -93,6 +97,8 @@ class ScopedWorkloadCredentialIssuer:
                 token,
                 self._signing_key,
                 algorithms=[WORKLOAD_TOKEN_ALGORITHM],
+                audience=WORKLOAD_TOKEN_AUDIENCE,
+                issuer=WORKLOAD_TOKEN_ISSUER,
                 options={"require_exp": True, "require_iat": True},
             )
         except ExpiredSignatureError:

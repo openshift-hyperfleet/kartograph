@@ -28,18 +28,6 @@ resources:
   - configmap.yaml
   - spicedb-schema-configmap.yaml
   - spicedb-ca-configmap.yaml
-  - networkpolicy-sticky-runtime.yaml
-  - openshell-policies-configmap.yaml
-  - openshell-gateway-configmap.yaml
-  - openshell-rbac.yaml
-  # External Secrets (SecretStore managed by app-interface in hp-fleet-gitops)
-  - external-secrets/kartograph-db-credentials.yaml
-  - external-secrets/kartograph-spicedb-credentials.yaml
-  - external-secrets/kartograph-sso-client-api.yaml
-  - external-secrets/kartograph-sso-client-swagger-docs.yaml
-  - external-secrets/kartograph-sso-client-ui.yaml
-  - external-secrets/kartograph-management.yaml
-  - external-secrets/kartograph-extraction-runtime.yaml
 
 commonLabels:
   app.kubernetes.io/name: kartograph

@@ -115,12 +115,6 @@ spec:
                   key: SPICEDB_USE_TLS
             - name: SPICEDB_CERT_PATH
               value: /etc/spicedb-ca/service-ca.crt
-            # Management config (data source credential encryption)
-            - name: KARTOGRAPH_MGMT_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: kartograph-management
-                  key: KARTOGRAPH_MGMT_ENCRYPTION_KEY
             # IAM config
             - name: KARTOGRAPH_IAM_SINGLE_TENANT_MODE
               valueFrom:
@@ -161,143 +155,11 @@ spec:
                 secretKeyRef:
                   name: kartograph-sso-client-swagger-docs
                   key: client_id
-            # Extraction workload runtime (non-secret config from ConfigMap)
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_ENFORCEMENT
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_ENFORCEMENT
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_EXTRACTION_JOB_WORK_DIR
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_EXTRACTION_JOB_WORK_DIR
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_EXTRACTION_IMAGE
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_EXTRACTION_IMAGE
-                  optional: true
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_HARNESS
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_HARNESS
-                  optional: true
-            - name: CLAUDE_CODE_USE_VERTEX
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: CLAUDE_CODE_USE_VERTEX
-                  optional: true
-            - name: ANTHROPIC_VERTEX_PROJECT_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: ANTHROPIC_VERTEX_PROJECT_ID
-                  optional: true
-            - name: CLOUD_ML_REGION
-              valueFrom:
-                configMapKeyRef:
-                  name: kartograph-config
-                  key: CLOUD_ML_REGION
-                  optional: true
-            # Extraction workload secrets (Vault via ExternalSecrets in hp-fleet-gitops)
-            - name: KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: kartograph-extraction-runtime
-                  key: KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY
-                  optional: true
-            - name: KARTOGRAPH_GCLOUD_CONFIG_MOUNT
-              value: /var/secrets/gcloud
 
           volumeMounts:
             - name: spicedb-ca
               mountPath: /etc/spicedb-ca
               readOnly: true
-            - name: openshell-policies
-              mountPath: /etc/openshell/policies
-              readOnly: true
-            - name: gcloud-adc
-              mountPath: /var/secrets/gcloud
-              readOnly: true
-            - name: extraction-work
-              mountPath: /var/kartograph
           livenessProbe:
             httpGet:
               path: /health
@@ -328,15 +190,3 @@ spec:
             items:
               - key: service-ca.crt
                 path: service-ca.crt
-        - name: openshell-policies
-          configMap:
-            name: kartograph-openshell-policies
-        - name: gcloud-adc
-          secret:
-            secretName: kartograph-extraction-runtime
-            optional: true
-            items:
-              - key: application_default_credentials.json
-                path: application_default_credentials.json
-        - name: extraction-work
-          emptyDir: {}

@@ -8,15 +8,8 @@ resources:
 patches:
   - path: configmap-patch.yaml
   - path: resources-patch.yaml
-  - path: openshell-api-patch.yaml
-# Image tags are immutable Konflux commit SHAs (never :latest).
-# openshift-gateway / agent-runtime: update after each successful Konflux build.
 images:
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-api
-    newTag: 8043447ce3297ea8eb7224a8759a555096c2bdc9
+    newTag: 8381642ab4003e0f3ebe7cd0b41f9f4ebd669dde
   - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-dev-ui
-    newTag: 8043447ce3297ea8eb7224a8759a555096c2bdc9
-  - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-agent-runtime
-    newTag: 3d5624a892fb092de341a5f2f2a25ccf45063b72
-  - name: quay.io/redhat-user-workloads/kartograph-tenant/kartograph-openshell-gateway
-    newTag: 3d5624a892fb092de341a5f2f2a25ccf45063b72
+    newTag: 1fc3a330b83a58e1cf0617b9ead9f229a54d486d

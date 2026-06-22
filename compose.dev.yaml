@@ -8,13 +8,12 @@ services:
     profiles: [ "build-only" ]
 
   api:
-    # Root required for Docker-out-of-Docker via mounted /var/run/docker.sock in dev
+    # Root required for OpenShell XDG config/forwards mounts under /root/.config
     user: "0:0"
     environment:
       UV_CACHE_DIR: /tmp/uv-cache
       HOST_UID: ${HOST_UID}
       HOST_GID: ${HOST_GID}
-      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_ENGINE: auto
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_NETWORK: kartograph_kartograph
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE: kartograph-agent-runtime:dev
       KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL: http://api:8000
@@ -26,13 +25,8 @@ services:
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_TURN_TIMEOUT_SECONDS: "3600"
       KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_MAX_TURNS: "500"
       KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED: "true"
-      ## Docker (Track A):
-      # KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: container
-      # KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: agentic_ci
-      ## OpenShell (Track B): uncomment backend/job_runner after `openshell gateway add` on the host
       KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: openshell
       KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: openshell
-      ## End Track A / Track B selection
       KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL: https://host.docker.internal:17670
       # Forwards run inside this container; bind to 127.0.0.1 here, not on the host.
       KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST: 127.0.0.1
@@ -58,15 +52,11 @@ services:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
       - /app/.venv
-      # Shared with sibling sticky containers launched via the host Docker socket
+      # Shared workdirs for OpenShell sandboxes and job packages
       - /tmp/kartograph/job_packages:/tmp/kartograph/job_packages
       - /tmp/kartograph/extraction_jobs:/tmp/kartograph/extraction_jobs
       # gcloud ADC for Vertex-backed agentic-ci extraction job containers
       - ${HOME}/.config/gcloud:${HOME}/.config/gcloud:ro,z
-      # Allow API process to launch sibling extraction runtime containers locally
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Docker/Podman CLI from host (required for container runtime backend)
-      - ${DOCKER_BIN:-/usr/bin/docker}:/usr/bin/docker:ro
       # OpenShell CLI + mTLS config (host gateway; API container invokes openshell subprocess)
       - /usr/bin/openshell:/usr/bin/openshell:ro
       - ${HOME}/.config/openshell:/root/.config/openshell:ro,z

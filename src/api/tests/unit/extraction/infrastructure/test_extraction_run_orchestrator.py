@@ -22,7 +22,8 @@ async def test_maybe_finish_run_advances_extraction_baselines_for_kg() -> None:
     async def session_context():
         yield session
 
-    session_factory = lambda: session_context()
+    def session_factory():
+        return session_context()
 
     orchestrator = ExtractionRunOrchestrator(session_factory=session_factory)
     state = _OrchestratorState(
@@ -52,7 +53,8 @@ async def test_start_scales_up_worker_tasks_when_run_is_already_live() -> None:
     async def session_context():
         yield session
 
-    session_factory = lambda: session_context()
+    def session_factory():
+        return session_context()
 
     orchestrator = ExtractionRunOrchestrator(session_factory=session_factory)
     state = _OrchestratorState(

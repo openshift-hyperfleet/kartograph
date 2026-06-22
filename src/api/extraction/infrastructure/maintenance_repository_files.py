@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
 
 from extraction.domain.extraction_job import ExtractionTargetFile
 from extraction.domain.prepared_job_package_source import PreparedJobPackageSource

@@ -95,6 +95,10 @@ class IngestionEventHandler:
         now = datetime.now(UTC)
 
         pipeline_mode = payload.get("pipeline_mode", "full")
+        if pipeline_mode not in {"full", "ingest_only"}:
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r} for SyncStarted"
+            )
         ingest_only = pipeline_mode == "ingest_only"
 
         if payload.get("no_changes_detected") is True:

@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import (
     EphemeralWorkerLaunchRequest,
     EphemeralWorkerLaunchResult,

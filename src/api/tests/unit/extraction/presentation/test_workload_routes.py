@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.presentation import workload_routes
 from extraction.presentation.workload_auth import WorkloadAuthContext, get_workload_auth_context
 from extraction.ports.workload_graph import WorkloadGraphNode, WorkloadGraphRelationship

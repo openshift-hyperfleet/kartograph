@@ -6,7 +6,7 @@ from infrastructure.job_packages.archive_hydrator import JobPackageArchiveHydrat
 from extraction.infrastructure.sticky_session_workdir_materializer import (
     StickySessionWorkdirMaterializer,
 )
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
     get_extraction_workload_runtime_settings,

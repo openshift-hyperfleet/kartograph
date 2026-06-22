@@ -23,11 +23,6 @@ from infrastructure.management.maintenance_job_materializer import (
     MAINTENANCE_JOB_SET_NAME,
     materialize_maintenance_jobs,
 )
-
-_START_READY_NO_JOBS_MESSAGE = (
-    "No maintenance jobs are ready to run. Queue maintenance jobs from changed "
-    "sources first."
-)
 from management.domain.aggregates import DataSource, KnowledgeGraph
 from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
@@ -45,6 +40,11 @@ from shared_kernel.authorization.types import (
     ResourceType,
     format_resource,
     format_subject,
+)
+
+_START_READY_NO_JOBS_MESSAGE = (
+    "No maintenance jobs are ready to run. Queue maintenance jobs from changed "
+    "sources first."
 )
 
 if TYPE_CHECKING:
@@ -347,6 +347,7 @@ class MaintenancePipelineService:
                 return advanced
             return run
         except Exception as exc:
+            await self._session.rollback()
             return await self._persist_recorded_run(
                 kg=kg,
                 run=KnowledgeGraphMaintenanceRunRecord(

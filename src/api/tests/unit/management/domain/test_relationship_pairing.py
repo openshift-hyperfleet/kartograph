@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
 
 from management.domain.relationship_pairing import (
-    bidirectional_pair_key,
-    build_inverse_edge_type,
     derive_inverse_label,
     expand_ontology_bidirectional_pairs,
     expand_twin_edge_creates,
-    resolve_inverse_label_for_primary,
 )
 from management.domain.value_objects import EdgeTypeDefinition, OntologyConfig
 

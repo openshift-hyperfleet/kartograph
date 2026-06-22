@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import os
-from typing import Any
 
 GCLOUD_ADC_FILENAME = "application_default_credentials.json"
 DEFAULT_GCLOUD_CONTAINER_PATH = "/gcloud/config"

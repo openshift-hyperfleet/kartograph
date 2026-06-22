@@ -29,7 +29,6 @@ from extraction.application.graph_management_session_journal import (
 from infrastructure.extraction_workload.workload_errors import raise_graph_storage_http_error
 from management.domain.ontology_prepopulation import PrepopulationValidationError
 from management.domain.relationship_pairing import ontology_config_from_authoring_payload
-from management.domain.value_objects import OntologyConfig
 from management.ports.exceptions import CanonicalSchemaMutationError
 
 router = APIRouter(prefix="/workloads", tags=["extraction-workloads"])

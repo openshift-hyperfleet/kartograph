@@ -2,7 +2,6 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -293,10 +292,14 @@ class _SessionedIngestionEventHandler:
                             )
                         except KeyError:
                             credentials = {}
-                    tracked_head = await self._resolve_github_tracked_head_commit(
-                        connection_config=ds.connection_config,
-                        credentials=credentials,
-                    )
+                    tracked_head = None
+                    try:
+                        tracked_head = await self._resolve_github_tracked_head_commit(
+                            connection_config=ds.connection_config,
+                            credentials=credentials,
+                        )
+                    except Exception:
+                        tracked_head = None
                     if tracked_head:
                         enriched_payload["tracked_branch_head_commit"] = tracked_head
                         ds.tracked_branch_head_commit = tracked_head
@@ -364,7 +367,6 @@ class _SessionedExtractionEventHandler:
         return self._SUPPORTED
 
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
-        from datetime import timedelta
 
         from infrastructure.outbox.repository import OutboxRepository
         from extraction.infrastructure.event_handler import ExtractionEventHandler

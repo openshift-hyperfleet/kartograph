@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Protocol
 
 from ingestion.application.value_objects import IngestionRunResult
-from shared_kernel.job_package.value_objects import JobPackageId
 
 
 class IIngestionService(Protocol):

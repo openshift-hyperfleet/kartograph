@@ -9,7 +9,7 @@ from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manage
     OpenShellStickySessionRuntimeManager,
 )
 from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import StickySessionRuntimeBootstrap
 
 

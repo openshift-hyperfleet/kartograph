@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 from extraction.infrastructure.container_workload_runtime import (
     ContainerStickySessionRuntimeManager,
 )
 from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import StickySessionRuntimeBootstrap
 from shared_kernel.container_runtime.ports import ContainerRunResult, ContainerRunSpec
 

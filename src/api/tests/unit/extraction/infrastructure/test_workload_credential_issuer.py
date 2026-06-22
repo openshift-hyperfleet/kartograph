@@ -9,7 +9,6 @@ from jose import jwt
 from extraction.infrastructure.workload_credential_issuer import (
     DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
     WORKLOAD_TOKEN_ALGORITHM,
-    WORKLOAD_TOKEN_AUDIENCE,
     WORKLOAD_TOKEN_ISSUER,
     ScopedWorkloadCredentialIssuer,
 )

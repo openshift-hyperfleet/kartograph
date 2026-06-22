@@ -20,7 +20,6 @@ from shared_kernel.job_package.value_objects import (
     AdapterCheckpoint,
     ChangeOperation,
     ChangesetEntry,
-    ContentRef,
     JobPackageId,
     SyncMode,
 )

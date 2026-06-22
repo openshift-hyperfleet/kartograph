@@ -641,6 +641,12 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
+        if pipeline_mode not in {"full", "ingest_only"}:
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r}; "
+                "expected 'full' or 'ingest_only'"
+            )
+
         now = datetime.now(UTC)
 
         sync_run = DataSourceSyncRun(

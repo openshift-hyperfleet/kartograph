@@ -279,6 +279,16 @@ class TestIngestionEventHandlerSuccess:
         assert ingestion_service.calls == []
         assert outbox.appended[0]["event_type"] == "IngestionPrepared"
 
+    async def test_rejects_unknown_pipeline_mode(
+        self,
+        handler: IngestionEventHandler,
+    ):
+        payload = _sync_started_payload(sync_run_id="run-bad-mode")
+        payload["pipeline_mode"] = "unexpected"
+
+        with pytest.raises(ValueError, match="Unsupported pipeline_mode"):
+            await handler.handle("SyncStarted", payload)
+
 
 @pytest.mark.asyncio
 class TestIngestionEventHandlerFailure:

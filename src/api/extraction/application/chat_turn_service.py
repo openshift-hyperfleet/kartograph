@@ -14,7 +14,7 @@ from extraction.domain.value_objects import (
     GraphManagementUiMode,
     SessionJobPackagePhase,
 )
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.chat_agent import IExtractionChatAgent
 
 

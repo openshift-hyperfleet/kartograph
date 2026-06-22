@@ -12,16 +12,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import CroniterBadCronError, croniter
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from ulid import ULID
 
 from management.application.observability import (
     DefaultKnowledgeGraphServiceProbe,
     KnowledgeGraphServiceProbe,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
-    KnowledgeGraphMaintenanceRunOutcome,
     KnowledgeGraphMaintenanceRunRecord,
     KnowledgeGraphMaintenanceSchedule,
     KnowledgeGraphId,
@@ -182,7 +179,6 @@ class KnowledgeGraphService:
             user_id=user_id,
             permission=Permission.MANAGE,
         )
-        existing = kg.maintenance_schedule
         normalized_files_per_job = max(1, int(files_per_job))
         normalized_workers = max(1, int(worker_count))
         next_run_at = (

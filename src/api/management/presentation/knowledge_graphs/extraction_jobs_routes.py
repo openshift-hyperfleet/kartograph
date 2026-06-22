@@ -87,7 +87,7 @@ async def save_extraction_jobs(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> ExtractionJobsDocumentResponse:
     try:
-        saved = await service.save_extraction_jobs_document(
+        await service.save_extraction_jobs_document(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
             payload=body.model_dump(),

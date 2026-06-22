@@ -13,7 +13,6 @@ from infrastructure.extraction_workload.graph_mutation_writer import (
     GraphWorkloadGraphMutationWriter,
 )
 from infrastructure.extraction_workload.mutation_preflight import (
-    parse_mutation_jsonl,
     prepare_mutation_operations,
     validate_mutation_jsonl,
 )

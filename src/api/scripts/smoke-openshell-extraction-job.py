@@ -11,10 +11,7 @@ from pathlib import Path
 
 from agentic_ci.harness import create_harness
 
-from extraction.infrastructure.extraction_job_prompt import (
-    build_extraction_job_invoke_prompt,
-    write_extraction_prompt_file,
-)
+from extraction.infrastructure.extraction_job_prompt import write_extraction_prompt_file
 from extraction.infrastructure.extraction_job_workdir_layout import prepare_agentic_ci_workspace
 from extraction.infrastructure.openshell import gateway as openshell_gateway
 from extraction.infrastructure.openshell import sandbox as openshell_sandbox
@@ -127,7 +124,6 @@ def main() -> int:
             return 1
 
         model = runner._resolve_model()
-        invoke_prompt = build_extraction_job_invoke_prompt(workspace_dir=work_mount)
         runner._write_env_script_in_sandbox(
             sandbox_name=sandbox_name,
             model=model,

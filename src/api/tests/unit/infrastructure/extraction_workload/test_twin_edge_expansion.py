@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from graph.domain.value_objects import EntityType, MutationOperation, MutationOperationType
 from infrastructure.extraction_workload.mutation_preflight import prepare_mutation_operations
 from management.domain.relationship_pairing import expand_ontology_bidirectional_pairs
 from management.domain.value_objects import EdgeTypeDefinition, OntologyConfig

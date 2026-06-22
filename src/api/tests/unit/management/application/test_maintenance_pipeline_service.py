@@ -87,6 +87,7 @@ class _InMemorySyncRunRepository:
 def mock_session():
     session = MagicMock()
     session.commit = AsyncMock()
+    session.rollback = AsyncMock()
     return session
 
 
@@ -217,6 +218,41 @@ async def test_trigger_starts_ingest_only_for_changed_sources(
     assert len(events) == 1
     assert isinstance(events[0], SyncStarted)
     assert events[0].pipeline_mode == "ingest_only"
+
+
+@pytest.mark.asyncio
+async def test_trigger_rolls_back_session_when_ingest_launch_fails(
+    mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
+):
+    kg = _make_kg()
+    kg_repo.seed(kg)
+    ds = _make_ds(ds_id="ds-changed", kg_id=kg.id.value, tenant_id=kg.tenant_id)
+    ds_repo.seed(ds)
+    await _grant_kg_manage(authz, kg.id.value, "user-1")
+
+    svc = _service(
+        mock_session=mock_session,
+        session_factory=session_factory,
+        kg_repo=kg_repo,
+        ds_repo=ds_repo,
+        sync_run_repo=sync_run_repo,
+        authz=authz,
+    )
+
+    with patch.object(
+        svc,
+        "_launch_ingest_only_syncs",
+        AsyncMock(side_effect=RuntimeError("launch failed")),
+    ):
+        run = await svc.trigger(
+            user_id="user-1",
+            kg_id=kg.id.value,
+            start_extraction=False,
+        )
+
+    mock_session.rollback.assert_awaited_once()
+    assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.LAUNCH_FAILED
+    assert "launch failed" in run.message
 
 
 @pytest.mark.asyncio

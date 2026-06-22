@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from graph.domain.value_objects import EntityType, MutationOperationType
+from graph.domain.value_objects import EntityType
 from infrastructure.extraction_workload.mutation_preflight import validate_mutation_jsonl
 
 

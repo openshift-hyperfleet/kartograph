@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from graph.ports.mutation_log import IMutationLogApplier, MutationLogApplyResult
+from graph.ports.mutation_log import IMutationLogApplier
 
 if TYPE_CHECKING:
     from shared_kernel.outbox.ports import IOutboxRepository

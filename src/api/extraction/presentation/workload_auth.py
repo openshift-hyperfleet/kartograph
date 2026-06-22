@@ -15,7 +15,7 @@ from extraction.infrastructure.workload_credential_issuer import (
     WORKLOAD_SCOPE_READ,
     WORKLOAD_SCOPE_WRITE,
 )
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import ScopedWorkloadCredentials
 from infrastructure.extraction_workload.dependencies import (
     get_extraction_workload_credential_issuer,

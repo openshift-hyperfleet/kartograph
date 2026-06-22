@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
 from extraction.ports.workload_extraction_jobs import IWorkloadExtractionJobsService
 from extraction.ports.workload_graph import IWorkloadGraphReader

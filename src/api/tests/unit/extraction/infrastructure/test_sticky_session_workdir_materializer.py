@@ -16,8 +16,11 @@ from shared_kernel.job_package.value_objects import (
     SyncMode,
 )
 
+import pytest
+
 from extraction.infrastructure.sticky_session_workdir_materializer import (
     StickySessionWorkdirMaterializer,
+    validate_session_id,
 )
 
 
@@ -58,6 +61,26 @@ def _build_package(work_dir: Path, package_id: str, *, with_file: bool) -> None:
         )
     builder.set_checkpoint(AdapterCheckpoint(schema_version="1.0.0", data={"commit_sha": "abc"}))
     builder.build(work_dir)
+
+
+def test_validate_session_id_accepts_ulid_like_identifiers() -> None:
+    assert validate_session_id("01JTESTPACK0000000000000000") == "01JTESTPACK0000000000000000"
+
+
+def test_validate_session_id_rejects_path_traversal() -> None:
+    with pytest.raises(ValueError, match="invalid session_id"):
+        validate_session_id("../other-session")
+
+
+def test_materializer_rejects_unsafe_session_id(tmp_path: Path) -> None:
+    materializer = StickySessionWorkdirMaterializer(job_package_work_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="invalid session_id"):
+        materializer.prepare(
+            session_id="../../outside",
+            knowledge_graph_id="kg-1",
+            job_packages=(),
+        )
 
 
 def test_materializer_extracts_job_package_into_session_workspace(tmp_path: Path) -> None:

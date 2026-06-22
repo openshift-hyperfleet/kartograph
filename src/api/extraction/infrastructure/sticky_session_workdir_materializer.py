@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 import shutil
 import zipfile
@@ -26,6 +27,14 @@ from shared_kernel.job_package.reader import JobPackageReader
 from shared_kernel.job_package.value_objects import JobPackageId
 
 _WORKSPACE_INDEX_FILENAME = "sources-index.json"
+_SESSION_ID_SAFE = re.compile(r"^[a-zA-Z0-9_.-]+$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """Reject session IDs that could escape the sticky-sessions directory."""
+    if not session_id or not _SESSION_ID_SAFE.match(session_id):
+        raise ValueError(f"invalid session_id: {session_id!r}")
+    return session_id
 
 
 def _replace_directory(path: Path) -> None:
@@ -57,7 +66,8 @@ class StickySessionWorkdirMaterializer:
         job_packages: tuple[PreparedJobPackageSource, ...] = (),
     ) -> Path:
         """Create or refresh the host work directory for one sticky session."""
-        session_root = self._job_package_work_dir / "sticky-sessions" / session_id
+        safe_session_id = validate_session_id(session_id)
+        session_root = self._job_package_work_dir / "sticky-sessions" / safe_session_id
         session_root.mkdir(parents=True, exist_ok=True)
         ingestion_context_dir = session_root / "ingestion-context"
         repository_files_dir = session_root / "repository-files"

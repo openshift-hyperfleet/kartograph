@@ -54,6 +54,6 @@ def _chmod_writable_tree(session_root: Path) -> None:
         if path.is_symlink():
             continue
         mode = path.stat().st_mode
-        desired = mode | stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+        desired = mode | stat.S_IWUSR | stat.S_IWGRP
         os.chmod(path, desired)
-    session_root.chmod(session_root.stat().st_mode | stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+    session_root.chmod(session_root.stat().st_mode | stat.S_IWUSR | stat.S_IWGRP)

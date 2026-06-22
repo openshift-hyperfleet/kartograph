@@ -230,6 +230,19 @@ def upload_directory_contents(*, sandbox_name: str, local_dir: str, dest: str) -
         local_tar.unlink(missing_ok=True)
 
 
+def _safe_extract_tar(archive: tarfile.TarFile, destination: Path) -> None:
+    """Extract tar members only under destination, rejecting path traversal."""
+    target = destination.resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    for member in archive.getmembers():
+        member_path = (target / member.name).resolve()
+        if not member_path.is_relative_to(target):
+            raise OpenShellCliError(
+                f"tar member {member.name!r} escapes extraction directory {target}"
+            )
+    archive.extractall(target, filter="data")
+
+
 def download_directory_contents(
     *,
     sandbox_name: str,
@@ -271,7 +284,7 @@ def download_directory_contents(
         )
         local_dir.parent.mkdir(parents=True, exist_ok=True)
         with tarfile.open(local_tar, "r") as archive:
-            archive.extractall(local_dir)
+            _safe_extract_tar(archive, local_dir)
         run_openshell(
             [
                 "sandbox",

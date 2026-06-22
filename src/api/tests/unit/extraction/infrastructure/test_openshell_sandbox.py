@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from extraction.infrastructure.openshell.cli import OpenShellCliError
+import io
+import tarfile
+
 from extraction.infrastructure.openshell.sandbox import (
+    _safe_extract_tar,
     create_sandbox,
     delete_sandboxes_by_prefix,
     download_directory_contents,
@@ -173,7 +177,39 @@ class TestDownloadDirectoryContents:
         download_mock.assert_called_once()
         assert download_mock.call_args.kwargs["sandbox_path"].startswith("/tmp/kartograph-download-")
         tar_open.assert_called_once()
-        tar_open.return_value.__enter__.return_value.extractall.assert_called_once_with(workdir)
+        extractall = tar_open.return_value.__enter__.return_value.extractall
+        extractall.assert_called_once_with(workdir, filter="data")
+
+
+class TestSafeExtractTar:
+    def test_extracts_members_under_destination(self, tmp_path) -> None:
+        destination = tmp_path / "workdir"
+        tar_path = tmp_path / "archive.tar"
+        with tarfile.open(tar_path, "w") as archive:
+            data = tarfile.TarInfo(name="nested/result.json")
+            payload = b'{"ok": true}'
+            data.size = len(payload)
+            archive.addfile(data, fileobj=io.BytesIO(payload))
+
+        with tarfile.open(tar_path, "r") as archive:
+            _safe_extract_tar(archive, destination)
+
+        assert (destination / "nested" / "result.json").read_bytes() == payload
+
+    def test_rejects_path_traversal_members(self, tmp_path) -> None:
+        destination = tmp_path / "workdir"
+        tar_path = tmp_path / "evil.tar"
+        with tarfile.open(tar_path, "w") as archive:
+            data = tarfile.TarInfo(name="../escape.txt")
+            payload = b"pwned"
+            data.size = len(payload)
+            archive.addfile(data, fileobj=io.BytesIO(payload))
+
+        with tarfile.open(tar_path, "r") as archive:
+            with pytest.raises(OpenShellCliError, match="escapes extraction directory"):
+                _safe_extract_tar(archive, destination)
+
+        assert not (tmp_path / "escape.txt").exists()
 
 
 class TestExtractionSandboxCleanup:

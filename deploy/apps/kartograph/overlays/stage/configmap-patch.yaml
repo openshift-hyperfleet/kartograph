@@ -21,3 +21,7 @@ data:
   KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL: "http://kartograph-api:8000"
   ANTHROPIC_VERTEX_PROJECT_ID: "itpc-gcp-hcm-pe-eng-claude"
   CLOUD_ML_REGION: "us-east5"
+  # Must match kustomization images.kartograph-agent-runtime.newTag (Konflux commit SHA).
+  KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE: "quay.io/redhat-user-workloads/kartograph-tenant/kartograph-agent-runtime:3d5624a892fb092de341a5f2f2a25ccf45063b72"
+  # Immutable digest — do not use :latest.
+  KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_EXTRACTION_IMAGE: "quay.io/aipcc/agentic-ci/claude-sandbox@sha256:fcd75c27da6c3ce875a07546bcc310498173531bf57db40f401839d672074801"

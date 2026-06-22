@@ -13,8 +13,9 @@ data:
     # Loopback-only inside the kartograph-api pod (sidecar shares network namespace).
     bind_address = "127.0.0.1:17670"
     compute_drivers = ["kubernetes"]
-    default_image = "quay.io/aipcc/agentic-ci/claude-sandbox:latest"
-    supervisor_image = "ghcr.io/nvidia/openshell/supervisor:latest"
+    default_image = "quay.io/aipcc/agentic-ci/claude-sandbox@sha256:fcd75c27da6c3ce875a07546bcc310498173531bf57db40f401839d672074801"
+    # Pin supervisor to a release tag; avoid :latest in stage/prod.
+    supervisor_image = "ghcr.io/nvidia/openshell/supervisor:0.0.62"
 
     [openshell.drivers.kubernetes]
     # Sandboxes run as pods in the release namespace (kartograph-stage overlay).

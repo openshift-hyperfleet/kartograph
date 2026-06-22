@@ -616,6 +616,8 @@ spec:
         workspaces:
           - name: basic-auth
             workspace: git-auth
+          - name: netrc
+            workspace: netrc
         taskSpec:
           params:
             - name: COMMIT_SHA
@@ -625,28 +627,50 @@ spec:
           workspaces:
             - name: basic-auth
               optional: true
+            - name: netrc
+              optional: true
           steps:
             - name: update-and-push
-              image: alpine/git:latest
+              image: docker.io/alpine/git:v2.47.2@sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c
               env:
                 - name: WORKSPACE_BASIC_AUTH_PATH
                   value: /workspace/basic-auth
+                - name: WORKSPACE_NETRC_PATH
+                  value: /workspace/netrc
+                - name: COMMIT_SHA
+                  value: $(params.COMMIT_SHA)
+                - name: DEPLOY_COMPONENT
+                  value: agent-runtime
+                - name: IMAGE_SELECTOR
+                  value: kartograph-agent-runtime
               script: |
                 #!/bin/sh
                 set -eu
 
-                # Configure git credentials
+                case "${COMMIT_SHA}" in
+                  *[!0-9a-fA-F]*|'')
+                    echo "Invalid COMMIT_SHA: ${COMMIT_SHA}"
+                    exit 1
+                    ;;
+                esac
+
+                export HOME=/tekton/home
+                mkdir -p "$HOME"
+
+                if [ -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
+                  cp "${WORKSPACE_NETRC_PATH}/.netrc" "$HOME/.netrc"
+                  chmod 600 "$HOME/.netrc"
+                fi
                 if [ -f "${WORKSPACE_BASIC_AUTH_PATH}/.gitconfig" ]; then
-                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.gitconfig" ~/
+                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.gitconfig" "$HOME/"
                 fi
                 if [ -f "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ]; then
-                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ~/
+                  cp "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" "$HOME/"
+                  git config --global credential.helper store
                 fi
-                git config --global credential.helper store
 
-                COMMIT_SHA="$(params.COMMIT_SHA)"
                 SHORT_SHA="${COMMIT_SHA:0:12}"
-                BRANCH="konflux/deploy-tag-agent-runtime-${SHORT_SHA}"
+                BRANCH="konflux/deploy-tag-${DEPLOY_COMPONENT}-${SHORT_SHA}"
 
                 git clone --depth 1 --branch main "https://github.com/openshift-online/hp-fleet-gitops" /tmp/repo
                 cd /tmp/repo
@@ -657,7 +681,7 @@ spec:
                   exit 0
                 fi
 
-                sed -i '/kartograph-agent-runtime$/{n;s/newTag: .*/newTag: '"${COMMIT_SHA}"'/;}' "$FILE"
+                sed -i '/'"${IMAGE_SELECTOR}"'$/{n;s/newTag: .*/newTag: '"${COMMIT_SHA}"'/;}' "$FILE"
 
                 PATCH_FILE="apps/kartograph/overlays/stage/configmap-patch.yaml"
                 if [ -f "$PATCH_FILE" ]; then
@@ -677,44 +701,69 @@ spec:
                 fi
 
                 git checkout -b "$BRANCH"
-                git commit -m "chore(deploy): update agent-runtime stage image tag to ${SHORT_SHA}"
+                git commit -m "chore(deploy): update ${DEPLOY_COMPONENT} stage image tag to ${SHORT_SHA}"
                 git push origin "$BRANCH"
 
-                # Extract token from git-credentials for GitHub API
-                TOKEN=$(grep 'github.com' "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" \
-                  | sed -E 's|https://[^:]*:([^@]*)@.*|\1|' || true)
+                mkdir -p /tekton/run
+                printf '%s\n' "$BRANCH" > /tekton/run/deploy-branch
+                printf '%s\n' "$COMMIT_SHA" > /tekton/run/commit-sha
+                printf '%s\n' "$DEPLOY_COMPONENT" > /tekton/run/deploy-component
+                printf '%s\n' "$SHORT_SHA" > /tekton/run/short-sha
+            - name: create-pull-request
+              image: docker.io/curlimages/curl:8.12.1@sha256:94e9e444bcba979c2ea12e27ae39bee4cd10bc7041a472c4727a558e213744e6
+              env:
+                - name: WORKSPACE_NETRC_PATH
+                  value: /workspace/netrc
+              script: |
+                #!/bin/sh
+                set -eu
 
-                if [ -z "$TOKEN" ]; then
-                  echo "WARNING: Could not extract token, PR must be created manually"
-                  echo "Branch pushed: $BRANCH"
+                if [ ! -f /tekton/run/deploy-branch ]; then
+                  echo "No deploy branch metadata, skipping PR creation"
                   exit 0
                 fi
 
+                BRANCH=$(cat /tekton/run/deploy-branch)
+                COMMIT_SHA=$(cat /tekton/run/commit-sha)
+                DEPLOY_COMPONENT=$(cat /tekton/run/deploy-component)
+                SHORT_SHA=$(cat /tekton/run/short-sha)
                 REPO="openshift-online/hp-fleet-gitops"
 
-                # Create PR via GitHub API
-                PR_RESPONSE=$(wget -q -O - --header="Authorization: token ${TOKEN}" \
-                  --header="Content-Type: application/json" \
-                  --post-data="{
-                    \"title\": \"chore(deploy): update agent-runtime stage image tag to ${SHORT_SHA}\",
-                    \"head\": \"${BRANCH}\",
-                    \"base\": \"main\",
-                    \"body\": \"Auto-generated by Konflux push pipeline.\\n\\nUpdates \`newTag\` in stage kustomization to \`${COMMIT_SHA}\`.\"
-                  }" \
-                  "https://api.github.com/repos/${REPO}/pulls" 2>&1) || true
+                export HOME=/tekton/home
+                mkdir -p "$HOME"
+                if [ ! -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
+                  echo "WARNING: netrc not available, PR must be created manually"
+                  echo "Branch pushed: $BRANCH"
+                  exit 0
+                fi
+                cp "${WORKSPACE_NETRC_PATH}/.netrc" "$HOME/.netrc"
+                chmod 600 "$HOME/.netrc"
+
+                PAYLOAD=$(mktemp)
+                chmod 600 "$PAYLOAD"
+                printf '{"title":"chore(deploy): update %s stage image tag to %s","head":"%s","base":"main","body":"Auto-generated by Konflux push pipeline.\n\nUpdates `newTag` in stage kustomization to `%s`."}' \
+                  "$DEPLOY_COMPONENT" "$SHORT_SHA" "$BRANCH" "$COMMIT_SHA" > "$PAYLOAD"
+
+                PR_RESPONSE=$(curl -sS --netrc \
+                  -H "Content-Type: application/json" \
+                  -d @"$PAYLOAD" \
+                  "https://api.github.com/repos/${REPO}/pulls") || true
+                rm -f "$PAYLOAD"
 
                 PR_URL=$(echo "$PR_RESPONSE" | grep -o '"html_url":"[^"]*"' | head -1 | cut -d'"' -f4)
-                echo "PR created: $PR_URL"
+                echo "PR created: ${PR_URL:-none}"
 
-                # Enable auto-merge (squash) via GitHub GraphQL API
                 PR_NODE_ID=$(echo "$PR_RESPONSE" | grep -o '"node_id":"[^"]*"' | head -1 | cut -d'"' -f4)
                 if [ -n "$PR_NODE_ID" ]; then
-                  wget -q -O - --header="Authorization: token ${TOKEN}" \
-                    --header="Content-Type: application/json" \
-                    --post-data="{
-                      \"query\": \"mutation { enablePullRequestAutoMerge(input: { pullRequestId: \\\"${PR_NODE_ID}\\\", mergeMethod: SQUASH }) { pullRequest { autoMergeRequest { enabledAt } } } }\"
-                    }" \
+                  GRAPHQL_PAYLOAD=$(mktemp)
+                  chmod 600 "$GRAPHQL_PAYLOAD"
+                  printf '{"query":"mutation { enablePullRequestAutoMerge(input: { pullRequestId: \\"%s\\", mergeMethod: SQUASH }) { pullRequest { autoMergeRequest { enabledAt } } } }"}' \
+                    "$PR_NODE_ID" > "$GRAPHQL_PAYLOAD"
+                  curl -sS --netrc \
+                    -H "Content-Type: application/json" \
+                    -d @"$GRAPHQL_PAYLOAD" \
                     "https://api.github.com/graphql" > /dev/null 2>&1 || true
+                  rm -f "$GRAPHQL_PAYLOAD"
                   echo "Auto-merge enabled"
                 fi
     workspaces:

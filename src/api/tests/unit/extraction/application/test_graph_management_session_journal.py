@@ -18,6 +18,11 @@ from extraction.domain.value_objects import ExtractionSessionMode, GraphManageme
 
 
 class _InMemorySessionRepository:
+    _TENANT_BY_KG = {
+        "kg-1": "tenant-1",
+        "kg-2": "tenant-2",
+    }
+
     def __init__(self) -> None:
         self._by_id: dict[str, ExtractionAgentSession] = {}
 
@@ -27,6 +32,23 @@ class _InMemorySessionRepository:
     async def get_by_id(self, session_id: str) -> ExtractionAgentSession | None:
         session = self._by_id.get(session_id)
         return replace(session) if session else None
+
+    async def get_active_by_id_for_scope(
+        self,
+        *,
+        session_id: str,
+        tenant_id: str,
+        knowledge_graph_id: str,
+    ) -> ExtractionAgentSession | None:
+        session = await self.get_by_id(session_id)
+        if session is None or not session.is_active:
+            return None
+        if session.knowledge_graph_id != knowledge_graph_id:
+            return None
+        expected_tenant = self._TENANT_BY_KG.get(session.knowledge_graph_id)
+        if expected_tenant is not None and expected_tenant != tenant_id:
+            return None
+        return session
 
 
 class _InMemoryJobRepository:
@@ -56,6 +78,34 @@ def test_append_applied_jsonl_to_session_accumulates_lines() -> None:
     journal = session.runtime_context["mutation_journal"]
     assert journal["line_count"] == 2
     assert "DELETE" in journal["jsonl"]
+
+
+@pytest.mark.asyncio
+async def test_append_applied_jsonl_ignores_session_outside_workload_scope() -> None:
+    session_repo = _InMemorySessionRepository()
+    job_repo = _InMemoryJobRepository()
+    service = GraphManagementSessionJournalService(
+        session_repository=session_repo,
+        extraction_job_repository=job_repo,
+    )
+    session = ExtractionAgentSession(
+        id="session-cross-tenant",
+        user_id="user-1",
+        knowledge_graph_id="kg-2",
+        mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+    )
+    await session_repo.save(session)
+
+    await service.append_applied_jsonl(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        session_id="session-cross-tenant",
+        applied_jsonl='{"op":"CREATE","type":"node","id":"service:abc"}',
+    )
+
+    stored = await session_repo.get_by_id("session-cross-tenant")
+    assert stored is not None
+    assert "mutation_journal" not in stored.runtime_context
 
 
 @pytest.mark.asyncio

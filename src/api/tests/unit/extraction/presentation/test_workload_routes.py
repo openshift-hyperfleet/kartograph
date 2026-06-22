@@ -130,7 +130,14 @@ class _FakeSessionJournal:
     def __init__(self) -> None:
         self.appended: list[tuple[str, str]] = []
 
-    async def append_applied_jsonl(self, *, session_id: str, applied_jsonl: str) -> None:
+    async def append_applied_jsonl(
+        self,
+        *,
+        tenant_id: str,
+        knowledge_graph_id: str,
+        session_id: str,
+        applied_jsonl: str,
+    ) -> None:
         self.appended.append((session_id, applied_jsonl))
 
 

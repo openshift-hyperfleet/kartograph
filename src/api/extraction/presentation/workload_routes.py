@@ -283,11 +283,15 @@ async def workload_apply_mutations(
         instance_changes_jsonl = str(result.get("instance_changes_jsonl") or "").strip()
         if auth.session_id and applied_jsonl:
             await session_journal.append_applied_jsonl(
+                tenant_id=auth.tenant_id,
+                knowledge_graph_id=auth.knowledge_graph_id,
                 session_id=auth.session_id,
                 applied_jsonl=applied_jsonl,
             )
         if auth.session_id and instance_changes_jsonl:
             await session_journal.append_instance_changes(
+                tenant_id=auth.tenant_id,
+                knowledge_graph_id=auth.knowledge_graph_id,
                 session_id=auth.session_id,
                 instance_changes_jsonl=instance_changes_jsonl,
             )

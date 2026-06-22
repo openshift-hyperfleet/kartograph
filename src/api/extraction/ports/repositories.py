@@ -16,6 +16,14 @@ class IExtractionAgentSessionRepository(Protocol):
 
     async def get_by_id(self, session_id: str) -> ExtractionAgentSession | None: ...
 
+    async def get_active_by_id_for_scope(
+        self,
+        *,
+        session_id: str,
+        tenant_id: str,
+        knowledge_graph_id: str,
+    ) -> ExtractionAgentSession | None: ...
+
     async def find_active_by_scope(
         self,
         user_id: str,

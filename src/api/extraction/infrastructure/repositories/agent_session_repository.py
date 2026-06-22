@@ -9,6 +9,7 @@ from extraction.domain.entities.agent_session import ExtractionAgentSession
 from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.infrastructure.models.agent_session import ExtractionAgentSessionModel
 from extraction.ports.repositories import IExtractionAgentSessionRepository
+from management.infrastructure.models.knowledge_graph import KnowledgeGraphModel
 
 
 class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
@@ -57,6 +58,32 @@ class ExtractionAgentSessionRepository(IExtractionAgentSessionRepository):
     async def get_by_id(self, session_id: str) -> ExtractionAgentSession | None:
         stmt = select(ExtractionAgentSessionModel).where(
             ExtractionAgentSessionModel.id == session_id
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return self._to_domain(model)
+
+    async def get_active_by_id_for_scope(
+        self,
+        *,
+        session_id: str,
+        tenant_id: str,
+        knowledge_graph_id: str,
+    ) -> ExtractionAgentSession | None:
+        stmt = (
+            select(ExtractionAgentSessionModel)
+            .join(
+                KnowledgeGraphModel,
+                KnowledgeGraphModel.id == ExtractionAgentSessionModel.knowledge_graph_id,
+            )
+            .where(
+                ExtractionAgentSessionModel.id == session_id,
+                ExtractionAgentSessionModel.knowledge_graph_id == knowledge_graph_id,
+                KnowledgeGraphModel.tenant_id == tenant_id,
+                ExtractionAgentSessionModel.archived_at.is_(None),
+            )
         )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()

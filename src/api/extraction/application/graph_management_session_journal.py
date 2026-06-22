@@ -123,11 +123,17 @@ class GraphManagementSessionJournalService:
     async def append_applied_jsonl(
         self,
         *,
+        tenant_id: str,
+        knowledge_graph_id: str,
         session_id: str,
         applied_jsonl: str,
     ) -> None:
-        session = await self._session_repository.get_by_id(session_id)
-        if session is None or not session.is_active:
+        session = await self._session_repository.get_active_by_id_for_scope(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+        )
+        if session is None:
             return
         append_applied_jsonl_to_session(session, applied_jsonl=applied_jsonl)
         await self._session_repository.save(session)
@@ -135,11 +141,17 @@ class GraphManagementSessionJournalService:
     async def append_instance_changes(
         self,
         *,
+        tenant_id: str,
+        knowledge_graph_id: str,
         session_id: str,
         instance_changes_jsonl: str,
     ) -> None:
-        session = await self._session_repository.get_by_id(session_id)
-        if session is None or not session.is_active:
+        session = await self._session_repository.get_active_by_id_for_scope(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            knowledge_graph_id=knowledge_graph_id,
+        )
+        if session is None:
             return
         append_instance_changes_to_session(
             session,

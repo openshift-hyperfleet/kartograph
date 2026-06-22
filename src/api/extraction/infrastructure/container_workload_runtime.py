@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
+from extraction.infrastructure.workload_credential_issuer import WORKLOAD_SCOPE_WRITE
 from extraction.infrastructure.runtime_session_auth import issue_runtime_auth_token
 from extraction.infrastructure.sticky_session_workspace_binds import (
     build_sticky_session_workspace_binds,
@@ -316,7 +317,7 @@ class ContainerStickySessionRuntimeManager(IStickySessionRuntimeManager):
             required_scopes = {
                 f"tenant:{bootstrap.tenant_id}",
                 f"knowledge_graph:{knowledge_graph_id}",
-                "workload:chat",
+                WORKLOAD_SCOPE_WRITE,
             }
             if not required_scopes.issubset(set(bootstrap.credentials.scopes)):
                 raise ValueError("sticky session credentials scope is invalid")

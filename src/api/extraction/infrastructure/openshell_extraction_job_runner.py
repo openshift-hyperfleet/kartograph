@@ -52,6 +52,7 @@ from extraction.infrastructure.openshell.inference_env import (
 from extraction.infrastructure.openshell.cli import OpenShellCliError
 from extraction.infrastructure.openshell.runtime_env import apply_openshell_cli_env
 from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
+from extraction.infrastructure.workload_credential_issuer import INTERACTIVE_WORKLOAD_SCOPES
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
@@ -102,7 +103,7 @@ class OpenShellExtractionJobRunner(IExtractionJobRunner):
         credentials = get_workload_credential_issuer().issue(
             tenant_id=tenant_id,
             knowledge_graph_id=job.knowledge_graph_id,
-            extra_scopes=("workload:chat", f"job:{job.job_id}"),
+            extra_scopes=(*INTERACTIVE_WORKLOAD_SCOPES, f"job:{job.job_id}"),
         )
         workdir = await self._workdir_materializer.prepare(
             job=job,

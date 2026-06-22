@@ -494,3 +494,58 @@ def test_workload_get_extraction_jobs_status(workload_client: tuple[TestClient, 
     payload = response.json()
     assert payload["jobsByStatus"]["pending"] == 7
     assert payload["entitiesByType"]["Adapter"] == 19
+
+
+def _read_only_workload_client() -> TestClient:
+    fake = _FakeSchemaService()
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+        default_ttl=__import__("datetime").timedelta(minutes=10),
+    )
+    credentials = issuer.issue(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        extra_scopes=("workload:read", "session:session-read-only"),
+    )
+    app = FastAPI()
+    app.include_router(workload_routes.router, prefix="/extraction")
+    app.dependency_overrides[get_workload_schema_service] = lambda: fake
+    app.dependency_overrides[get_workload_extraction_jobs_service] = lambda: _FakeExtractionJobsService()
+    app.dependency_overrides[get_workload_graph_reader] = lambda: _FakeGraphReader()
+    app.dependency_overrides[get_graph_management_session_journal_service] = lambda: _FakeSessionJournal()
+    app.dependency_overrides[get_workload_auth_context] = lambda: WorkloadAuthContext(
+        credentials=credentials,
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        session_id="session-read-only",
+    )
+    return TestClient(app)
+
+
+def test_read_only_workload_token_can_read_schema_ontology() -> None:
+    client = _read_only_workload_client()
+    response = client.get(
+        "/extraction/workloads/schema/ontology",
+        headers={"X-Workload-Token": "unused"},
+    )
+    assert response.status_code == 200
+
+
+def test_read_only_workload_token_cannot_apply_mutations() -> None:
+    client = _read_only_workload_client()
+    response = client.post(
+        "/extraction/workloads/mutations/apply",
+        headers={"X-Workload-Token": "unused"},
+        json={"jsonl": '{"op":"CREATE","type":"node","id":"service:0123456789abcdef","label":"service","set_properties":{"name":"api","slug":"api","data_source_id":"bootstrap","source_path":"assistant"}}'},
+    )
+    assert response.status_code == 403
+
+
+def test_read_only_workload_token_cannot_save_extraction_jobs() -> None:
+    client = _read_only_workload_client()
+    response = client.put(
+        "/extraction/workloads/extraction-jobs",
+        headers={"X-Workload-Token": "unused"},
+        json={"version": "1.0", "job_sets": []},
+    )
+    assert response.status_code == 403

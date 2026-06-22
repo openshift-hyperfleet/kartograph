@@ -13,6 +13,7 @@ from extraction.infrastructure.openshell.audit import LoggingOpenShellRuntimePro
 from extraction.infrastructure.openshell.runtime_env import apply_openshell_gateway_env
 from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
 from extraction.infrastructure.runtime_session_auth import issue_runtime_auth_token
+from extraction.infrastructure.workload_credential_issuer import WORKLOAD_SCOPE_WRITE
 from extraction.infrastructure.vertex_runtime_env import (
     OPENSHELL_GCLOUD_CONTAINER_PATH,
     build_openshell_inference_container_env,
@@ -265,7 +266,7 @@ class OpenShellStickySessionRuntimeManager(IStickySessionRuntimeManager):
             required_scopes = {
                 f"tenant:{bootstrap.tenant_id}",
                 f"knowledge_graph:{knowledge_graph_id}",
-                "workload:chat",
+                WORKLOAD_SCOPE_WRITE,
             }
             if not required_scopes.issubset(set(bootstrap.credentials.scopes)):
                 raise ValueError("sticky session credentials scope is invalid")

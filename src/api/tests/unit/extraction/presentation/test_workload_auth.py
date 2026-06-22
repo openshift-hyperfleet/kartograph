@@ -12,7 +12,11 @@ from extraction.infrastructure.workload_credential_issuer import (
     ScopedWorkloadCredentialIssuer,
 )
 from extraction.presentation.workload_auth import (
+    WorkloadAuthContext,
     get_workload_auth_context,
+    require_workload_admin_scope,
+    require_workload_read_scope,
+    require_workload_write_scope,
     validate_workload_scope_id,
 )
 from extraction.ports.runtime import ScopedWorkloadCredentials
@@ -115,3 +119,51 @@ def test_get_workload_auth_context_rejects_invalid_session_scope() -> None:
 
     assert exc.value.status_code == 403
     assert "invalid session scope" in exc.value.detail
+
+
+def test_require_workload_read_scope_accepts_read_only_token() -> None:
+    auth = WorkloadAuthContext(
+        credentials=_credentials_with_scopes(
+            "tenant:tenant-1",
+            "knowledge_graph:kg-1",
+            "workload:read",
+        ),
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+    )
+
+    require_workload_read_scope(auth)
+
+
+def test_require_workload_write_scope_rejects_read_only_token() -> None:
+    auth = WorkloadAuthContext(
+        credentials=_credentials_with_scopes(
+            "tenant:tenant-1",
+            "knowledge_graph:kg-1",
+            "workload:read",
+        ),
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        require_workload_write_scope(auth)
+
+    assert exc.value.status_code == 403
+
+
+def test_require_workload_admin_scope_rejects_write_only_token() -> None:
+    auth = WorkloadAuthContext(
+        credentials=_credentials_with_scopes(
+            "tenant:tenant-1",
+            "knowledge_graph:kg-1",
+            "workload:write",
+        ),
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        require_workload_admin_scope(auth)
+
+    assert exc.value.status_code == 403

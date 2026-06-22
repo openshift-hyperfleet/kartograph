@@ -9,6 +9,12 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
 
+from extraction.infrastructure.workload_credential_issuer import (
+    WORKLOAD_SCOPE_ADMIN,
+    WORKLOAD_SCOPE_CHAT,
+    WORKLOAD_SCOPE_READ,
+    WORKLOAD_SCOPE_WRITE,
+)
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import ScopedWorkloadCredentials
 from infrastructure.extraction_workload.dependencies import (
@@ -16,6 +22,52 @@ from infrastructure.extraction_workload.dependencies import (
 )
 
 _WORKLOAD_SCOPE_ID = re.compile(r"^[0-9A-Za-z_-]+$")
+
+_READ_SCOPES = frozenset(
+    {
+        WORKLOAD_SCOPE_CHAT,
+        WORKLOAD_SCOPE_READ,
+        WORKLOAD_SCOPE_WRITE,
+        WORKLOAD_SCOPE_ADMIN,
+    }
+)
+_WRITE_SCOPES = frozenset(
+    {
+        WORKLOAD_SCOPE_CHAT,
+        WORKLOAD_SCOPE_WRITE,
+        WORKLOAD_SCOPE_ADMIN,
+    }
+)
+_ADMIN_SCOPES = frozenset({WORKLOAD_SCOPE_CHAT, WORKLOAD_SCOPE_ADMIN})
+
+
+def _require_any_scope(auth: WorkloadAuthContext, allowed: frozenset[str], *, detail: str) -> None:
+    if not allowed.intersection(auth.credentials.scopes):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def require_workload_read_scope(auth: WorkloadAuthContext) -> None:
+    _require_any_scope(
+        auth,
+        _READ_SCOPES,
+        detail="Workload token is not authorized for read-only graph operations",
+    )
+
+
+def require_workload_write_scope(auth: WorkloadAuthContext) -> None:
+    _require_any_scope(
+        auth,
+        _WRITE_SCOPES,
+        detail="Workload token is not authorized for graph mutation writes",
+    )
+
+
+def require_workload_admin_scope(auth: WorkloadAuthContext) -> None:
+    _require_any_scope(
+        auth,
+        _ADMIN_SCOPES,
+        detail="Workload token is not authorized for schema or job configuration changes",
+    )
 
 
 def validate_workload_scope_id(value: str, *, field: str) -> str:

@@ -39,6 +39,7 @@ from extraction.infrastructure.vertex_runtime_env import (
     build_gcloud_config_bind,
     build_vertex_container_env,
 )
+from extraction.infrastructure.workload_credential_issuer import INTERACTIVE_WORKLOAD_SCOPES
 from extraction.infrastructure.workload_runtime_factory import get_workload_credential_issuer
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
@@ -95,7 +96,7 @@ class AgenticCiExtractionJobRunner(IExtractionJobRunner):
         credentials = get_workload_credential_issuer().issue(
             tenant_id=tenant_id,
             knowledge_graph_id=job.knowledge_graph_id,
-            extra_scopes=("workload:chat", f"job:{job.job_id}"),
+            extra_scopes=(*INTERACTIVE_WORKLOAD_SCOPES, f"job:{job.job_id}"),
         )
         workdir = await self._workdir_materializer.prepare(
             job=job,

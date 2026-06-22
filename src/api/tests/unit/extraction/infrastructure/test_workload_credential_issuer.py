@@ -26,6 +26,9 @@ def test_issue_for_sticky_session_includes_chat_scope() -> None:
     )
 
     assert "workload:chat" in credentials.scopes
+    assert "workload:read" in credentials.scopes
+    assert "workload:write" in credentials.scopes
+    assert "workload:admin" in credentials.scopes
     assert "session:session-test-1" in credentials.scopes
     assert issuer.verify(credentials.token) == credentials
 

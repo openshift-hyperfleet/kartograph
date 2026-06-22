@@ -13,6 +13,9 @@ from extraction.ports.workload_schema import IWorkloadSchemaService
 from extraction.presentation.workload_auth import (
     WorkloadAuthContext,
     get_workload_auth_context,
+    require_workload_admin_scope,
+    require_workload_read_scope,
+    require_workload_write_scope,
 )
 from infrastructure.extraction_workload.dependencies import (
     get_graph_management_session_journal_service,
@@ -38,14 +41,6 @@ async def _await_graph_operation(awaitable):
         return await awaitable
     except Exception as exc:
         raise_graph_storage_http_error(exc)
-
-
-def _require_chat_scope(auth: WorkloadAuthContext) -> None:
-    if "workload:chat" not in auth.credentials.scopes:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Workload token is not authorized for chat graph operations",
-        )
 
 
 class WorkloadGraphSearchResponse(BaseModel):
@@ -164,7 +159,7 @@ class WorkloadRelationshipListResponse(BaseModel):
 async def workload_schema_authoring_guide(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
 ) -> WorkloadSchemaAuthoringGuideResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     from extraction.application.schema_authoring_guide import SCHEMA_AUTHORING_GUIDE
 
     return WorkloadSchemaAuthoringGuideResponse(guide=SCHEMA_AUTHORING_GUIDE)
@@ -178,7 +173,7 @@ async def workload_get_schema_ontology(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadOntologyResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     config = await schema_service.get_ontology(knowledge_graph_id=auth.knowledge_graph_id)
     if config is None:
         return WorkloadOntologyResponse(
@@ -205,7 +200,7 @@ async def workload_save_schema_ontology(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadOntologyResponse:
-    _require_chat_scope(auth)
+    require_workload_admin_scope(auth)
     config = ontology_config_from_authoring_payload(request.model_dump())
     try:
         saved = await schema_service.replace_ontology(
@@ -235,7 +230,7 @@ async def workload_validate_mutations(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
 ) -> WorkloadMutationValidateResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     try:
         result = await schema_service.validate_mutation_jsonl(
             tenant_id=auth.tenant_id,
@@ -265,7 +260,7 @@ async def workload_apply_mutations(
         Depends(get_graph_management_session_journal_service),
     ] = ...,
 ) -> WorkloadMutationApplyResponse:
-    _require_chat_scope(auth)
+    require_workload_write_scope(auth)
     try:
         result = await schema_service.apply_mutation_jsonl(
             tenant_id=auth.tenant_id,
@@ -363,7 +358,7 @@ async def workload_check_slugs(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadCheckSlugsResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     normalized = tuple(
         sorted({str(slug).strip() for slug in request.slugs if str(slug).strip()})
     )
@@ -392,7 +387,7 @@ async def workload_search_graph_by_slug(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadGraphSearchResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
 
     nodes = await _await_graph_operation(
         reader.search_by_slug(
@@ -425,7 +420,7 @@ async def workload_list_instances_by_type(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadInstanceListResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
 
     nodes, total = await _await_graph_operation(
         reader.list_instances_by_type(
@@ -468,7 +463,7 @@ async def workload_list_relationship_instances(
     auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadRelationshipListResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
 
     relationships, total = await _await_graph_operation(
         reader.list_relationship_instances(
@@ -516,7 +511,7 @@ async def workload_get_workspace_readiness(
     schema_service: Annotated[IWorkloadSchemaService, Depends(get_workload_schema_service)] = ...,
     reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadReadinessResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     from infrastructure.extraction_workload.workspace_readiness import (
         build_workload_readiness_snapshot,
     )
@@ -560,7 +555,7 @@ async def workload_get_extraction_jobs(
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
     ] = ...,
 ) -> WorkloadExtractionJobsDocumentResponse:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     try:
         payload = await service.get_document(
             tenant_id=auth.tenant_id,
@@ -585,7 +580,7 @@ async def workload_save_extraction_jobs(
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
     ] = ...,
 ) -> WorkloadExtractionJobsDocumentResponse:
-    _require_chat_scope(auth)
+    require_workload_admin_scope(auth)
     try:
         payload = await service.save_document(
             tenant_id=auth.tenant_id,
@@ -607,7 +602,7 @@ async def workload_get_extraction_jobs_plan_summary(
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
     ] = ...,
 ) -> dict[str, Any]:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     try:
         return await service.get_plan_summary(
             tenant_id=auth.tenant_id,
@@ -627,7 +622,7 @@ async def workload_get_extraction_jobs_status(
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
     ] = ...,
 ) -> dict[str, Any]:
-    _require_chat_scope(auth)
+    require_workload_read_scope(auth)
     try:
         return await service.get_database_status(
             tenant_id=auth.tenant_id,

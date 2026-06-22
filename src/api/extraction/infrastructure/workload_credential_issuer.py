@@ -16,6 +16,19 @@ WORKLOAD_TOKEN_AUDIENCE = "extraction-workload"
 MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN = 32
 DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY = "kartograph-dev-workload-token-signing-key"
 
+WORKLOAD_SCOPE_EXTRACTION = "workload:extraction"
+WORKLOAD_SCOPE_CHAT = "workload:chat"
+WORKLOAD_SCOPE_READ = "workload:read"
+WORKLOAD_SCOPE_WRITE = "workload:write"
+WORKLOAD_SCOPE_ADMIN = "workload:admin"
+
+INTERACTIVE_WORKLOAD_SCOPES = (
+    WORKLOAD_SCOPE_CHAT,
+    WORKLOAD_SCOPE_READ,
+    WORKLOAD_SCOPE_WRITE,
+    WORKLOAD_SCOPE_ADMIN,
+)
+
 
 def normalize_workload_token_signing_key(signing_key: str) -> str:
     """Return a non-empty signing key or raise if it is too short."""
@@ -87,7 +100,7 @@ class ScopedWorkloadCredentialIssuer:
         return self.issue(
             tenant_id=tenant_id,
             knowledge_graph_id=knowledge_graph_id,
-            extra_scopes=("workload:chat", f"session:{session_id}"),
+            extra_scopes=(*INTERACTIVE_WORKLOAD_SCOPES, f"session:{session_id}"),
         )
 
     def verify(self, token: str) -> ScopedWorkloadCredentials | None:

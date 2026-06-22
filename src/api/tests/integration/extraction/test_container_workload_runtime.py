@@ -12,6 +12,7 @@ from extraction.infrastructure.container_workload_runtime import (
     ContainerEphemeralExtractionWorkerLauncher,
     ContainerStickySessionRuntimeManager,
 )
+from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import EphemeralWorkerLaunchRequest
 from shared_kernel.container_runtime.ports import IContainerRuntime
@@ -133,7 +134,7 @@ class TestContainerEphemeralWorkerIntegration:
         worker_launcher: ContainerEphemeralExtractionWorkerLauncher,
         container_runtime: IContainerRuntime,
     ) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=5))
+        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=5))
         credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",
@@ -158,7 +159,7 @@ class TestContainerEphemeralWorkerIntegration:
         self,
         worker_launcher: ContainerEphemeralExtractionWorkerLauncher,
     ) -> None:
-        issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=5))
+        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=5))
         wrong_scope = issuer.issue(tenant_id="tenant-2", knowledge_graph_id="kg-2")
         request = EphemeralWorkerLaunchRequest(
             tenant_id="tenant-1",

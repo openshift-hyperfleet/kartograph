@@ -16,7 +16,10 @@ from extraction.domain.value_objects import (
     IngestionReadinessSnapshot,
 )
 from extraction.infrastructure.deterministic_chat_agent import DeterministicExtractionChatAgent
-from extraction.infrastructure.workload_credential_issuer import ScopedWorkloadCredentialIssuer
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+    ScopedWorkloadCredentialIssuer,
+)
 from extraction.infrastructure.workload_runtime import InMemoryStickySessionRuntimeManager
 
 
@@ -282,7 +285,7 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
         session_service=session_service,
         runtime_service=runtime_service,
         chat_agent=chat_agent,
-        credential_issuer=ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=5)),
+        credential_issuer=ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=__import__("datetime").timedelta(minutes=5)),
     )
     await _start_session(session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN)
 

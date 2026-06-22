@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.presentation import workload_routes
 from extraction.presentation.workload_auth import WorkloadAuthContext, get_workload_auth_context
@@ -200,7 +201,7 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
             ),
         ),
     )
-    issuer = ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=10))
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=__import__("datetime").timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",
@@ -259,7 +260,7 @@ def test_workload_get_workspace_readiness_returns_503_for_graph_storage_errors()
         ),
         edge_types=(),
     )
-    issuer = ScopedWorkloadCredentialIssuer(default_ttl=__import__("datetime").timedelta(minutes=10))
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=__import__("datetime").timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",

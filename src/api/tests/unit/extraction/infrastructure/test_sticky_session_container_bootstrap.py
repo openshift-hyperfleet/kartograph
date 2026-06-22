@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from extraction.infrastructure.container_workload_runtime import (
     ContainerStickySessionRuntimeManager,
 )
+from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import StickySessionRuntimeBootstrap
 from shared_kernel.container_runtime.ports import ContainerRunResult, ContainerRunSpec
@@ -30,7 +31,7 @@ def test_start_runtime_mounts_skills_workspace_and_injects_token() -> None:
         container_run_gid=1000,
         agent_max_turns=500,
     )
-    issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
     credentials = issuer.issue_for_sticky_session(
         tenant_id="tenant-1",
         knowledge_graph_id="kg-1",

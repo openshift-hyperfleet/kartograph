@@ -18,6 +18,7 @@ from uuid import UUID
 import pytest
 
 from extraction.infrastructure.event_handler import ExtractionEventHandler
+from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     ScopedWorkloadCredentialIssuer,
@@ -282,6 +283,7 @@ class TestExtractionEventHandlerCredentialInjection:
             outbox=outbox,
             runtime_context_builder=_FakeRuntimeContextBuilder(),
             credential_issuer=ScopedWorkloadCredentialIssuer(
+                signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
                 default_ttl=timedelta(minutes=10)
             ),
             worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),
@@ -361,6 +363,7 @@ class TestExtractionEventHandlerCredentialInjection:
             outbox=outbox,
             runtime_context_builder=_FakeRuntimeContextBuilder(),
             credential_issuer=ScopedWorkloadCredentialIssuer(
+                signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
                 default_ttl=timedelta(minutes=10)
             ),
             worker_launcher=InMemoryEphemeralExtractionWorkerLauncher(),

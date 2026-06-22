@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from datetime import timedelta
 from functools import lru_cache
 
@@ -18,7 +20,9 @@ from extraction.infrastructure.remote_sticky_container_chat_agent import (
 )
 from extraction.infrastructure.workload_credential_issuer import (
     DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+    MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN,
     ScopedWorkloadCredentialIssuer,
+    normalize_workload_token_signing_key,
 )
 from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
@@ -35,6 +39,15 @@ from extraction.ports.runtime import (
 )
 from shared_kernel.container_runtime.factory import create_container_runtime
 
+logger = logging.getLogger(__name__)
+
+_DEV_ENV_VALUES = frozenset({"development", "dev", "local"})
+
+
+def _allows_dev_workload_signing_key_fallback() -> bool:
+    env = os.getenv("KARTOGRAPH_ENV", "").strip().lower()
+    return env in _DEV_ENV_VALUES
+
 
 def resolve_workload_token_signing_key(
     settings: ExtractionWorkloadRuntimeSettings | None = None,
@@ -43,8 +56,19 @@ def resolve_workload_token_signing_key(
     resolved = settings or get_extraction_workload_runtime_settings()
     configured = resolved.workload_token_signing_key.strip()
     if configured:
-        return configured
-    return DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+        return normalize_workload_token_signing_key(configured)
+    if _allows_dev_workload_signing_key_fallback():
+        if len(DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY.encode("utf-8")) < MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN:
+            raise RuntimeError("built-in development workload signing key is misconfigured")
+        logger.warning(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY is unset; "
+            "using the built-in development signing key. Do not use this in production."
+        )
+        return DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+    raise RuntimeError(
+        "KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY must be set. "
+        "Refusing to start with the default dev signing key."
+    )
 
 
 @lru_cache

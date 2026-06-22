@@ -11,7 +11,21 @@ from ulid import ULID
 from extraction.ports.runtime import ScopedWorkloadCredentials
 
 WORKLOAD_TOKEN_ALGORITHM = "HS256"
+MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN = 32
 DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY = "kartograph-dev-workload-token-signing-key"
+
+
+def normalize_workload_token_signing_key(signing_key: str) -> str:
+    """Return a non-empty signing key or raise if it is too short."""
+    normalized_key = signing_key.strip()
+    if not normalized_key:
+        raise ValueError("workload token signing key must not be empty")
+    if len(normalized_key.encode("utf-8")) < MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN:
+        raise ValueError(
+            f"workload token signing key must be at least "
+            f"{MIN_WORKLOAD_TOKEN_SIGNING_KEY_LEN} bytes"
+        )
+    return normalized_key
 
 
 class ScopedWorkloadCredentialIssuer:
@@ -20,13 +34,10 @@ class ScopedWorkloadCredentialIssuer:
     def __init__(
         self,
         *,
-        signing_key: str = DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+        signing_key: str,
         default_ttl: timedelta = timedelta(minutes=15),
     ) -> None:
-        normalized_key = signing_key.strip()
-        if not normalized_key:
-            raise ValueError("workload token signing key must not be empty")
-        self._signing_key = normalized_key
+        self._signing_key = normalize_workload_token_signing_key(signing_key)
         self._default_ttl = default_ttl
 
     def issue(

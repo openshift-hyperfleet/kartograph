@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager import (
     OpenShellStickySessionRuntimeManager,
 )
+from extraction.infrastructure.workload_credential_issuer import DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
 from extraction.infrastructure.workload_runtime import ScopedWorkloadCredentialIssuer
 from extraction.ports.runtime import StickySessionRuntimeBootstrap
 
@@ -20,7 +21,7 @@ class TestOpenShellStickySessionRuntimeManager:
             runtime_host="host.docker.internal",
             forward_port_base=18787,
         )
-        issuer = ScopedWorkloadCredentialIssuer(default_ttl=timedelta(minutes=10))
+        issuer = ScopedWorkloadCredentialIssuer(signing_key=DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY, default_ttl=timedelta(minutes=10))
         credentials = issuer.issue_for_sticky_session(
             tenant_id="tenant-1",
             knowledge_graph_id="kg-1",

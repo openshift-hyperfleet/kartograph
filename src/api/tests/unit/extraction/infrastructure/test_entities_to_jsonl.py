@@ -35,6 +35,7 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
             "test",
             "--data-source-id",
             "schema-bootstrap",
+            "--input",
             str(instances_path),
         ],
         check=True,
@@ -54,7 +55,7 @@ def test_entities_to_jsonl_emits_sorted_create_lines(tmp_path: Path) -> None:
     assert first["id"].startswith("test:")
 
     rerun = subprocess.run(
-        [sys.executable, str(SCRIPT), "test", str(instances_path)],
+        [sys.executable, str(SCRIPT), "test", "--input", str(instances_path)],
         check=True,
         capture_output=True,
         text=True,
@@ -72,7 +73,7 @@ def test_entities_to_jsonl_omits_source_path_when_not_configured(
     )
 
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "test", str(instances_path)],
+        [sys.executable, str(SCRIPT), "test", "--input", str(instances_path)],
         check=True,
         capture_output=True,
         text=True,
@@ -99,7 +100,7 @@ def test_entities_to_jsonl_preserves_source_path_from_scanner_properties(
     )
 
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "test", str(instances_path)],
+        [sys.executable, str(SCRIPT), "test", "--input", str(instances_path)],
         check=True,
         capture_output=True,
         text=True,
@@ -124,7 +125,7 @@ def test_entities_to_jsonl_preserves_pascal_case_entity_label(tmp_path: Path) ->
     )
 
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "APIEndpoint", str(instances_path)],
+        [sys.executable, str(SCRIPT), "APIEndpoint", "--input", str(instances_path)],
         check=True,
         capture_output=True,
         text=True,

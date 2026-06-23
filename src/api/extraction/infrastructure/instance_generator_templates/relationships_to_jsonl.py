@@ -139,7 +139,9 @@ def main() -> int:
         help="Target entity type label matching ontology exactly (case-sensitive).",
     )
     parser.add_argument(
-        "input", nargs="?", help="Path to JSON file; omit to read stdin."
+        "--input",
+        "-i",
+        help="Path to JSON file; omit to read stdin.",
     )
     parser.add_argument(
         "--tenant-id", default="", help="Tenant id for deterministic ids."

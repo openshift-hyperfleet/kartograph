@@ -91,7 +91,7 @@ async def test_workload_apply_mutation_jsonl_writes_instance_to_age_graph(
     )
     await schema_service.replace_ontology(
         knowledge_graph_id=knowledge_graph_id,
-        config=ontology,
+        config=ontology.to_dict(),
     )
 
     create_line = {

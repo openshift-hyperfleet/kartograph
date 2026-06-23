@@ -57,7 +57,7 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
         result = await self._session.execute(stmt)
         existing = result.scalar_one_or_none()
 
-        payload = {
+        payload: dict[str, Any] = {
             "description": type_def.description,
             "required_properties": sorted(type_def.required_properties),
             "optional_properties": sorted(type_def.optional_properties),
@@ -74,9 +74,9 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
             )
             self._session.add(model)
         else:
-            existing.description = payload["description"]
-            existing.required_properties = payload["required_properties"]
-            existing.optional_properties = payload["optional_properties"]
+            existing.description = str(payload["description"])
+            existing.required_properties = list(payload["required_properties"])
+            existing.optional_properties = list(payload["optional_properties"])
             existing.metadata_json = payload["metadata_json"]
 
         await self._session.flush()

@@ -25,6 +25,7 @@ class IIngestionService(Protocol):
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
+        pipeline_mode: str | None = None,
     ) -> IngestionRunResult:
         """Run the ingestion pipeline.
 

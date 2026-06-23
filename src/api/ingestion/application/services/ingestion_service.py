@@ -61,7 +61,7 @@ class IngestionService:
         tenant_id: str | None = None,
         credentials: dict[str, str] | None = None,
         baseline_commit: str | None = None,
-        pipeline_mode: str = "full",
+        pipeline_mode: str | None = None,
     ) -> IngestionRunResult:
         """Run the ingestion pipeline for a data source sync.
 
@@ -85,6 +85,7 @@ class IngestionService:
             Exception: Any exception from the adapter propagates upward;
                 callers should catch and emit IngestionFailed.
         """
+        pipeline_mode = pipeline_mode or "full"
         adapter = self._adapter_registry.get(adapter_type)
         if adapter is None:
             raise ValueError(

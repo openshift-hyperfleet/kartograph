@@ -12,7 +12,7 @@ from extraction.domain.value_objects import ExtractionSessionMode, GraphManageme
 class IStickySessionRuntimeService(Protocol):
     """Starts sticky containers and streams transparent readiness progress."""
 
-    async def stream_runtime_warmup(
+    def stream_runtime_warmup(
         self,
         *,
         tenant_id: str,
@@ -22,7 +22,7 @@ class IStickySessionRuntimeService(Protocol):
         ui_mode: GraphManagementUiMode,
     ) -> AsyncIterator[dict[str, Any]]: ...
 
-    async def ensure_runtime_for_chat(
+    def ensure_runtime_for_chat(
         self,
         *,
         tenant_id: str,

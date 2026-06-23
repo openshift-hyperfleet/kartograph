@@ -103,11 +103,11 @@ class WorkloadAuthContext:
 
 
 def get_workload_auth_context(
-    workload_token: Annotated[str | None, Header(alias="X-Workload-Token")] = None,
     issuer: Annotated[
         ScopedWorkloadCredentialIssuer,
         Depends(get_extraction_workload_credential_issuer),
-    ] = ...,
+    ],
+    workload_token: Annotated[str | None, Header(alias="X-Workload-Token")] = None,
 ) -> WorkloadAuthContext:
     """Validate a sticky-session or worker runtime token."""
     if not workload_token:

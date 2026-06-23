@@ -24,6 +24,14 @@ if TYPE_CHECKING:
     pass
 
 
+def _coerce_cypher_count(value: object) -> int:
+    if isinstance(value, dict) and "total" in value:
+        return int(value["total"])
+    if isinstance(value, (int, float, str)):
+        return int(value)
+    return 0
+
+
 def _escape_cypher_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
@@ -376,7 +384,7 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         value = row[0]
         if isinstance(value, dict) and "total" in value:
             return int(value["total"])
-        return int(value)
+        return _coerce_cypher_count(value)
 
     def find_relationship_instances(
         self,
@@ -485,7 +493,7 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
         value = row[0]
         if isinstance(value, dict) and "total" in value:
             return int(value["total"])
-        return int(value)
+        return _coerce_cypher_count(value)
 
     def get_neighbors(
         self,

@@ -285,7 +285,6 @@ class StickySessionRuntimeService:
             recent, "Starting isolated Claude Agent SDK container"
         )
         yield event
-        lease: StickySessionRuntimeLease
         try:
             lease = await asyncio.to_thread(
                 self._sticky_runtime_manager.get_or_start_runtime,

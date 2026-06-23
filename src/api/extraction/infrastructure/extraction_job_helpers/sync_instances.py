@@ -80,16 +80,16 @@ def parse_desired_instances(payload: Any) -> dict[str, dict[str, Any]]:
                 raise ValueError(
                     f"Desired entry at index {index} must be a slug string or object"
                 )
-            slug = row.get("slug")
-            if not slug or not str(slug).strip():
+            slug_value = row.get("slug")
+            if not slug_value or not str(slug_value).strip():
                 raise ValueError(f"Desired entry at index {index} is missing slug")
+            slug = str(slug_value).strip()
             properties = row.get("properties") or {}
             if not isinstance(properties, dict):
                 raise ValueError(
                     f"Desired entry at index {index} properties must be an object"
                 )
-            desired[str(slug).strip()] = {"properties": dict(properties)}
-        return desired
+            desired[slug] = {"properties": dict(properties)}
     raise ValueError("Desired snapshot must be a JSON array")
 
 

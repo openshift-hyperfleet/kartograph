@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from extraction.domain.value_objects import ExtractionSessionMode, GraphManagementUiMode
 from extraction.ports.repositories import IExtractionSkillOverrideRepository
@@ -18,7 +19,7 @@ class ResolvedExtractionSkillPack:
     skills: dict[str, str]
 
 
-_GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, object]] = {
+_GLOBAL_PROMPT_SETTINGS: dict[ExtractionSessionMode, dict[str, Any]] = {
     ExtractionSessionMode.SCHEMA_BOOTSTRAP: {
         "system_prompt": (
             "You are the Graph Management Assistant for schema bootstrap. "

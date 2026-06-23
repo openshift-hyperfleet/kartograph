@@ -44,9 +44,9 @@ async def reconcile_quiescent_extraction_run(
         return False, False
 
     run = await repo.get_run(knowledge_graph_id=knowledge_graph_id)
-    run_was_active = run is not None and run.status != ExtractionRunStatus.IDLE
-    if not run_was_active:
+    if run is None or run.status == ExtractionRunStatus.IDLE:
         return False, False
+    run_was_active = True
 
     await repo.upsert_run(
         knowledge_graph_id=knowledge_graph_id,

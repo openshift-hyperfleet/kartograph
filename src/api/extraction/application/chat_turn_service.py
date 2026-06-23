@@ -112,17 +112,15 @@ class ExtractionChatTurnService:
                 else "Waiting for JobPackage ingestion context."
             )
             session.message_history.append({"role": "user", "content": trimmed})
-            assistant_reply = (
+            wait_reply = (
                 f"**Waiting for ingestion context**\n\n{wait_message}\n\n"
                 "I'll respond with full repository-aware guidance once JobPackage "
                 "material is prepared for this knowledge graph."
             )
-            session.message_history.append(
-                {"role": "assistant", "content": assistant_reply}
-            )
+            session.message_history.append({"role": "assistant", "content": wait_reply})
             session.updated_at = datetime.now(UTC)
             await self._session_service.save_session(session)
-            yield {"type": "done", "ok": True, "reply": assistant_reply, "wait": True}
+            yield {"type": "done", "ok": True, "reply": wait_reply, "wait": True}
             return
 
         sticky = session.runtime_context.get("sticky_runtime", {})

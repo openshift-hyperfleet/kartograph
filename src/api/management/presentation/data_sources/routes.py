@@ -40,11 +40,13 @@ from shared_kernel.job_package.archive_availability import (
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
     DataSourceDiffSummaryResponse,
+    DiffChangedFileResponse,
     DataSourceListResponse,
     DataSourceResponse,
     DataSourceWithSyncResponse,
     RunControlAction,
     RunControlResponse,
+    MutationLogEntryPreviewResponse,
     MutationLogEntryPreviewPageResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
@@ -217,7 +219,13 @@ async def get_diff_summary(
             removed_count=summary.removed_count,
             renamed_count=summary.renamed_count,
             files_truncated=summary.files_truncated,
-            changed_files=list(summary.changed_files),
+            changed_files=[
+                DiffChangedFileResponse(
+                    path=file["path"],
+                    status=file["status"],
+                )
+                for file in summary.changed_files
+            ],
         )
     except HTTPException:
         raise
@@ -843,11 +851,11 @@ async def list_mutation_log_entry_previews(
 
         return MutationLogEntryPreviewPageResponse(
             entries=[
-                {
-                    "line_number": line_number,
-                    "operation_class": operation_class,
-                    "summary": summary,
-                }
+                MutationLogEntryPreviewResponse(
+                    line_number=line_number,
+                    operation_class=operation_class,
+                    summary=summary,
+                )
                 for line_number, operation_class, summary in page
             ],
             total=total,

@@ -161,7 +161,7 @@ class WorkloadRelationshipListResponse(BaseModel):
     response_model=WorkloadSchemaAuthoringGuideResponse,
 )
 async def workload_schema_authoring_guide(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
 ) -> WorkloadSchemaAuthoringGuideResponse:
     require_workload_read_scope(auth)
     from extraction.application.schema_authoring_guide import SCHEMA_AUTHORING_GUIDE
@@ -174,10 +174,10 @@ async def workload_schema_authoring_guide(
     response_model=WorkloadOntologyResponse,
 )
 async def workload_get_schema_ontology(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     schema_service: Annotated[
         IWorkloadSchemaService, Depends(get_workload_schema_service)
-    ] = ...,
+    ],
 ) -> WorkloadOntologyResponse:
     require_workload_read_scope(auth)
     config = await schema_service.get_ontology(
@@ -195,7 +195,11 @@ async def workload_get_schema_ontology(
         knowledge_graph_id=auth.knowledge_graph_id,
         node_types=list(payload.get("node_types", [])),
         edge_types=list(payload.get("edge_types", [])),
-        approved_at=payload.get("approved_at"),
+        approved_at=(
+            str(payload.get("approved_at"))
+            if payload.get("approved_at") is not None
+            else None
+        ),
     )
 
 
@@ -205,10 +209,10 @@ async def workload_get_schema_ontology(
 )
 async def workload_save_schema_ontology(
     request: WorkloadOntologySaveRequest,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     schema_service: Annotated[
         IWorkloadSchemaService, Depends(get_workload_schema_service)
-    ] = ...,
+    ],
 ) -> WorkloadOntologyResponse:
     require_workload_admin_scope(auth)
     try:
@@ -225,7 +229,11 @@ async def workload_save_schema_ontology(
         knowledge_graph_id=auth.knowledge_graph_id,
         node_types=list(payload.get("node_types", [])),
         edge_types=list(payload.get("edge_types", [])),
-        approved_at=payload.get("approved_at"),
+        approved_at=(
+            str(payload.get("approved_at"))
+            if payload.get("approved_at") is not None
+            else None
+        ),
     )
 
 
@@ -235,10 +243,10 @@ async def workload_save_schema_ontology(
 )
 async def workload_validate_mutations(
     request: WorkloadMutationValidateRequest,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     schema_service: Annotated[
         IWorkloadSchemaService, Depends(get_workload_schema_service)
-    ] = ...,
+    ],
 ) -> WorkloadMutationValidateResponse:
     require_workload_read_scope(auth)
     try:
@@ -262,15 +270,15 @@ async def workload_validate_mutations(
 )
 async def workload_apply_mutations(
     request: WorkloadMutationApplyRequest,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     schema_service: Annotated[
         IWorkloadSchemaService, Depends(get_workload_schema_service)
-    ] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+    ],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
     session_journal: Annotated[
         GraphManagementSessionJournalService,
         Depends(get_graph_management_session_journal_service),
-    ] = ...,
+    ],
 ) -> WorkloadMutationApplyResponse:
     require_workload_write_scope(auth)
     try:
@@ -369,8 +377,8 @@ class WorkloadCheckSlugsResponse(BaseModel):
 )
 async def workload_check_slugs(
     request: WorkloadCheckSlugsRequest,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
 ) -> WorkloadCheckSlugsResponse:
     require_workload_read_scope(auth)
     normalized = tuple(
@@ -396,10 +404,10 @@ async def workload_check_slugs(
     response_model=WorkloadGraphSearchResponse,
 )
 async def workload_search_graph_by_slug(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
     slug: Annotated[str, Query(min_length=1)],
     entity_type: Annotated[str | None, Query()] = None,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadGraphSearchResponse:
     require_workload_read_scope(auth)
 
@@ -428,11 +436,11 @@ async def workload_search_graph_by_slug(
     response_model=WorkloadInstanceListResponse,
 )
 async def workload_list_instances_by_type(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
     entity_type: Annotated[str, Query(min_length=1)],
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadInstanceListResponse:
     require_workload_read_scope(auth)
 
@@ -469,13 +477,13 @@ async def workload_list_instances_by_type(
     response_model=WorkloadRelationshipListResponse,
 )
 async def workload_list_relationship_instances(
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
     relationship_type: Annotated[str, Query(min_length=1)],
     source_entity_type: Annotated[str | None, Query()] = None,
     target_entity_type: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
 ) -> WorkloadRelationshipListResponse:
     require_workload_read_scope(auth)
 
@@ -521,11 +529,11 @@ async def workload_list_relationship_instances(
     response_model=WorkloadReadinessResponse,
 )
 async def workload_get_workspace_readiness(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     schema_service: Annotated[
         IWorkloadSchemaService, Depends(get_workload_schema_service)
-    ] = ...,
-    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)] = ...,
+    ],
+    reader: Annotated[IWorkloadGraphReader, Depends(get_workload_graph_reader)],
 ) -> WorkloadReadinessResponse:
     require_workload_read_scope(auth)
     from infrastructure.extraction_workload.workspace_readiness import (
@@ -544,7 +552,7 @@ async def workload_get_workspace_readiness(
         )
     except Exception as exc:
         raise_graph_storage_http_error(exc)
-    return WorkloadReadinessResponse(**snapshot)
+    return WorkloadReadinessResponse.model_validate(snapshot)
 
 
 class WorkloadExtractionJobsDocumentRequest(BaseModel):
@@ -568,10 +576,10 @@ class WorkloadExtractionJobsDocumentResponse(BaseModel):
     response_model=WorkloadExtractionJobsDocumentResponse,
 )
 async def workload_get_extraction_jobs(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     service: Annotated[
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
-    ] = ...,
+    ],
 ) -> WorkloadExtractionJobsDocumentResponse:
     require_workload_read_scope(auth)
     try:
@@ -593,10 +601,10 @@ async def workload_get_extraction_jobs(
 )
 async def workload_save_extraction_jobs(
     request: WorkloadExtractionJobsDocumentRequest,
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     service: Annotated[
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
-    ] = ...,
+    ],
 ) -> WorkloadExtractionJobsDocumentResponse:
     require_workload_admin_scope(auth)
     try:
@@ -615,10 +623,10 @@ async def workload_save_extraction_jobs(
 
 @router.get("/extraction-jobs/plan-summary")
 async def workload_get_extraction_jobs_plan_summary(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     service: Annotated[
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
-    ] = ...,
+    ],
 ) -> dict[str, Any]:
     require_workload_read_scope(auth)
     try:
@@ -635,10 +643,10 @@ async def workload_get_extraction_jobs_plan_summary(
 
 @router.get("/extraction-jobs/status")
 async def workload_get_extraction_jobs_status(
-    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)] = ...,
+    auth: Annotated[WorkloadAuthContext, Depends(get_workload_auth_context)],
     service: Annotated[
         IWorkloadExtractionJobsService, Depends(get_workload_extraction_jobs_service)
-    ] = ...,
+    ],
 ) -> dict[str, Any]:
     require_workload_read_scope(auth)
     try:

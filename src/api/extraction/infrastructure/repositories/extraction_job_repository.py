@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
@@ -304,7 +305,7 @@ class ExtractionJobRepository:
                 ExtractionJobModel.status == ExtractionJobStatus.PENDING.value,
             )
         )
-        return int(result.rowcount or 0) > 0
+        return int(cast(CursorResult[Any], result).rowcount or 0) > 0
 
     async def list_in_progress_job_ids(self, *, knowledge_graph_id: str) -> list[str]:
         stmt = select(ExtractionJobModel.job_id).where(
@@ -450,7 +451,7 @@ class ExtractionJobRepository:
             )
             .values(**values)
         )
-        return int(result.rowcount or 0) > 0
+        return int(cast(CursorResult[Any], result).rowcount or 0) > 0
 
     async def list_active_workers(
         self, *, knowledge_graph_id: str
@@ -607,7 +608,7 @@ class ExtractionJobRepository:
                 error_message=error_message,
             )
         )
-        return int(result.rowcount or 0)
+        return int(cast(CursorResult[Any], result).rowcount or 0)
 
     async def reset_jobs_by_status(
         self,
@@ -630,7 +631,7 @@ class ExtractionJobRepository:
                 error_message=None,
             )
         )
-        return int(result.rowcount or 0)
+        return int(cast(CursorResult[Any], result).rowcount or 0)
 
     async def reset_all_non_pending(
         self,

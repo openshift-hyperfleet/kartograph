@@ -258,10 +258,10 @@ def projected_job_count(
         return math.ceil(total / per_job)
     if job_set.strategy != ExtractionJobSetStrategy.BY_FILES:
         return None
-    total = matched_file_count
-    if total is None:
+    matched_total = matched_file_count
+    if matched_total is None:
         return None
     per_job = job_set.files_per_job
-    if total <= 0 or per_job is None or per_job < 1:
-        return 0 if total == 0 else None
-    return math.ceil(total / per_job)
+    if matched_total <= 0 or per_job is None or per_job < 1:
+        return 0 if matched_total == 0 else None
+    return math.ceil(matched_total / per_job)

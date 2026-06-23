@@ -9,7 +9,7 @@ from typing import Protocol
 class IStickyRuntimeHealthChecker(Protocol):
     """Poll agent runtime /health until the sticky container is ready."""
 
-    async def wait_until_healthy(
+    def wait_until_healthy(
         self,
         *,
         runtime_base_url: str,

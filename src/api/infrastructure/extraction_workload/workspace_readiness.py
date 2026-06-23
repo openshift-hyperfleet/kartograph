@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 from management.application.workspace_readiness import (
     evaluate_workspace_readiness,
@@ -182,7 +183,7 @@ async def build_workload_readiness_snapshot(
     knowledge_graph_id: str,
     tenant_id: str,
     graph_reader,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Merge canonical readiness metadata with live graph instance counts."""
     if isinstance(ontology, dict):
         ontology = OntologyConfig.from_dict(ontology)

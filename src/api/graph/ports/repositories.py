@@ -61,6 +61,8 @@ class IGraphReadOnlyRepository(Protocol):
         knowledge_graph_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> list[NodeRecord]:
         """List nodes of one entity type, optionally scoped to a knowledge graph."""
         ...
@@ -70,6 +72,8 @@ class IGraphReadOnlyRepository(Protocol):
         node_type: str,
         *,
         knowledge_graph_id: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
     ) -> int:
         """Count nodes of one entity type within an optional knowledge graph scope."""
         ...

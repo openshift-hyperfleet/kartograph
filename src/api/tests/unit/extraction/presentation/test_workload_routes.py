@@ -237,7 +237,9 @@ class _FakeExtractionJobsService:
 
 
 @pytest.fixture
-def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
+def workload_client() -> tuple[
+    TestClient, _FakeSchemaService, str, _FakeSessionJournal
+]:
     fake = _FakeSchemaService()
     extraction_jobs_fake = _FakeExtractionJobsService()
     session_journal_fake = _FakeSessionJournal()
@@ -293,7 +295,7 @@ def workload_client() -> tuple[TestClient, _FakeSchemaService, str]:
 
 
 def test_workload_get_schema_authoring_guide(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(
@@ -308,7 +310,7 @@ def test_workload_get_schema_authoring_guide(
 
 
 def test_workload_get_workspace_readiness(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(
@@ -370,7 +372,7 @@ def test_workload_get_workspace_readiness_returns_503_for_graph_storage_errors()
 
 
 def test_workload_list_instances_by_type(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(
@@ -386,7 +388,7 @@ def test_workload_list_instances_by_type(
 
 
 def test_workload_list_relationship_instances(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(
@@ -406,7 +408,7 @@ def test_workload_list_relationship_instances(
 
 
 def test_workload_save_schema_ontology(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, fake, token, _journal = workload_client
     response = client.put(
@@ -441,7 +443,7 @@ def test_workload_save_schema_ontology(
 
 
 def test_workload_check_graph_slugs(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.post(
@@ -456,7 +458,7 @@ def test_workload_check_graph_slugs(
 
 
 def test_workload_validate_graph_mutations(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.post(
@@ -518,7 +520,7 @@ def test_workload_apply_graph_mutations(
 
 
 def test_workload_get_extraction_jobs_config(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(
@@ -533,7 +535,7 @@ def test_workload_get_extraction_jobs_config(
 
 
 def test_workload_save_extraction_jobs_config(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     job_set = {
@@ -555,7 +557,7 @@ def test_workload_save_extraction_jobs_config(
 
 
 def test_workload_get_extraction_jobs_plan_summary(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     client.put(
@@ -584,7 +586,7 @@ def test_workload_get_extraction_jobs_plan_summary(
 
 
 def test_workload_get_extraction_jobs_status(
-    workload_client: tuple[TestClient, _FakeSchemaService, str],
+    workload_client: tuple[TestClient, _FakeSchemaService, str, _FakeSessionJournal],
 ) -> None:
     client, _fake, token, _journal = workload_client
     response = client.get(

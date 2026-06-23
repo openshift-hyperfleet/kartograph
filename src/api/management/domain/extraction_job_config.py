@@ -89,7 +89,7 @@ class ExtractionJobSetDefinition:
                 errors.extend(
                     f"{self.name}: {err}"
                     for err in per_instance_description_property_errors(
-                        self.description,
+                        self.description or "",
                         self.entity_type,
                         node_types=node_types,
                     )

@@ -55,13 +55,13 @@ async def validate_mutation_jsonl(
     ontology: OntologyConfig | None = None,
 ) -> list[str]:
     """Return validation errors; empty list means the batch may be applied."""
-    operations, errors = await prepare_mutation_operations(
+    operations, parse_errors = await prepare_mutation_operations(
         jsonl_content=jsonl_content,
         tenant_id=tenant_id,
         ontology=ontology,
     )
-    if errors:
-        return errors
+    if parse_errors:
+        return parse_errors
     assert operations is not None
 
     errors: list[str] = []

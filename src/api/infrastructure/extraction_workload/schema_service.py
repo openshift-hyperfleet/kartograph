@@ -206,8 +206,13 @@ class GraphWorkloadSchemaService:
                 errors.append(str(exc))
 
         if instance_ops and not errors:
-            nodes_before = {}
-            edges_before = {}
+            from extraction.ports.workload_graph import (
+                WorkloadGraphNode,
+                WorkloadGraphRelationship,
+            )
+
+            nodes_before: dict[str, WorkloadGraphNode] = {}
+            edges_before: dict[str, WorkloadGraphRelationship] = {}
             if self._graph_reader is not None:
                 nodes_before, edges_before = await capture_before_snapshots(
                     tenant_id=tenant_id,

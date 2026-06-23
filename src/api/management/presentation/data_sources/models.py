@@ -261,6 +261,7 @@ class DataSourceResponse(BaseModel):
             last_prepared_file_count=ds.last_prepared_file_count,
             ingested_head_commit=resolve_ingested_head_commit(ds),
             newest_unpulled_commit=resolve_newest_unpulled_commit(ds),
+            job_package_available=None,
             connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,

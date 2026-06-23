@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from ulid import ULID
 
@@ -38,14 +39,14 @@ _USAGE_KEYS = (
 )
 
 
-def _ensure_journal(session: ExtractionAgentSession) -> dict[str, object]:
+def _ensure_journal(session: ExtractionAgentSession) -> dict[str, Any]:
     journal = dict(session.runtime_context.get("mutation_journal") or {})
     if not journal.get("started_at"):
         journal["started_at"] = session.created_at.isoformat()
     return journal
 
 
-def _journal_token_total(journal: dict[str, object]) -> int:
+def _journal_token_total(journal: dict[str, Any]) -> int:
     return int(journal.get("input_tokens") or 0) + int(
         journal.get("output_tokens") or 0
     )
@@ -98,7 +99,7 @@ def append_instance_changes_to_session(
 def append_turn_usage_to_session(
     session: ExtractionAgentSession,
     *,
-    usage: dict[str, object],
+    usage: dict[str, Any],
 ) -> None:
     """Accumulate token usage from one Graph Management Assistant chat turn."""
     if not usage:

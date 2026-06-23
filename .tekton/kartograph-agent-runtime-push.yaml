@@ -615,9 +615,9 @@ spec:
             value: $(params.git-url)
         workspaces:
           - name: basic-auth
-            workspace: git-auth
+            workspace: hp-fleet-gitops-auth
           - name: netrc
-            workspace: netrc
+            workspace: hp-fleet-gitops-auth
         taskSpec:
           params:
             - name: COMMIT_SHA
@@ -657,6 +657,12 @@ spec:
                 export HOME=/tekton/home
                 mkdir -p "$HOME"
 
+                if [ ! -f "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ] && [ ! -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
+                  echo "ERROR: Secret kartograph-hp-fleet-gitops-auth is missing or empty."
+                  echo "Apply .tekton/kartograph-hp-fleet-gitops-auth.secret.example.yaml in kartograph-tenant."
+                  exit 1
+                fi
+
                 if [ -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
                   cp "${WORKSPACE_NETRC_PATH}/.netrc" "$HOME/.netrc"
                   chmod 600 "$HOME/.netrc"
@@ -672,12 +678,7 @@ spec:
                 SHORT_SHA="${COMMIT_SHA:0:12}"
                 BRANCH="konflux/deploy-tag-${DEPLOY_COMPONENT}-${SHORT_SHA}"
 
-                if ! git clone --depth 1 --branch main "https://github.com/openshift-online/hp-fleet-gitops" /tmp/repo; then
-                  echo "WARNING: Could not clone openshift-online/hp-fleet-gitops (private repo)."
-                  echo "Grant Konflux git/netrc credentials read access to hp-fleet-gitops, or update stage tags manually."
-                  echo "Container image build succeeded; skipping deploy-tag automation."
-                  exit 0
-                fi
+                git clone --depth 1 --branch main "https://github.com/openshift-online/hp-fleet-gitops" /tmp/repo
                 cd /tmp/repo
 
                 FILE="apps/kartograph/overlays/stage/kustomization.yaml"
@@ -707,11 +708,7 @@ spec:
 
                 git checkout -b "$BRANCH"
                 git commit -m "chore(deploy): update ${DEPLOY_COMPONENT} stage image tag to ${SHORT_SHA}"
-                if ! git push origin "$BRANCH"; then
-                  echo "WARNING: Could not push deploy-tag branch to hp-fleet-gitops."
-                  echo "Update apps/kartograph/overlays/stage/kustomization.yaml manually."
-                  exit 0
-                fi
+                git push origin "$BRANCH"
 
                 mkdir -p /tekton/run
                 printf '%s\n' "$BRANCH" > /tekton/run/deploy-branch
@@ -786,4 +783,7 @@ spec:
     - name: git-auth
       secret:
         secretName: "{{ git_auth_secret }}"
+    - name: hp-fleet-gitops-auth
+      secret:
+        secretName: kartograph-hp-fleet-gitops-auth
 status: {}

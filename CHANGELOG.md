@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.37.1...v3.38.0) (2026-06-23)
+
+
+### Features
+
+* knowledge graph creation, GMA, extraction jobs, and maintenance pipeline ([#737](https://github.com/openshift-hyperfleet/kartograph/issues/737)) ([806322f](https://github.com/openshift-hyperfleet/kartograph/commit/806322f99c55b737f576c6170fef5cf1997cb7d4))
+
 ## [3.37.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.37.0...v3.37.1) (2026-05-19)
 
 

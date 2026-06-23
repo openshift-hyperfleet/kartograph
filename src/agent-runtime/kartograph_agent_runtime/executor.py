@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -22,6 +23,10 @@ from kartograph_agent_runtime.vertex import VERTEX_COMPATIBLE_EFFORT, build_clau
 
 _DEFAULT_TURN_TIMEOUT_SECONDS = 1000.0
 _SDK_HEARTBEAT_SECONDS = 8.0
+_GENERIC_GRAPH_SEARCH_FAILURE = "Graph search failed due to an internal error."
+_GENERIC_TURN_FAILURE_MESSAGE = "Agent turn failed due to an internal error."
+
+logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt(
@@ -379,8 +384,9 @@ async def stream_turn_events(
         try:
             graph_result = await tooling.search_graph_by_slug(slug=slug)
             reply += f"\n\nGraph search returned {graph_result.get('count', 0)} node(s)."
-        except Exception as exc:  # noqa: BLE001
-            reply += f"\n\nGraph search failed: {exc}"
+        except Exception:  # noqa: BLE001
+            logger.exception("graph_search_failed")
+            reply += f"\n\n{_GENERIC_GRAPH_SEARCH_FAILURE}"
     yield {"type": "done", "ok": True, "reply": reply}
 
 
@@ -538,13 +544,14 @@ async def _stream_with_claude_sdk(
             },
         }
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        logger.exception("claude_sdk_turn_failed auth_mode=%s", auth_mode)
         yield {
             "type": "done",
             "ok": False,
             "error": {
                 "code": "AGENT_TURN_FAILED",
-                "message": str(exc),
+                "message": _GENERIC_TURN_FAILURE_MESSAGE,
             },
         }
         return

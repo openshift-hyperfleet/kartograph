@@ -20,6 +20,24 @@ from kartograph_agent_runtime.runtime_auth import runtime_auth_matches, RUNTIME_
 
 logger = logging.getLogger(__name__)
 
+_INTERNAL_TURN_ERROR_NDJSON = (
+    json.dumps(
+        {
+            "type": "done",
+            "ok": False,
+            "error": {
+                "code": "AGENT_RUNTIME_INTERNAL_ERROR",
+                "message": "Agent runtime failed while processing the turn.",
+            },
+        }
+    )
+    + "\n"
+)
+
+
+def _log_turn_failure(session_id: str) -> None:
+    logger.exception("agent_runtime_turn_failed session_id=%s", session_id)
+
 app = FastAPI(title="Kartograph Agent Runtime", version="0.1.0")
 settings = AgentRuntimeSettings()
 
@@ -100,23 +118,8 @@ async def stream_turn(
                 yield json.dumps(event) + "\n"
                 await asyncio.sleep(0)
         except Exception:
-            logger.exception(
-                "agent_runtime_turn_failed session_id=%s",
-                settings.session_id,
-            )
-            yield (
-                json.dumps(
-                    {
-                        "type": "done",
-                        "ok": False,
-                        "error": {
-                            "code": "AGENT_RUNTIME_INTERNAL_ERROR",
-                            "message": "Agent runtime failed while processing the turn.",
-                        },
-                    }
-                )
-                + "\n"
-            )
+            _log_turn_failure(settings.session_id)
+            yield _INTERNAL_TURN_ERROR_NDJSON
 
     return StreamingResponse(
         event_stream(),

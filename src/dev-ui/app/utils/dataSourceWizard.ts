@@ -56,15 +56,25 @@ export const ADAPTERS: AdapterDefinition[] = [
 /**
  * Best-effort adapter detection from a source URL hostname/path.
  */
+function hostMatchesDomain(hostname: string, domain: string): boolean {
+  const normalized = hostname.toLowerCase()
+  const suffix = domain.toLowerCase()
+  return normalized === suffix || normalized.endsWith(`.${suffix}`)
+}
+
 export function detectAdapterFromUrl(url: string): DetectedAdapterId {
   if (!url.trim()) return 'unknown'
   try {
     const parsed = new URL(url.trim())
     const host = parsed.hostname.toLowerCase()
     const path = parsed.pathname.toLowerCase()
-    if (host.includes('github.com')) return 'github'
-    if (host.includes('gitlab.com')) return 'gitlab'
-    if (host.includes('atlassian.net') || path.includes('/jira') || path.includes('/browse/')) {
+    if (hostMatchesDomain(host, 'github.com')) return 'github'
+    if (hostMatchesDomain(host, 'gitlab.com')) return 'gitlab'
+    if (
+      hostMatchesDomain(host, 'atlassian.net')
+      || path.includes('/jira')
+      || path.includes('/browse/')
+    ) {
       return 'jira'
     }
     return 'unknown'

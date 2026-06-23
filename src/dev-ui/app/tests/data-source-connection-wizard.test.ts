@@ -38,6 +38,8 @@ describe('Data Source Connection Wizard — Group 1: Adapter selection', () => {
   it('test_returns_unknown_for_unrecognized_or_invalid_url', () => {
     expect(detectAdapterFromUrl('https://example.com/repo')).toBe('unknown')
     expect(detectAdapterFromUrl('not-a-url')).toBe('unknown')
+    expect(detectAdapterFromUrl('https://evil-github.com/acme/repo')).toBe('unknown')
+    expect(detectAdapterFromUrl('https://github.com.evil.com/acme/repo')).toBe('unknown')
   })
 
   it('test_bulk_url_parser_normalizes_multiline_entries', () => {

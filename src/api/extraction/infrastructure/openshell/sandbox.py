@@ -412,8 +412,6 @@ def apply_policy(
     ]
     for binary in binaries:
         args.extend(["--binary", binary])
-    if enforcement == "hard_requirement":
-        args.extend(["--enforcement", "hard_requirement"])
     for endpoint in endpoints:
         args.extend(["--add-endpoint", endpoint])
     args.append(sandbox_name)

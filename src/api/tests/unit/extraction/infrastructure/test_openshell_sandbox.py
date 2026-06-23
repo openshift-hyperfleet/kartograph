@@ -12,6 +12,7 @@ import tarfile
 
 from extraction.infrastructure.openshell.sandbox import (
     _safe_extract_tar,
+    apply_policy,
     create_sandbox,
     delete_sandboxes_by_prefix,
     download_directory_contents,
@@ -22,6 +23,24 @@ from extraction.infrastructure.openshell.sandbox import (
     upload_directory_contents,
     upload_path,
 )
+
+
+class TestApplyPolicy:
+    def test_policy_update_omits_invalid_global_enforcement_flag(self) -> None:
+        with patch(
+            "extraction.infrastructure.openshell.sandbox.run_openshell",
+        ) as run:
+            apply_policy(
+                sandbox_name="kartograph-extract-job-a",
+                workload="extraction_job",
+                api_host="host.docker.internal:8000",
+            )
+
+        args = run.call_args.args[0]
+        assert args[0:3] == ["policy", "update", "--wait"]
+        assert "--enforcement" not in args
+        assert "--add-endpoint" in args
+        assert args[-1] == "kartograph-extract-job-a"
 
 
 class TestSandboxPhase:

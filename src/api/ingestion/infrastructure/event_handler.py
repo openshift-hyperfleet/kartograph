@@ -7,6 +7,7 @@ pipeline and emits either JobPackageProduced or IngestionFailed to the outbox.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -49,10 +50,29 @@ class IngestionEventHandler:
         """Return event types handled by this handler."""
         return frozenset({"SyncStarted"})
 
+    @staticmethod
+    def _redact_sensitive_error(message: str) -> str:
+        """Redact token-like secrets from error strings before persistence."""
+        patterns = (
+            # GitHub PAT prefixes
+            re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+            # Generic bearer tokens
+            re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{16,}\b"),
+            # Common key/value credential leaks
+            re.compile(
+                r"(?i)\b(token|access_token|password|api[_-]?key)\b\s*[:=]\s*['\"]?[^\s,'\"]+"
+            ),
+        )
+        redacted = message
+        for pattern in patterns:
+            redacted = pattern.sub("***REDACTED***", redacted)
+        return redacted
+
     async def handle(
         self,
         event_type: str,
         payload: dict[str, Any],
+        runtime_credentials: dict[str, str] | None = None,
     ) -> None:
         """Process a SyncStarted event by running the ingestion pipeline.
 
@@ -74,8 +94,49 @@ class IngestionEventHandler:
         knowledge_graph_id = payload["knowledge_graph_id"]
         now = datetime.now(UTC)
 
+        pipeline_mode = payload.get("pipeline_mode", "full")
+        if pipeline_mode not in {"full", "ingest_only"}:
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r} for SyncStarted"
+            )
+        ingest_only = pipeline_mode == "ingest_only"
+
+        if payload.get("no_changes_detected") is True:
+            if ingest_only:
+                await self._outbox.append(
+                    event_type="IngestionPrepared",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "prepared_commit_sha": payload.get(
+                            "tracked_branch_head_commit"
+                        ),
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
+            else:
+                await self._outbox.append(
+                    event_type="MutationsApplied",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
+            return
+
         try:
-            job_package_id = await self._ingestion_service.run(
+            ingestion_result = await self._ingestion_service.run(
                 sync_run_id=sync_run_id,
                 data_source_id=data_source_id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -83,6 +144,9 @@ class IngestionEventHandler:
                 connection_config=payload.get("connection_config", {}),
                 credentials_path=payload.get("credentials_path"),
                 tenant_id=payload.get("tenant_id"),
+                credentials=runtime_credentials or payload.get("credentials"),
+                baseline_commit=payload.get("baseline_commit"),
+                pipeline_mode=pipeline_mode,
             )
         except asyncio.CancelledError:
             # Propagate task cancellation so the event loop can shut down
@@ -94,7 +158,7 @@ class IngestionEventHandler:
                 payload={
                     "sync_run_id": sync_run_id,
                     "data_source_id": data_source_id,
-                    "error": str(exc),
+                    "error": self._redact_sensitive_error(str(exc)),
                     "occurred_at": now.isoformat(),
                 },
                 occurred_at=now,
@@ -105,16 +169,51 @@ class IngestionEventHandler:
 
         # Ingestion succeeded — append success event outside the try block so
         # that an outbox write failure is not misclassified as IngestionFailed.
-        await self._outbox.append(
-            event_type="JobPackageProduced",
-            payload={
-                "sync_run_id": sync_run_id,
-                "data_source_id": data_source_id,
-                "knowledge_graph_id": knowledge_graph_id,
-                "job_package_id": str(job_package_id),
-                "occurred_at": now.isoformat(),
-            },
-            occurred_at=now,
-            aggregate_type="sync_run",
-            aggregate_id=sync_run_id,
-        )
+        if ingest_only:
+            if ingestion_result.entry_count == 0:
+                await self._outbox.append(
+                    event_type="IngestionPrepared",
+                    payload={
+                        "sync_run_id": sync_run_id,
+                        "data_source_id": data_source_id,
+                        "knowledge_graph_id": knowledge_graph_id,
+                        "no_changes_detected": True,
+                        "prepared_commit_sha": ingestion_result.prepared_commit_sha,
+                        "changeset_entry_count": 0,
+                        "occurred_at": now.isoformat(),
+                    },
+                    occurred_at=now,
+                    aggregate_type="sync_run",
+                    aggregate_id=sync_run_id,
+                )
+                return
+            await self._outbox.append(
+                event_type="IngestionPrepared",
+                payload={
+                    "sync_run_id": sync_run_id,
+                    "data_source_id": data_source_id,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "job_package_id": str(ingestion_result.job_package_id),
+                    "prepared_commit_sha": ingestion_result.prepared_commit_sha,
+                    "prepared_file_count": ingestion_result.branch_file_count,
+                    "changeset_entry_count": ingestion_result.entry_count,
+                    "occurred_at": now.isoformat(),
+                },
+                occurred_at=now,
+                aggregate_type="sync_run",
+                aggregate_id=sync_run_id,
+            )
+        else:
+            await self._outbox.append(
+                event_type="JobPackageProduced",
+                payload={
+                    "sync_run_id": sync_run_id,
+                    "data_source_id": data_source_id,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "job_package_id": str(ingestion_result.job_package_id),
+                    "occurred_at": now.isoformat(),
+                },
+                occurred_at=now,
+                aggregate_type="sync_run",
+                aggregate_id=sync_run_id,
+            )

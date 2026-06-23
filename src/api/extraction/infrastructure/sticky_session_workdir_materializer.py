@@ -1,0 +1,202 @@
+"""Prepare sticky session work directories with JobPackage materialization."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+import shutil
+import zipfile
+
+from extraction.domain.prepared_job_package_source import PreparedJobPackageSource
+from extraction.infrastructure.extraction_job_helpers import (
+    HELPER_BUNDLE_NAMES,
+    HELPERS_DIR,
+)
+from extraction.infrastructure.instance_generator_templates import (
+    EXAMPLES_DIR,
+    EXAMPLE_SCANNER_NAMES,
+    TEMPLATES_DIR,
+    TEMPLATE_SCRIPT_NAMES,
+)
+from extraction.infrastructure.sticky_session_workspace_permissions import (
+    ensure_agent_workspace_permissions,
+)
+from shared_kernel.job_package.path_safety import validate_zip_entry_name
+from shared_kernel.job_package.reader import JobPackageReader
+from shared_kernel.job_package.value_objects import JobPackageId
+
+_WORKSPACE_INDEX_FILENAME = "sources-index.json"
+_SESSION_ID_SAFE = re.compile(r"^[a-zA-Z0-9_.-]+$")
+
+
+def validate_session_id(session_id: str) -> str:
+    """Reject session IDs that could escape the sticky-sessions directory."""
+    if not session_id or not _SESSION_ID_SAFE.match(session_id):
+        raise ValueError(f"invalid session_id: {session_id!r}")
+    return session_id
+
+
+def _replace_directory(path: Path) -> None:
+    """Replace a directory tree without removing its parent mount point."""
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
+class StickySessionWorkdirMaterializer:
+    """Materialize JobPackage archives into a session-scoped work directory."""
+
+    def __init__(
+        self,
+        *,
+        job_package_work_dir: Path,
+        container_run_uid: int | None = None,
+        container_run_gid: int | None = None,
+    ) -> None:
+        self._job_package_work_dir = job_package_work_dir
+        self._container_run_uid = container_run_uid
+        self._container_run_gid = container_run_gid
+
+    def prepare(
+        self,
+        *,
+        session_id: str,
+        knowledge_graph_id: str,
+        job_packages: tuple[PreparedJobPackageSource, ...] = (),
+    ) -> Path:
+        """Create or refresh the host work directory for one sticky session."""
+        safe_session_id = validate_session_id(session_id)
+        session_root = self._job_package_work_dir / "sticky-sessions" / safe_session_id
+        session_root.mkdir(parents=True, exist_ok=True)
+        ingestion_context_dir = session_root / "ingestion-context"
+        repository_files_dir = session_root / "repository-files"
+        _replace_directory(ingestion_context_dir)
+        _replace_directory(repository_files_dir)
+
+        index_sources: list[dict[str, object]] = []
+        for source in job_packages:
+            archive_path = (
+                self._job_package_work_dir
+                / JobPackageId(value=source.package_id).archive_name()
+            )
+            if not archive_path.exists():
+                continue
+            reader = JobPackageReader(archive_path)
+            manifest = reader.read_manifest()
+            if manifest.entry_count <= 0:
+                continue
+
+            package_dir = ingestion_context_dir / source.package_id
+            package_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(archive_path) as archive:
+                for entry_name in archive.namelist():
+                    validate_zip_entry_name(entry_name)
+                    archive.extract(entry_name, path=package_dir)
+
+            repository_folder = source.repository_folder
+            sample_paths: list[str] = []
+            for change in reader.iter_changeset():
+                if change.content_ref is None or not change.path:
+                    continue
+                validate_zip_entry_name(change.path)
+                output_path = repository_files_dir / repository_folder / change.path
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(reader.read_content(change.content_ref))
+                if len(sample_paths) < 8:
+                    sample_paths.append(change.path)
+
+            index_sources.append(
+                {
+                    "job_package_id": source.package_id,
+                    "data_source_id": source.data_source_id,
+                    "data_source_name": source.data_source_name,
+                    "repository_folder": repository_folder,
+                    "entry_count": manifest.entry_count,
+                    "sync_mode": str(manifest.sync_mode),
+                    "repository_root": f"repository-files/{repository_folder}",
+                    "sample_paths": sample_paths,
+                    "file_extension_counts": self._extension_counts(
+                        repository_files_dir / repository_folder
+                    ),
+                }
+            )
+
+        marker = session_root / "knowledge-graph-id"
+        marker.write_text(knowledge_graph_id, encoding="utf-8")
+        self._materialize_instance_generators(session_root)
+        self._materialize_mutation_helpers(session_root)
+        self._write_workspace_index(
+            session_root=session_root,
+            knowledge_graph_id=knowledge_graph_id,
+            sources=index_sources,
+        )
+        ensure_agent_workspace_permissions(
+            session_root,
+            container_run_uid=self._container_run_uid,
+            container_run_gid=self._container_run_gid,
+        )
+        return session_root
+
+    @staticmethod
+    def _materialize_instance_generators(session_root: Path) -> None:
+        """Copy bundled generator templates into the session workspace."""
+        target_dir = session_root / "instance_generators"
+        _replace_directory(target_dir)
+        for name in TEMPLATE_SCRIPT_NAMES:
+            source = TEMPLATES_DIR / name
+            if source.is_file():
+                shutil.copy2(source, target_dir / name)
+        examples_target = target_dir / "examples"
+        examples_target.mkdir(parents=True, exist_ok=True)
+        for name in EXAMPLE_SCANNER_NAMES:
+            source = EXAMPLES_DIR / name
+            if source.is_file():
+                shutil.copy2(source, examples_target / name)
+        (target_dir / "out").mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _materialize_mutation_helpers(session_root: Path) -> None:
+        """Copy JSONL mutation examples for one-off graph edits."""
+        helpers_dir = session_root / "helpers"
+        helpers_dir.mkdir(parents=True, exist_ok=True)
+        for name in HELPER_BUNDLE_NAMES:
+            source = HELPERS_DIR / name
+            if source.is_file():
+                shutil.copy2(source, helpers_dir / name)
+
+    @staticmethod
+    def _extension_counts(root: Path) -> dict[str, int]:
+        """Summarize file extensions under one materialized repository folder."""
+        counts: dict[str, int] = {}
+        if not root.is_dir():
+            return counts
+        for file_path in root.rglob("*"):
+            if not file_path.is_file():
+                continue
+            if any(part.startswith(".") for part in file_path.parts):
+                continue
+            suffix = file_path.suffix.lower() or "(no extension)"
+            counts[suffix] = counts.get(suffix, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def _write_workspace_index(
+        self,
+        *,
+        session_root: Path,
+        knowledge_graph_id: str,
+        sources: list[dict[str, object]],
+    ) -> None:
+        index_path = session_root / _WORKSPACE_INDEX_FILENAME
+        index_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "knowledge_graph_id": knowledge_graph_id,
+                    "sources": sources,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )

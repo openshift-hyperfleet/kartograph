@@ -126,6 +126,36 @@ The system SHALL track the execution status of each sync operation.
 - WHEN the data source is deleted
 - THEN all associated sync runs are cascade-deleted
 
+### Requirement: Source Commit Reference Tracking
+The system SHALL track source-repository commit references for Git-based data sources.
+
+#### Scenario: Local clone commit tracking
+- GIVEN a Git-backed data source with a local clone available to ingestion tooling
+- WHEN source commit references are refreshed
+- THEN a clone-head commit reference is recorded as the ingestion clone HEAD for the tracked branch
+
+#### Scenario: Commit during last extraction tracking
+- GIVEN a sync run starts for a Git-backed data source
+- WHEN extraction begins
+- THEN a last-extraction baseline commit reference is recorded from local clone state at run start
+- AND this value remains fixed for that run even if branch HEAD changes later
+
+#### Scenario: Tracked branch head commit tracking
+- GIVEN a Git-backed data source configured with a tracked branch
+- WHEN source commit references are refreshed
+- THEN a tracked-branch head commit reference is recorded from the latest known remote branch HEAD
+
+#### Scenario: UI label compatibility
+- GIVEN commit references are displayed in the UI
+- WHEN labels are rendered
+- THEN labels may use either legacy terms ("Local clone commit", "Commit during last extraction") or clearer equivalents
+- AND displayed labels map unambiguously to clone-head, last-extraction-baseline, and tracked-branch-head references
+
+#### Scenario: Adapter scope
+- GIVEN a non-Git adapter type
+- WHEN source commit references are requested
+- THEN Git-specific commit fields are absent or null
+
 ### Requirement: Adapter Connection Config Normalization
 Each adapter SHALL accept user-friendly connection parameters and normalize them internally.
 

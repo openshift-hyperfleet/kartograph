@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, _utc_now
@@ -38,6 +39,7 @@ class DataSourceSyncRunModel(Base):
     - ingesting: Data extraction pipeline is running
     - ai_extracting: AI entity extraction is in progress
     - applying: Graph mutations are being applied
+    - ingested: Ingestion context prepared without extraction (terminal)
     - completed: Sync finished successfully (terminal)
     - failed: Sync failed at any stage (terminal)
     """
@@ -69,13 +71,16 @@ class DataSourceSyncRunModel(Base):
         default=list,
         server_default="{}",
     )
+    mutation_log_run: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("idx_sync_runs_data_source_id", "data_source_id"),
         Index("idx_sync_runs_data_source_status", "data_source_id", "status"),
         CheckConstraint(
             "status IN ('pending', 'ingesting', 'ai_extracting', 'applying', "
-            "'completed', 'failed')",
+            "'ingested', 'completed', 'failed')",
             name="ck_sync_runs_status",
         ),
     )

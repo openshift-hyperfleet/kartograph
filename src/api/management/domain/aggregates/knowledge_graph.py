@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from ulid import ULID
+
 from management.domain.events import (
     KnowledgeGraphCreated,
     KnowledgeGraphDeleted,
@@ -15,12 +17,19 @@ from management.domain.exceptions import (
     AggregateDeletedError,
     InvalidIdentifierError,
     InvalidKnowledgeGraphNameError,
+    InvalidWorkspaceModeTransitionError,
 )
 from management.domain.observability import (
     DefaultKnowledgeGraphProbe,
     KnowledgeGraphProbe,
 )
-from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
+from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
+    KnowledgeGraphId,
+    OntologyConfig,
+    WorkspaceMode,
+)
 
 if TYPE_CHECKING:
     from management.domain.events import DomainEvent
@@ -51,6 +60,14 @@ class KnowledgeGraph:
     created_at: datetime
     updated_at: datetime
     ontology: OntologyConfig | None = field(default=None)
+    maintenance_schedule: KnowledgeGraphMaintenanceSchedule | None = field(default=None)
+    maintenance_run_history: tuple[KnowledgeGraphMaintenanceRunRecord, ...] = field(
+        default_factory=tuple
+    )
+    workspace_mode: WorkspaceMode = field(default=WorkspaceMode.SCHEMA_BOOTSTRAP)
+    active_schema_bootstrap_session_id: str | None = field(default=None)
+    active_extraction_operations_session_id: str | None = field(default=None)
+    most_recent_completed_session_id: str | None = field(default=None)
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: KnowledgeGraphProbe = field(
         default_factory=DefaultKnowledgeGraphProbe,
@@ -63,6 +80,7 @@ class KnowledgeGraph:
         self._validate_name(self.name)
         self._validate_identifier(self.tenant_id, "tenant_id")
         self._validate_identifier(self.workspace_id, "workspace_id")
+        self.workspace_mode = WorkspaceMode(self.workspace_mode)
 
     def _validate_name(self, name: str) -> None:
         """Validate knowledge graph name length.
@@ -229,6 +247,44 @@ class KnowledgeGraph:
             )
         self.ontology = None
         self.updated_at = datetime.now(UTC)
+
+    def set_maintenance_schedule(
+        self, schedule: KnowledgeGraphMaintenanceSchedule
+    ) -> None:
+        """Persist KG-level maintenance schedule configuration."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot set maintenance schedule on a deleted knowledge graph"
+            )
+        self.maintenance_schedule = schedule
+        self.updated_at = datetime.now(UTC)
+
+    def append_maintenance_run(
+        self, run: KnowledgeGraphMaintenanceRunRecord, *, max_history: int = 50
+    ) -> None:
+        """Append a maintenance orchestration run to KG-scoped history."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot append maintenance history on a deleted knowledge graph"
+            )
+        history = [*self.maintenance_run_history, run]
+        self.maintenance_run_history = tuple(history[-max_history:])
+        self.updated_at = datetime.now(UTC)
+
+    def transition_to_extraction_operations(self) -> str:
+        """Transition workspace mode from bootstrap to extraction operations."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot transition workspace mode on a deleted knowledge graph"
+            )
+        if self.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS:
+            raise InvalidWorkspaceModeTransitionError(
+                "Workspace mode is already extraction_operations"
+            )
+        self.workspace_mode = WorkspaceMode.EXTRACTION_OPERATIONS
+        self.active_extraction_operations_session_id = str(ULID())
+        self.updated_at = datetime.now(UTC)
+        return self.active_extraction_operations_session_id
 
     def mark_for_deletion(
         self,

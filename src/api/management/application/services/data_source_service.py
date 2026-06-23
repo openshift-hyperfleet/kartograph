@@ -49,6 +49,16 @@ class DataSourceWithLatestRun:
     latest_sync_run: DataSourceSyncRun | None
 
 
+@dataclass
+class RunControlResult:
+    """Result payload for extraction run-control commands."""
+
+    action: str
+    affected_count: int
+    updated_runs: list[DataSourceSyncRun]
+    started_run: DataSourceSyncRun | None = None
+
+
 class DataSourceService:
     """Application service for data source management.
 
@@ -455,6 +465,81 @@ class DataSourceService:
 
         return ds
 
+    async def refresh_commit_references(
+        self,
+        user_id: str,
+        ds_id: str,
+        tracked_branch_head_commit: str,
+    ) -> DataSource:
+        """Persist the latest tracked branch head for a Git-backed data source.
+
+        Requires MANAGE permission. Updates only ``tracked_branch_head_commit``;
+        extraction baseline is seeded on first prepare, advanced when extraction
+        jobs finish or maintain sync applies mutations.
+        """
+        has_manage = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.MANAGE,
+        )
+        if not has_manage:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.MANAGE,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks manage permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None or ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        ds.tracked_branch_head_commit = tracked_branch_head_commit
+
+        await self._ds_repo.save(ds)
+        await self._session.commit()
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+        return ds
+
+    async def adopt_tracked_head_as_baseline(
+        self,
+        user_id: str,
+        ds_id: str,
+    ) -> DataSource:
+        """Move extraction baseline to the currently tracked branch head."""
+        has_manage = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.MANAGE,
+        )
+        if not has_manage:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.MANAGE,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks manage permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None or ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+        if not ds.tracked_branch_head_commit:
+            raise ValueError(
+                "Cannot adopt tracked branch head as baseline before refs are refreshed"
+            )
+
+        ds.last_extraction_baseline_commit = ds.tracked_branch_head_commit
+        await self._ds_repo.save(ds)
+        await self._session.commit()
+        self._probe.data_source_updated(ds_id=ds_id, name=ds.name)
+        return ds
+
     async def delete(
         self,
         user_id: str,
@@ -514,12 +599,16 @@ class DataSourceService:
         self,
         user_id: str,
         ds_id: str,
+        *,
+        pipeline_mode: str = "full",
     ) -> DataSourceSyncRun:
         """Trigger a sync for a data source.
 
         Args:
             user_id: The user triggering the sync
             ds_id: The data source ID
+            pipeline_mode: ``full`` (default) or ``ingest_only`` to prepare ingestion
+                context without running AI extraction or graph application
 
         Returns:
             The created DataSourceSyncRun entity
@@ -552,6 +641,12 @@ class DataSourceService:
         if ds.tenant_id != self._scope_to_tenant:
             raise ValueError(f"Data source {ds_id} not found")
 
+        if pipeline_mode not in {"full", "ingest_only"}:
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r}; "
+                "expected 'full' or 'ingest_only'"
+            )
+
         now = datetime.now(UTC)
 
         sync_run = DataSourceSyncRun(
@@ -568,10 +663,104 @@ class DataSourceService:
         # Record SyncStarted event on the data source aggregate.
         # This event carries the sync_run_id so lifecycle handlers
         # can update the correct sync run record.
-        ds.request_sync(sync_run_id=sync_run.id, requested_by=user_id)
+        ds.request_sync(
+            sync_run_id=sync_run.id,
+            requested_by=user_id,
+            pipeline_mode=pipeline_mode,
+        )
         await self._ds_repo.save(ds)
         await self._session.commit()
 
         self._probe.sync_requested(ds_id=ds_id)
 
         return sync_run
+
+    async def apply_run_control(
+        self,
+        user_id: str,
+        ds_id: str,
+        action: str,
+    ) -> RunControlResult:
+        """Apply run-control action to sync runs for a data source."""
+        if action == "start":
+            started = await self.trigger_sync(user_id=user_id, ds_id=ds_id)
+            return RunControlResult(
+                action=action,
+                affected_count=1,
+                updated_runs=[],
+                started_run=started,
+            )
+
+        has_manage = await self._check_permission(
+            user_id=user_id,
+            resource_type=ResourceType.DATA_SOURCE,
+            resource_id=ds_id,
+            permission=Permission.MANAGE,
+        )
+        if not has_manage:
+            self._probe.permission_denied(
+                user_id=user_id,
+                resource_id=ds_id,
+                permission=Permission.MANAGE,
+            )
+            raise UnauthorizedError(
+                f"User {user_id} lacks manage permission on data source {ds_id}"
+            )
+
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=ds_id))
+        if ds is None or ds.tenant_id != self._scope_to_tenant:
+            raise ValueError(f"Data source {ds_id} not found")
+
+        runs = await self._sync_run_repo.find_by_data_source(ds_id)
+        active_statuses = {"pending", "ingesting", "ai_extracting", "applying"}
+        targets: list[DataSourceSyncRun] = []
+        now = datetime.now(UTC)
+
+        if action == "pause":
+            targets = [run for run in runs if run.status in active_statuses]
+            for run in targets:
+                run.status = "pending"
+                run.logs.append("Run paused by control plane")
+        elif action == "halt":
+            targets = [run for run in runs if run.status in active_statuses]
+            for run in targets:
+                run.status = "failed"
+                run.completed_at = now
+                run.error = "Run halted by control plane"
+                run.logs.append("Run halted by control plane")
+        elif action == "reset_running":
+            targets = [run for run in runs if run.status in active_statuses]
+            for run in targets:
+                run.status = "pending"
+                run.completed_at = None
+                run.error = None
+        elif action == "reset_failed":
+            targets = [run for run in runs if run.status == "failed"]
+            for run in targets:
+                run.status = "pending"
+                run.completed_at = None
+                run.error = None
+        elif action == "reset_completed":
+            targets = [run for run in runs if run.status == "completed"]
+            for run in targets:
+                run.status = "pending"
+                run.completed_at = None
+                run.error = None
+        elif action == "reset_all":
+            targets = list(runs)
+            for run in targets:
+                run.status = "pending"
+                run.completed_at = None
+                run.error = None
+        else:
+            raise ValueError(f"Unsupported run control action: {action}")
+
+        for run in targets:
+            await self._sync_run_repo.save(run)
+        await self._session.commit()
+
+        return RunControlResult(
+            action=action,
+            affected_count=len(targets),
+            updated_runs=targets,
+        )

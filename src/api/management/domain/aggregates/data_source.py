@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from management.domain.events import (
     DataSourceCreated,
@@ -23,9 +23,11 @@ from management.domain.observability import (
 )
 from management.domain.value_objects import (
     DataSourceId,
+    DEFAULT_SYNC_PIPELINE_MODE,
     Ontology,
     Schedule,
     ScheduleType,
+    SyncPipelineMode,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -63,6 +65,11 @@ class DataSource:
     last_sync_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    clone_head_commit: str | None = None
+    last_extraction_baseline_commit: str | None = None
+    tracked_branch_head_commit: str | None = None
+    last_prepared_commit: str | None = None
+    last_prepared_file_count: int | None = None
     ontology: Ontology | None = None
     _pending_events: list[DomainEvent] = field(default_factory=list, repr=False)
     _probe: DataSourceProbe = field(
@@ -308,6 +315,7 @@ class DataSource:
         sync_run_id: str,
         *,
         requested_by: str | None = None,
+        pipeline_mode: SyncPipelineMode | str = DEFAULT_SYNC_PIPELINE_MODE,
     ) -> None:
         """Request a sync for this data source.
 
@@ -318,12 +326,20 @@ class DataSource:
         Args:
             sync_run_id: The ID of the sync run record created for this sync
             requested_by: The user who requested the sync (optional)
+            pipeline_mode: ``full`` or ``ingest_only`` — see SyncStarted.pipeline_mode
 
         Raises:
             AggregateDeletedError: If the data source has been marked for deletion
+            ValueError: If pipeline_mode is not a supported value
         """
         if self._deleted:
             raise AggregateDeletedError("Cannot request sync on a deleted data source")
+        if pipeline_mode not in ("full", "ingest_only"):
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r}; "
+                "expected 'full' or 'ingest_only'"
+            )
+        resolved_mode = cast(SyncPipelineMode, pipeline_mode)
         self._pending_events.append(
             SyncStarted(
                 sync_run_id=sync_run_id,
@@ -335,6 +351,7 @@ class DataSource:
                 credentials_path=self.credentials_path,
                 occurred_at=datetime.now(UTC),
                 requested_by=requested_by,
+                pipeline_mode=resolved_mode,
             )
         )
 
@@ -355,6 +372,70 @@ class DataSource:
             knowledge_graph_id=self.knowledge_graph_id,
             tenant_id=self.tenant_id,
         )
+
+    def advance_extraction_baseline_to_tracked_head(self) -> None:
+        """Move extraction baseline to the current tracked branch head.
+
+        Called after graph mutations are applied so maintenance diffs reflect
+        the commit that was last extracted into the knowledge graph.
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        if self.tracked_branch_head_commit:
+            self.last_extraction_baseline_commit = self.tracked_branch_head_commit
+
+    def maybe_seed_extraction_baseline_from_prepare(
+        self,
+        *,
+        prepared_commit: str | None,
+    ) -> None:
+        """Set baseline from the first successful prepare when still unset."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        if self.last_extraction_baseline_commit is not None:
+            return
+        if prepared_commit:
+            self.last_extraction_baseline_commit = prepared_commit
+
+    def advance_extraction_baseline_to_ingested_head(self) -> None:
+        """Move extraction baseline to the ingested/prepared commit on disk."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot update extraction baseline on a deleted data source"
+            )
+        from management.domain.commit_pull_state import resolve_ingested_head_commit
+
+        commit = resolve_ingested_head_commit(self)
+        if commit:
+            self.last_extraction_baseline_commit = commit
+
+    def record_ingestion_prepared(
+        self,
+        *,
+        prepared_commit: str | None,
+        prepared_file_count: int | None = None,
+    ) -> None:
+        """Record the commit and file count from a successful ingest-only prepare.
+
+        Raises:
+            AggregateDeletedError: If the data source has been marked for deletion
+        """
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot record ingestion prepare on a deleted data source"
+            )
+        if prepared_commit:
+            self.last_prepared_commit = prepared_commit
+            self.clone_head_commit = prepared_commit
+        if prepared_file_count is not None:
+            self.last_prepared_file_count = prepared_file_count
 
     def mark_for_deletion(
         self,

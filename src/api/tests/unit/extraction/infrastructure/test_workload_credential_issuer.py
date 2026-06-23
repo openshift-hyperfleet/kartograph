@@ -1,0 +1,154 @@
+"""Unit tests for scoped workload credential issuer."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from jose import jwt
+
+from extraction.infrastructure.workload_credential_issuer import (
+    DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
+    WORKLOAD_TOKEN_ALGORITHM,
+    WORKLOAD_TOKEN_ISSUER,
+    ScopedWorkloadCredentialIssuer,
+)
+
+_TEST_SIGNING_KEY = DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+
+
+def test_issue_for_sticky_session_includes_chat_scope() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5)
+    )
+    credentials = issuer.issue_for_sticky_session(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        session_id="session-test-1",
+    )
+
+    assert "workload:chat" in credentials.scopes
+    assert "workload:read" in credentials.scopes
+    assert "workload:write" in credentials.scopes
+    assert "workload:admin" in credentials.scopes
+    assert "session:session-test-1" in credentials.scopes
+    assert issuer.verify(credentials.token) == credentials
+
+
+def test_verify_rejects_unknown_token() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(minutes=5)
+    )
+    assert issuer.verify("not-a-valid-jwt") is None
+
+
+def test_verify_survives_new_issuer_instance_with_same_signing_key() -> None:
+    signing_key = "shared-test-signing-key-at-least-32-bytes"
+    issuer_a = ScopedWorkloadCredentialIssuer(
+        signing_key=signing_key,
+        default_ttl=timedelta(minutes=5),
+    )
+    credentials = issuer_a.issue_for_sticky_session(
+        tenant_id="tenant-1",
+        knowledge_graph_id="kg-1",
+        session_id="session-test-2",
+    )
+
+    issuer_b = ScopedWorkloadCredentialIssuer(
+        signing_key=signing_key,
+        default_ttl=timedelta(minutes=5),
+    )
+    verified = issuer_b.verify(credentials.token)
+
+    assert verified is not None
+    assert verified.scopes == credentials.scopes
+    assert verified.expires_at == credentials.expires_at
+
+
+def test_verify_rejects_token_signed_with_different_key() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key="issuer-a-key-at-least-32-characters-long",
+        default_ttl=timedelta(minutes=5),
+    )
+    credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+
+    other_issuer = ScopedWorkloadCredentialIssuer(
+        signing_key="issuer-b-key-at-least-32-characters-long",
+        default_ttl=timedelta(minutes=5),
+    )
+
+    assert other_issuer.verify(credentials.token) is None
+
+
+def test_verify_rejects_expired_token() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(
+        signing_key=_TEST_SIGNING_KEY, default_ttl=timedelta(seconds=-60)
+    )
+    credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+
+    assert issuer.verify(credentials.token) is None
+
+
+def test_rejects_empty_signing_key() -> None:
+    try:
+        ScopedWorkloadCredentialIssuer(signing_key="   ")
+    except ValueError as exc:
+        assert "signing key" in str(exc).lower()
+    else:
+        raise AssertionError("expected ValueError for empty signing key")
+
+
+def test_rejects_short_signing_key() -> None:
+    try:
+        ScopedWorkloadCredentialIssuer(signing_key="too-short")
+    except ValueError as exc:
+        assert "32" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for short signing key")
+
+
+def test_default_dev_signing_key_is_stable() -> None:
+    assert DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY
+
+
+def test_verify_rejects_token_without_issuer_and_audience() -> None:
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(minutes=5)
+    legacy_token = jwt.encode(
+        {
+            "sub": "workload",
+            "jti": "legacy-token",
+            "scopes": [
+                "tenant:tenant-1",
+                "knowledge_graph:kg-1",
+                "workload:extraction",
+            ],
+            "iat": int(now.timestamp()),
+            "exp": int(expires_at.timestamp()),
+        },
+        _TEST_SIGNING_KEY,
+        algorithm=WORKLOAD_TOKEN_ALGORITHM,
+    )
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY)
+
+    assert issuer.verify(str(legacy_token)) is None
+
+
+def test_verify_rejects_token_with_wrong_audience() -> None:
+    issuer = ScopedWorkloadCredentialIssuer(signing_key=_TEST_SIGNING_KEY)
+    credentials = issuer.issue(tenant_id="tenant-1", knowledge_graph_id="kg-1")
+    now = datetime.now(UTC)
+    tampered = jwt.encode(
+        {
+            "sub": "workload",
+            "iss": WORKLOAD_TOKEN_ISSUER,
+            "aud": "other-service",
+            "jti": "wrong-aud",
+            "scopes": list(credentials.scopes),
+            "iat": int(now.timestamp()),
+            "exp": int(credentials.expires_at.timestamp()),
+        },
+        _TEST_SIGNING_KEY,
+        algorithm=WORKLOAD_TOKEN_ALGORITHM,
+    )
+
+    assert issuer.verify(str(tampered)) is None

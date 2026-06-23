@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   test:
     name: Test Python ${{ matrix.python-version }}

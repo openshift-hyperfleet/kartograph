@@ -14,6 +14,7 @@ from uuid import UUID
 import pytest
 
 from ingestion.infrastructure.event_handler import IngestionEventHandler
+from ingestion.application.value_objects import IngestionRunResult
 from shared_kernel.job_package.value_objects import (
     JobPackageId,
 )
@@ -67,18 +68,29 @@ class _FakeIngestionService:
         connection_config: dict[str, str],
         credentials_path: str | None,
         tenant_id: str | None = None,
-    ) -> JobPackageId:
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
+        pipeline_mode: str = "full",
+    ) -> IngestionRunResult:
         self.calls.append(
             {
                 "sync_run_id": sync_run_id,
                 "data_source_id": data_source_id,
                 "knowledge_graph_id": knowledge_graph_id,
                 "adapter_type": adapter_type,
+                "credentials": credentials,
+                "baseline_commit": baseline_commit,
+                "pipeline_mode": pipeline_mode,
             }
         )
         if self._fail:
             raise RuntimeError(self._error)
-        return JobPackageId(value="01HRZZZZZZZZZZZZZZZZZZZZZ0")
+        return IngestionRunResult(
+            job_package_id=JobPackageId(value="01HRZZZZZZZZZZZZZZZZZZZZZ0"),
+            entry_count=42,
+            branch_file_count=99,
+            prepared_commit_sha="abc123def456",
+        )
 
 
 @pytest.fixture
@@ -150,6 +162,40 @@ class TestIngestionEventHandlerSuccess:
         assert call["sync_run_id"] == "run-001"
         assert call["adapter_type"] == "github"
 
+    async def test_passes_baseline_and_credentials_through_payload(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+    ):
+        """SyncStarted payload baseline/credentials should pass to service.run()."""
+        payload = _sync_started_payload()
+        payload["baseline_commit"] = "abc123"
+        payload["credentials"] = {"token": "secret"}
+
+        await handler.handle("SyncStarted", payload)
+
+        call = ingestion_service.calls[0]
+        assert call["baseline_commit"] == "abc123"
+        assert call["credentials"] == {"token": "secret"}
+
+    async def test_prefers_runtime_credentials_over_payload_credentials(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+    ):
+        """Runtime credentials override payload credentials to avoid payload leakage."""
+        payload = _sync_started_payload()
+        payload["credentials"] = {"token": "payload-token"}
+
+        await handler.handle(
+            "SyncStarted",
+            payload,
+            runtime_credentials={"token": "runtime-token"},
+        )
+
+        call = ingestion_service.calls[0]
+        assert call["credentials"] == {"token": "runtime-token"}
+
     async def test_emits_job_package_produced_on_success(
         self,
         handler: IngestionEventHandler,
@@ -179,6 +225,70 @@ class TestIngestionEventHandlerSuccess:
         assert event["aggregate_type"] == "sync_run"
         assert event["aggregate_id"] == "run-001"
 
+    async def test_short_circuits_when_no_changes_detected(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+        outbox: _FakeOutboxRepository,
+    ):
+        """When no_changes_detected is true, heavy ingestion is skipped."""
+        payload = _sync_started_payload(sync_run_id="run-004")
+        payload["no_changes_detected"] = True
+        payload["tracked_branch_head_commit"] = "abc123"
+        payload["baseline_commit"] = "abc123"
+
+        await handler.handle("SyncStarted", payload)
+
+        assert ingestion_service.calls == []
+        assert len(outbox.appended) == 1
+        event = outbox.appended[0]
+        assert event["event_type"] == "MutationsApplied"
+        assert event["payload"]["sync_run_id"] == "run-004"
+        assert event["payload"]["no_changes_detected"] is True
+
+    async def test_emits_ingestion_prepared_when_ingest_only(
+        self,
+        handler: IngestionEventHandler,
+        outbox: _FakeOutboxRepository,
+    ):
+        """ingest_only mode should stop after ingestion without JobPackageProduced."""
+        payload = _sync_started_payload(sync_run_id="run-ingest")
+        payload["pipeline_mode"] = "ingest_only"
+        await handler.handle("SyncStarted", payload)
+
+        assert len(outbox.appended) == 1
+        event = outbox.appended[0]
+        assert event["event_type"] == "IngestionPrepared"
+        assert event["payload"]["job_package_id"] is not None
+        assert event["payload"]["prepared_commit_sha"] == "abc123def456"
+        assert event["payload"]["prepared_file_count"] == 99
+
+    async def test_no_changes_ingest_only_emits_ingestion_prepared(
+        self,
+        handler: IngestionEventHandler,
+        ingestion_service: _FakeIngestionService,
+        outbox: _FakeOutboxRepository,
+    ):
+        """ingest_only with no_changes_detected should not emit MutationsApplied."""
+        payload = _sync_started_payload(sync_run_id="run-nc-ingest")
+        payload["pipeline_mode"] = "ingest_only"
+        payload["no_changes_detected"] = True
+
+        await handler.handle("SyncStarted", payload)
+
+        assert ingestion_service.calls == []
+        assert outbox.appended[0]["event_type"] == "IngestionPrepared"
+
+    async def test_rejects_unknown_pipeline_mode(
+        self,
+        handler: IngestionEventHandler,
+    ):
+        payload = _sync_started_payload(sync_run_id="run-bad-mode")
+        payload["pipeline_mode"] = "unexpected"
+
+        with pytest.raises(ValueError, match="Unsupported pipeline_mode"):
+            await handler.handle("SyncStarted", payload)
+
 
 @pytest.mark.asyncio
 class TestIngestionEventHandlerFailure:
@@ -203,6 +313,46 @@ class TestIngestionEventHandlerFailure:
         assert event["payload"]["sync_run_id"] == "run-002"
         assert event["payload"]["data_source_id"] == "ds-001"
         assert "credentials expired" in event["payload"]["error"]
+
+    async def test_redacts_secret_material_from_failure_payload(
+        self,
+        outbox: _FakeOutboxRepository,
+    ):
+        """Failure payload must redact token-shaped credential values."""
+
+        class _LeakyService(_FakeIngestionService):
+            async def run(  # type: ignore[override]
+                self,
+                sync_run_id: str,
+                data_source_id: str,
+                knowledge_graph_id: str,
+                adapter_type: str,
+                connection_config: dict[str, str],
+                credentials_path: str | None,
+                tenant_id: str | None = None,
+                credentials: dict[str, str] | None = None,
+                baseline_commit: str | None = None,
+                pipeline_mode: str = "full",
+            ) -> JobPackageId:
+                raise RuntimeError(
+                    "github auth failed for token: supersecret-github-leak-value"
+                )
+
+        handler = IngestionEventHandler(
+            ingestion_service=_LeakyService(),
+            outbox=outbox,
+        )
+        payload = _sync_started_payload(sync_run_id="run-redact")
+        await handler.handle(
+            "SyncStarted",
+            payload,
+            runtime_credentials={"token": "supersecret-github-leak-value"},
+        )
+
+        event = outbox.appended[0]
+        assert event["event_type"] == "IngestionFailed"
+        assert "supersecret-github-leak-value" not in event["payload"]["error"]
+        assert "***REDACTED***" in event["payload"]["error"]
 
     async def test_ingestion_failed_aggregate_type(
         self,
@@ -296,6 +446,9 @@ class TestIngestionEventHandlerOutboxIsolation:
                 connection_config: dict[str, str],
                 credentials_path: str | None,
                 tenant_id: str | None = None,
+                credentials: dict[str, str] | None = None,
+                baseline_commit: str | None = None,
+                pipeline_mode: str = "full",
             ) -> JobPackageId:
                 raise asyncio.CancelledError()
 

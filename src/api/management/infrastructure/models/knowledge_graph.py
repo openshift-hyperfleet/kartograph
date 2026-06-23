@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.database.models import Base, TimestampMixin
+from management.domain.value_objects import WorkspaceMode
 
 
 class KnowledgeGraphModel(Base, TimestampMixin):
@@ -30,7 +31,31 @@ class KnowledgeGraphModel(Base, TimestampMixin):
     workspace_id: Mapped[str] = mapped_column(String(26), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    workspace_mode: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
+        server_default=WorkspaceMode.SCHEMA_BOOTSTRAP.value,
+    )
+    active_schema_bootstrap_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
+    active_extraction_operations_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
+    most_recent_completed_session_id: Mapped[str | None] = mapped_column(
+        String(26), nullable=True
+    )
     ontology: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    extraction_job_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+    maintenance_schedule: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+    maintenance_run_history: Mapped[list[dict]] = mapped_column(
+        JSONB, nullable=False, default=list
+    )
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_knowledge_graphs_tenant_name"),

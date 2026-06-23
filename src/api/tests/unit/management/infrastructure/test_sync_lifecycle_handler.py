@@ -83,10 +83,11 @@ class TestSyncLifecycleHandlerSupportedEvents:
     """Tests for supported_event_types()."""
 
     def test_supports_all_lifecycle_events(self, handler: SyncLifecycleHandler):
-        """Handler should support all 7 lifecycle events."""
+        """Handler should support all lifecycle events."""
         expected = {
             "SyncStarted",
             "JobPackageProduced",
+            "IngestionPrepared",
             "IngestionFailed",
             "MutationLogProduced",
             "ExtractionFailed",
@@ -114,6 +115,161 @@ class TestSyncStartedTransition:
         mock_sync_run_repo.save.assert_called_once()
         saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
         assert saved_run.status == "ingesting"
+
+
+@pytest.mark.asyncio
+class TestIngestionPreparedTransition:
+    """IngestionPrepared → status = ingested (terminal, no last_sync_at)."""
+
+    async def test_ingestion_prepared_sets_ingested(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value=run.data_source_id),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Repo",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "repo"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+                prepared_commit_sha="abc123",
+                prepared_file_count=99,
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.status == "ingested"
+        assert saved_run.completed_at is not None
+        assert ds.last_prepared_commit == "abc123"
+        assert ds.clone_head_commit == "abc123"
+        assert ds.last_prepared_file_count == 99
+        assert ds.last_extraction_baseline_commit == "abc123"
+        mock_ds_repo.save.assert_awaited_once()
+
+    async def test_ingestion_prepared_does_not_overwrite_existing_baseline(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value=run.data_source_id),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Repo",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "repo"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            last_extraction_baseline_commit="existing-baseline",
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+                prepared_commit_sha="abc123",
+                prepared_file_count=99,
+            ),
+        )
+
+        assert ds.last_prepared_commit == "abc123"
+        assert ds.last_extraction_baseline_commit == "existing-baseline"
+
+    async def test_ingestion_prepared_seeds_unset_baselines_for_sibling_sources(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        run = _make_sync_run(status="ingesting", ds_id="ds-a")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        now = datetime.now(UTC)
+        prepared_ds = DataSource(
+            id=DataSourceId(value="ds-a"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Prepared",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "prepared"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        sibling_ds = DataSource(
+            id=DataSourceId(value="ds-b"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="Sibling",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"owner": "org", "repo": "sibling"},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            last_prepared_commit="sibling-prepared",
+            clone_head_commit="sibling-prepared",
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = prepared_ds
+        mock_ds_repo.find_by_knowledge_graph.return_value = [prepared_ds, sibling_ds]
+
+        await handler.handle(
+            "IngestionPrepared",
+            _payload(
+                sync_run_id=run.id,
+                job_package_id="pkg-001",
+                prepared_commit_sha="prepared-a",
+                prepared_file_count=12,
+            ),
+        )
+
+        assert prepared_ds.last_extraction_baseline_commit == "prepared-a"
+        assert sibling_ds.last_extraction_baseline_commit == "sibling-prepared"
+        assert mock_ds_repo.save.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -190,6 +346,39 @@ class TestMutationLogProducedTransition:
         saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
         assert saved_run.status == "applying"
 
+    async def test_mutation_log_produced_stores_run_metadata(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+    ):
+        """MutationLogProduced should persist run-level mutation metadata."""
+        run = _make_sync_run(status="ai_extracting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        await handler.handle(
+            "MutationLogProduced",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                mutation_log_id="log-001",
+                session_id="sess-001",
+                actor_id="user-001",
+                token_usage_total=1234,
+                cost_total_usd=1.25,
+                operation_counts={"create_node": 2, "update_edge": 1},
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.mutation_log_run is not None
+        assert saved_run.mutation_log_run.mutation_log_id == "log-001"
+        assert saved_run.mutation_log_run.knowledge_graph_id == "kg-001"
+        assert saved_run.mutation_log_run.session_id == "sess-001"
+        assert saved_run.mutation_log_run.actor_id == "user-001"
+        assert saved_run.mutation_log_run.token_usage_total == 1234
+        assert saved_run.mutation_log_run.cost_total_usd == 1.25
+        assert saved_run.mutation_log_run.operation_counts["create_node"] == 2
+
 
 @pytest.mark.asyncio
 class TestExtractionFailedTransition:
@@ -260,6 +449,62 @@ class TestMutationsAppliedTransition:
         assert saved_run.status == "completed"
         assert saved_run.completed_at is not None
 
+    async def test_mutations_applied_finalizes_mutation_log_metadata(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        """MutationsApplied should finalize mutation run metrics and completed_at."""
+        from management.domain.aggregates import DataSource
+        from management.domain.entities import MutationLogRunMetadata
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        run = _make_sync_run(status="applying")
+        run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="log-001",
+            knowledge_graph_id="kg-001",
+            session_id="sess-001",
+            actor_id="user-001",
+            started_at=datetime.now(UTC),
+        )
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value="ds-001"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="My DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "MutationsApplied",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                token_usage_total=4321,
+                cost_total_usd=2.5,
+                operation_counts={"create_node": 9},
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert saved_run.mutation_log_run is not None
+        assert saved_run.mutation_log_run.completed_at is not None
+        assert saved_run.mutation_log_run.token_usage_total == 4321
+        assert saved_run.mutation_log_run.cost_total_usd == 2.5
+        assert saved_run.mutation_log_run.operation_counts == {"create_node": 9}
+
     async def test_mutations_applied_updates_data_source_last_sync_at(
         self,
         handler: SyncLifecycleHandler,
@@ -285,6 +530,8 @@ class TestMutationsAppliedTransition:
             credentials_path=None,
             schedule=Schedule(schedule_type=ScheduleType.MANUAL),
             last_sync_at=None,
+            tracked_branch_head_commit="processed-head",
+            last_extraction_baseline_commit="old-baseline",
             created_at=now,
             updated_at=now,
         )
@@ -302,6 +549,49 @@ class TestMutationsAppliedTransition:
         mock_ds_repo.save.assert_called_once()
         saved_ds = mock_ds_repo.save.call_args[0][0]
         assert saved_ds.last_sync_at is not None
+        assert saved_ds.last_extraction_baseline_commit == "processed-head"
+
+    async def test_mutations_applied_logs_no_changes_short_circuit(
+        self,
+        handler: SyncLifecycleHandler,
+        mock_sync_run_repo: AsyncMock,
+        mock_ds_repo: AsyncMock,
+    ):
+        """No-change short-circuit should leave an explicit audit log entry."""
+        from management.domain.aggregates import DataSource
+        from management.domain.value_objects import DataSourceId, Schedule, ScheduleType
+        from shared_kernel.datasource_types import DataSourceAdapterType
+
+        run = _make_sync_run(status="ingesting")
+        mock_sync_run_repo.get_by_id.return_value = run
+
+        now = datetime.now(UTC)
+        ds = DataSource(
+            id=DataSourceId(value="ds-001"),
+            knowledge_graph_id="kg-001",
+            tenant_id="tenant-001",
+            name="My DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={},
+            credentials_path=None,
+            schedule=Schedule(schedule_type=ScheduleType.MANUAL),
+            last_sync_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        mock_ds_repo.get_by_id.return_value = ds
+
+        await handler.handle(
+            "MutationsApplied",
+            _payload(
+                sync_run_id=run.id,
+                knowledge_graph_id="kg-001",
+                no_changes_detected=True,
+            ),
+        )
+
+        saved_run: DataSourceSyncRun = mock_sync_run_repo.save.call_args[0][0]
+        assert any("No source changes were detected" in line for line in saved_run.logs)
 
 
 @pytest.mark.asyncio

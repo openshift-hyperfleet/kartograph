@@ -19,7 +19,16 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId
+from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunOutcome,
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
+    KnowledgeGraphId,
+    KnowledgeGraphWorkspaceStatus,
+    WorkspaceMode,
+    WorkspaceReadinessStatus,
+    WorkspaceSessionPointers,
+)
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -100,6 +109,10 @@ class TestListKnowledgeGraphsRoute:
         assert len(result["knowledge_graphs"]) == 1
         assert result["knowledge_graphs"][0]["id"] == sample_knowledge_graph.id.value
         assert result["knowledge_graphs"][0]["name"] == sample_knowledge_graph.name
+        assert (
+            result["knowledge_graphs"][0]["workspace_mode"]
+            == WorkspaceMode.SCHEMA_BOOTSTRAP.value
+        )
 
     def test_list_knowledge_graphs_calls_list_all_with_view_permission_by_default(
         self,
@@ -254,6 +267,7 @@ class TestGetKnowledgeGraphRoute:
         assert result["description"] == sample_knowledge_graph.description
         assert result["tenant_id"] == sample_knowledge_graph.tenant_id
         assert result["workspace_id"] == sample_knowledge_graph.workspace_id
+        assert result["workspace_mode"] == WorkspaceMode.SCHEMA_BOOTSTRAP.value
 
     def test_get_knowledge_graph_calls_service_with_user_id(
         self,
@@ -287,6 +301,324 @@ class TestGetKnowledgeGraphRoute:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestGetKnowledgeGraphWorkspaceStatusRoute:
+    """Tests for GET /management/knowledge-graphs/{kg_id}/workspace-status."""
+
+    def test_workspace_status_returns_200_with_projection(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        """Should return mode/readiness/session projection when authorized."""
+        mock_kg_service.get_workspace_status.return_value = (
+            KnowledgeGraphWorkspaceStatus(
+                knowledge_graph_id=sample_knowledge_graph.id.value,
+                workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
+                readiness=WorkspaceReadinessStatus(
+                    has_minimum_entity_types=True,
+                    has_minimum_relationship_types=False,
+                    prepopulated_types_ready=True,
+                ),
+                transition_eligible=False,
+                session_pointers=WorkspaceSessionPointers(),
+            )
+        )
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace-status"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["knowledge_graph_id"] == sample_knowledge_graph.id.value
+        assert payload["workspace_mode"] == WorkspaceMode.SCHEMA_BOOTSTRAP.value
+        assert payload["readiness"]["has_minimum_entity_types"] is True
+        assert payload["readiness"]["has_minimum_relationship_types"] is False
+        assert payload["readiness"]["prepopulated_types_ready"] is True
+        assert payload["readiness"]["prepopulated_types_without_instances"] == []
+        assert payload["readiness"]["blocking_reasons"] == []
+        assert payload["transition_eligible"] is False
+        assert payload["session_pointers"]["active_schema_bootstrap_session_id"] is None
+
+        mock_kg_service.get_workspace_status.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+        )
+
+    def test_workspace_status_returns_404_when_missing_or_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        """Should return 404 when service returns None."""
+        mock_kg_service.get_workspace_status.return_value = None
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace-status"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestKnowledgeGraphMaintenanceRoutes:
+    """Tests for KG maintenance schedule and run history routes."""
+
+    def test_get_maintenance_schedule_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.get_maintenance_schedule.return_value = (
+            KnowledgeGraphMaintenanceSchedule(
+                enabled=True,
+                cron_expression="0 9 * * *",
+                timezone_name="UTC",
+                next_run_at=datetime.now(UTC),
+            )
+        )
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-schedule"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["enabled"] is True
+        assert payload["cron_expression"] == "0 9 * * *"
+        mock_kg_service.get_maintenance_schedule.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+        )
+
+    def test_put_maintenance_schedule_calls_service(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.upsert_maintenance_schedule.return_value = (
+            KnowledgeGraphMaintenanceSchedule(
+                enabled=True,
+                cron_expression="30 8 * * *",
+                timezone_name="America/New_York",
+                next_run_at=datetime.now(UTC),
+            )
+        )
+
+        response = test_client.put(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-schedule",
+            json={
+                "enabled": True,
+                "cron_expression": "30 8 * * *",
+                "timezone_name": "America/New_York",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_kg_service.upsert_maintenance_schedule.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            cron_expression="30 8 * * *",
+            timezone_name="America/New_York",
+            enabled=True,
+            files_per_job=2,
+            worker_count=8,
+        )
+
+    def test_list_maintenance_runs_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.list_maintenance_runs.return_value = [
+            KnowledgeGraphMaintenanceRunRecord(
+                run_id="01JTESTRUN1234567890ABCDE",
+                triggered_at=datetime.now(UTC),
+                outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+                message="No commit delta detected",
+                target_data_source_ids=("ds-1",),
+            )
+        ]
+
+        response = test_client.get(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert len(payload["runs"]) == 1
+        assert payload["runs"][0]["outcome"] == "no-changes"
+        mock_kg_service.list_maintenance_runs.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            limit=20,
+        )
+
+    def test_trigger_maintenance_run_returns_201(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.trigger_maintenance_run.return_value = (
+            KnowledgeGraphMaintenanceRunRecord(
+                run_id="01JTRIGGER1234567890ABCDE",
+                triggered_at=datetime.now(UTC),
+                outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
+                message="Scheduled maintenance launched",
+                target_data_source_ids=("ds-1", "ds-2"),
+            )
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/trigger",
+            json={"files_per_job": 4, "worker_count": 6, "start_extraction": True},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        payload = response.json()
+        assert payload["outcome"] == "ingest-started"
+        mock_kg_service.trigger_maintenance_run.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            files_per_job=4,
+            worker_count=6,
+            start_extraction=True,
+        )
+
+    def test_regenerate_maintenance_jobs_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_kg_service.regenerate_maintenance_jobs.return_value = {
+            "success": True,
+            "generated_jobs": 5,
+            "message": "Regenerated 5 pending maintenance job(s) from 10 changed file(s)",
+        }
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/maintenance-runs/regenerate-jobs",
+            json={"files_per_job": 2},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["generated_jobs"] == 5
+        mock_kg_service.regenerate_maintenance_jobs.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            kg_id=sample_knowledge_graph.id.value,
+            files_per_job=2,
+        )
+
+
+class TestWorkspaceCommandsRoutes:
+    """Tests for workspace validate/transition command endpoints."""
+
+    def _status_projection(self, kg_id: str) -> KnowledgeGraphWorkspaceStatus:
+        return KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=kg_id,
+            workspace_mode=WorkspaceMode.SCHEMA_BOOTSTRAP,
+            readiness=WorkspaceReadinessStatus(
+                has_minimum_entity_types=True,
+                has_minimum_relationship_types=True,
+                prepopulated_types_ready=True,
+            ),
+            transition_eligible=True,
+            session_pointers=WorkspaceSessionPointers(),
+        )
+
+    def test_validate_workspace_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.validate_workspace.return_value = self._status_projection(
+            sample_knowledge_graph.id.value
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/validate"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_validate_workspace_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.validate_workspace.side_effect = UnauthorizedError("forbidden")
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/validate"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_transition_workspace_returns_200(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        transitioned = KnowledgeGraphWorkspaceStatus(
+            knowledge_graph_id=sample_knowledge_graph.id.value,
+            workspace_mode=WorkspaceMode.EXTRACTION_OPERATIONS,
+            readiness=WorkspaceReadinessStatus(
+                has_minimum_entity_types=True,
+                has_minimum_relationship_types=True,
+                prepopulated_types_ready=True,
+            ),
+            transition_eligible=False,
+            session_pointers=WorkspaceSessionPointers(
+                active_extraction_operations_session_id="01JPQRST1234567890ABCDEFSE"
+            ),
+        )
+        mock_kg_service.transition_workspace_to_extraction.return_value = transitioned
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/transition-to-extraction"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["workspace_mode"] == WorkspaceMode.EXTRACTION_OPERATIONS.value
+        assert (
+            payload["session_pointers"]["active_extraction_operations_session_id"]
+            == "01JPQRST1234567890ABCDEFSE"
+        )
+
+    def test_transition_workspace_returns_409_when_not_ready(
+        self,
+        test_client: TestClient,
+        mock_kg_service: AsyncMock,
+        sample_knowledge_graph: KnowledgeGraph,
+    ) -> None:
+        mock_kg_service.transition_workspace_to_extraction.side_effect = ValueError(
+            "not ready"
+        )
+
+        response = test_client.post(
+            f"/management/knowledge-graphs/{sample_knowledge_graph.id.value}/workspace/transition-to-extraction"
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
 
 
 class TestCreateKnowledgeGraphRoute:

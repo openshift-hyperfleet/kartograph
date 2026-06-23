@@ -10,7 +10,7 @@ from datetime import datetime, UTC
 from sqlalchemy import text
 
 from management.domain.aggregates import DataSource, KnowledgeGraph
-from management.domain.entities import DataSourceSyncRun
+from management.domain.entities import DataSourceSyncRun, MutationLogRunMetadata
 from management.infrastructure.repositories.data_source_sync_run_repository import (
     DataSourceSyncRunRepository,
 )
@@ -84,6 +84,70 @@ class TestSyncRunRoundTrip:
         assert retrieved.completed_at is None
         assert retrieved.error is None
         assert retrieved.created_at is not None
+
+    @pytest.mark.asyncio
+    async def test_saves_and_retrieves_mutation_log_run_metadata(
+        self,
+        data_source_sync_run_repository: DataSourceSyncRunRepository,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should persist mutation log run metadata JSONB for sync runs."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Test KG",
+            description="For sync run tests",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="My GitHub Source",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo", "branch": "main"},
+        )
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        now = datetime.now(UTC)
+        sync_run = DataSourceSyncRun(
+            id=str(ULID()),
+            data_source_id=ds.id.value,
+            status="applying",
+            started_at=now,
+            completed_at=None,
+            error=None,
+            created_at=now,
+            mutation_log_run=MutationLogRunMetadata(
+                mutation_log_id="log-001",
+                knowledge_graph_id=kg.id.value,
+                session_id="sess-001",
+                actor_id="user-001",
+                started_at=now,
+                token_usage_total=1234,
+                cost_total_usd=1.5,
+                operation_counts={"create_node": 2},
+            ),
+        )
+
+        async with async_session.begin():
+            await data_source_sync_run_repository.save(sync_run)
+
+        retrieved = await data_source_sync_run_repository.get_by_id(sync_run.id)
+
+        assert retrieved is not None
+        assert retrieved.mutation_log_run is not None
+        assert retrieved.mutation_log_run.mutation_log_id == "log-001"
+        assert retrieved.mutation_log_run.session_id == "sess-001"
+        assert retrieved.mutation_log_run.token_usage_total == 1234
+        assert retrieved.mutation_log_run.operation_counts["create_node"] == 2
 
     @pytest.mark.asyncio
     async def test_saves_completed_sync_run(
@@ -331,6 +395,66 @@ class TestFindByDataSource:
         assert len(results) == 3
         for result in results:
             assert result.data_source_id == ds1.id.value
+
+    @pytest.mark.asyncio
+    async def test_find_by_data_source_orders_newest_first(
+        self,
+        data_source_sync_run_repository: DataSourceSyncRunRepository,
+        data_source_repository: DataSourceRepository,
+        knowledge_graph_repository: KnowledgeGraphRepository,
+        async_session,
+        test_tenant: str,
+        test_workspace: str,
+        clean_management_data,
+    ):
+        """Should return sync runs newest-first so UI can treat index 0 as latest."""
+        kg = KnowledgeGraph.create(
+            tenant_id=test_tenant,
+            workspace_id=test_workspace,
+            name="Test KG",
+            description="For sync run ordering tests",
+        )
+        async with async_session.begin():
+            await knowledge_graph_repository.save(kg)
+
+        ds = DataSource.create(
+            knowledge_graph_id=kg.id.value,
+            tenant_id=test_tenant,
+            name="Ordering DS",
+            adapter_type=DataSourceAdapterType.GITHUB,
+            connection_config={"repo": "org/repo"},
+        )
+        async with async_session.begin():
+            await data_source_repository.save(ds)
+
+        oldest_id = str(ULID())
+        middle_id = str(ULID())
+        newest_id = str(ULID())
+        timestamps = [
+            datetime(2026, 1, 1, tzinfo=UTC),
+            datetime(2026, 1, 2, tzinfo=UTC),
+            datetime(2026, 1, 3, tzinfo=UTC),
+        ]
+        for run_id, created_at in zip(
+            [oldest_id, middle_id, newest_id],
+            timestamps,
+            strict=True,
+        ):
+            sync_run = DataSourceSyncRun(
+                id=run_id,
+                data_source_id=ds.id.value,
+                status="failed" if run_id == oldest_id else "ingested",
+                started_at=created_at,
+                completed_at=created_at,
+                error="old failure" if run_id == oldest_id else None,
+                created_at=created_at,
+            )
+            async with async_session.begin():
+                await data_source_sync_run_repository.save(sync_run)
+
+        results = await data_source_sync_run_repository.find_by_data_source(ds.id.value)
+
+        assert [run.id for run in results] == [newest_id, middle_id, oldest_id]
 
     @pytest.mark.asyncio
     async def test_returns_empty_for_data_source_with_no_runs(

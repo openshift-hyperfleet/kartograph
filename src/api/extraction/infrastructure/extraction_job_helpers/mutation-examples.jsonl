@@ -1,0 +1,4 @@
+{"op":"CREATE","type":"node","id":"adapter:abc123def4567890","label":"Adapter","set_properties":{"slug":"cl_m_wrong_nest","name":"cl-m-wrong-nest","data_source_id":"hyperfleet-e2e","transport":"maestro"}}
+{"op":"UPDATE","type":"node","id":"adapter:abc123def4567890","set_properties":{"transport":"maestro","resource_types":"Cluster"}}
+{"op":"CREATE","type":"edge","id":"edge:abc123def4567891","label":"tests","start_id":"componenttest:abc123def4567892","end_id":"adapter:abc123def4567890","set_properties":{"data_source_id":"hyperfleet-e2e"}}
+{"op":"DELETE","type":"node","id":"adapter:deadbeefdeadbeef"}

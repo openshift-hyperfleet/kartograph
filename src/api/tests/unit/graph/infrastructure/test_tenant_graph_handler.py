@@ -229,22 +229,40 @@ class TestAGEGraphProvisionerIdempotency:
         # Verify connection was committed
         mock_conn.commit.assert_called()
 
-    def test_skips_create_when_graph_already_exists(self) -> None:
-        """Provisioner does NOT call create_graph if graph already exists."""
+    def test_skips_create_when_graph_already_exists_and_is_queryable(self) -> None:
+        """Provisioner does NOT call create_graph if graph already exists and works."""
         provisioner, mock_connection_factory, mock_conn, mock_cursor = (
             self._make_provisioner()
         )
 
-        # Simulate: graph ALREADY EXISTS (SELECT returns a row)
-        mock_cursor.fetchone.return_value = (1,)
+        mock_cursor.fetchone.side_effect = [(1,), (1,)]
 
         provisioner.ensure_graph_exists("tenant_abc123")
 
-        # Verify no create_graph call was made
         create_calls = [
             c for c in mock_cursor.execute.call_args_list if "create_graph" in str(c)
         ]
         assert len(create_calls) == 0
+
+    def test_recreates_graph_when_catalog_exists_but_graph_is_corrupt(self) -> None:
+        """Provisioner drops and recreates graphs that fail a probe query."""
+        provisioner, mock_connection_factory, mock_conn, mock_cursor = (
+            self._make_provisioner()
+        )
+
+        def _execute(sql, params=None):
+            if "cypher" in str(sql):
+                raise RuntimeError("graph with oid 17491 does not exist")
+
+        mock_cursor.fetchone.return_value = (1,)
+        mock_cursor.execute.side_effect = _execute
+
+        provisioner.ensure_graph_exists("tenant_abc123")
+
+        executed = " ".join(str(call) for call in mock_cursor.execute.call_args_list)
+        assert "drop_graph" in executed
+        assert "create_graph" in executed
+        mock_conn.commit.assert_called()
 
     def test_returns_connection_to_factory_on_success(self) -> None:
         """Connection is always returned to factory after provisioning."""
@@ -285,8 +303,7 @@ class TestAGEGraphProvisionerIdempotency:
             self._make_provisioner()
         )
 
-        # Simulate: graph ALREADY EXISTS — no-op path
-        mock_cursor.fetchone.return_value = (1,)
+        mock_cursor.fetchone.side_effect = [(1,), (1,)]
 
         provisioner.ensure_graph_exists("tenant_abc123")
 

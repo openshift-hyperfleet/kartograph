@@ -3,9 +3,11 @@ import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import {
   ADAPTERS,
+  detectAdapterFromUrl,
   isAdapterSelectable,
   canAdvanceStep1,
   inferNameFromRepoUrl,
+  validateStep1,
   validateStep2,
   buildDataSourceCreationUrl,
   buildDataSourceCreationBody,
@@ -47,10 +49,8 @@ const KG_INDEX_VUE = readFileSync(
 
 describe('Task-121 — Requirement: Knowledge Graph Creation', () => {
   describe('Post-creation prompt: navigates to data-sources wizard with new KG scoped', () => {
-    it('knowledge-graphs page emits navigateTo to /data-sources?kg_id=', () => {
-      // The toast action must direct the user to /data-sources scoped to the new
-      // knowledge graph so the wizard pre-opens with the correct KG selected.
-      expect(KG_INDEX_VUE).toContain('/data-sources?kg_id=')
+    it('knowledge-graphs page navigates to kg-scoped onboarding after create', () => {
+      expect(KG_INDEX_VUE).toContain('/knowledge-graphs/${result.id}/data-sources/new')
     })
 
     it('knowledge-graphs page constructs the navigation URL from the API result id', () => {
@@ -111,12 +111,12 @@ describe('Task-121 — Requirement: Knowledge Graph Creation', () => {
 
 describe('Task-121 — Requirement: Data Source Connection — Adapter & Configuration', () => {
   describe('data-sources page imports and uses dataSourceWizard utilities', () => {
-    it('imports ADAPTERS from dataSourceWizard', () => {
-      expect(DS_INDEX_VUE).toContain('ADAPTERS')
+    it('imports detectAdapterFromUrl from dataSourceWizard', () => {
+      expect(DS_INDEX_VUE).toContain('detectAdapterFromUrl')
     })
 
-    it('imports canAdvanceStep1 from dataSourceWizard', () => {
-      expect(DS_INDEX_VUE).toContain('canAdvanceStep1')
+    it('imports validateStep1 from dataSourceWizard', () => {
+      expect(DS_INDEX_VUE).toContain('validateStep1')
     })
 
     it('imports validateStep2 from dataSourceWizard', () => {
@@ -149,17 +149,32 @@ describe('Task-121 — Requirement: Data Source Connection — Adapter & Configu
     })
   })
 
-  describe('Step 1 advancement requires both adapter AND knowledge graph', () => {
-    it('blocked when adapter is missing even with KG selected', () => {
-      expect(canAdvanceStep1('', 'kg-123')).toBe(false)
+  describe('Step 1 validation enforces URL detection and provider availability', () => {
+    it('detects supported and unsupported providers from URL', () => {
+      expect(detectAdapterFromUrl('https://github.com/acme/repo')).toBe('github')
+      expect(detectAdapterFromUrl('https://gitlab.com/acme/repo')).toBe('gitlab')
+      expect(detectAdapterFromUrl('https://acme.atlassian.net/browse/ABC-1')).toBe('jira')
     })
 
-    it('blocked when KG is missing even with adapter selected', () => {
-      expect(canAdvanceStep1('github', '')).toBe(false)
+    it('blocks advancement when provider is unsupported', () => {
+      const result = validateStep1({
+        selectedKnowledgeGraphId: 'kg-123',
+        sourceUrl: 'https://gitlab.com/acme/repo',
+        detectedAdapterId: 'gitlab',
+      })
+      expect(result.valid).toBe(false)
+      expect(result.providerError).toContain('coming soon')
     })
 
-    it('allowed when both adapter and KG are selected', () => {
-      expect(canAdvanceStep1('github', 'kg-123')).toBe(true)
+    it('allows advancement for valid GitHub URL and selected KG', () => {
+      const result = validateStep1({
+        selectedKnowledgeGraphId: 'kg-123',
+        sourceUrl: 'https://github.com/acme/repo',
+        detectedAdapterId: 'github',
+      })
+      expect(result.valid).toBe(true)
+      expect(result.sourceUrlError).toBe('')
+      expect(result.providerError).toBe('')
     })
   })
 
@@ -172,8 +187,8 @@ describe('Task-121 — Requirement: Data Source Connection — Adapter & Configu
       expect(inferNameFromRepoUrl('https://github.com/org/repo.git')).toBe('repo')
     })
 
-    it('returns null for non-GitHub URLs (no overwrite)', () => {
-      expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBeNull()
+    it('supports name inference for GitHub and GitLab repository URLs', () => {
+      expect(inferNameFromRepoUrl('https://gitlab.com/org/repo')).toBe('repo')
       expect(inferNameFromRepoUrl('')).toBeNull()
     })
   })
@@ -387,36 +402,20 @@ describe('Task-121 — Requirement: Backend API Alignment — Parent context', (
           method: 'POST',
           body: { name: createName.value },
         })
-        // 2. Post-creation: navigate to data-sources with new KG ID
-        postCreationUrl = `/data-sources?kg_id=${result.id}`
+        postCreationUrl = `/knowledge-graphs/${result.id}/data-sources/new`
         navigateTo(postCreationUrl)
       }
 
       await handleCreate()
 
-      // 3. The URL includes the exact KG ID returned by the API
-      expect(postCreationUrl).toBe('/data-sources?kg_id=kg-new-789')
-      expect(navigateTo).toHaveBeenCalledWith('/data-sources?kg_id=kg-new-789')
+      expect(postCreationUrl).toBe('/knowledge-graphs/kg-new-789/data-sources/new')
+      expect(navigateTo).toHaveBeenCalledWith('/knowledge-graphs/kg-new-789/data-sources/new')
 
-      // 4. The data-sources page would extract this param and call openWizard
-      const routeQuery = { kg_id: 'kg-new-789' }
-      const preselectedKgId = routeQuery.kg_id as string | undefined
-      expect(preselectedKgId).toBe('kg-new-789')
-
-      // 5. openWizard initialises selectedKnowledgeGraphId with the param
-      const wizardState = { selectedKnowledgeGraphId: '' }
-      function openWizard(preselectedId?: string) {
-        wizardState.selectedKnowledgeGraphId = preselectedId ?? ''
-      }
-      openWizard(preselectedKgId)
-      expect(wizardState.selectedKnowledgeGraphId).toBe('kg-new-789')
-
-      // 6. Step-1 can advance immediately (adapter still needs selection, but KG is set)
-      expect(canAdvanceStep1('github', wizardState.selectedKnowledgeGraphId)).toBe(true)
-
-      // 7. Creation URL uses the pre-selected KG ID
-      const creationUrl = buildDataSourceCreationUrl(wizardState.selectedKnowledgeGraphId)
-      expect(creationUrl).toBe('/management/knowledge-graphs/kg-new-789/data-sources')
+      const kgIdFromRoute = 'kg-new-789'
+      expect(canAdvanceStep1('github', kgIdFromRoute)).toBe(true)
+      expect(buildDataSourceCreationUrl(kgIdFromRoute)).toBe(
+        '/management/knowledge-graphs/kg-new-789/data-sources',
+      )
     })
   })
 })

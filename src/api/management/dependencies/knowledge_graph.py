@@ -19,10 +19,18 @@ from management.application.observability import DefaultKnowledgeGraphServicePro
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
+from infrastructure.management.maintenance_pipeline_dependencies import (
+    get_maintenance_pipeline_service,
+)
+from management.ports.maintenance_pipeline import MaintenancePipelinePort
 from management.infrastructure.repositories import (
     DataSourceRepository,
+    DataSourceSyncRunRepository,
     FernetSecretStore,
     KnowledgeGraphRepository,
+)
+from infrastructure.canonical_schema.graph_canonical_schema_repository import (
+    GraphCanonicalSchemaRepository,
 )
 from shared_kernel.authorization.protocols import AuthorizationProvider
 
@@ -31,6 +39,9 @@ def get_knowledge_graph_service(
     session: Annotated[AsyncSession, Depends(get_write_session)],
     authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    maintenance_pipeline: Annotated[
+        MaintenancePipelinePort, Depends(get_maintenance_pipeline_service)
+    ],
 ) -> KnowledgeGraphService:
     """Get KnowledgeGraphService instance.
 
@@ -46,6 +57,7 @@ def get_knowledge_graph_service(
     outbox = OutboxRepository(session=session)
     kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
     ds_repo = DataSourceRepository(session=session, outbox=outbox)
+    sync_run_repo = DataSourceSyncRunRepository(session=session)
     encryption_keys = settings.encryption_key.get_secret_value().split(",")
     secret_store = FernetSecretStore(
         session=session,
@@ -55,8 +67,11 @@ def get_knowledge_graph_service(
         session=session,
         knowledge_graph_repository=kg_repo,
         data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
         secret_store=secret_store,
         authz=authz,
         scope_to_tenant=current_user.tenant_id.value,
         probe=DefaultKnowledgeGraphServiceProbe(),
+        canonical_schema_repository=GraphCanonicalSchemaRepository(session),
+        maintenance_pipeline=maintenance_pipeline,
     )

@@ -1,0 +1,12 @@
+version: 1
+name: gma-sticky-base
+enforcement: hard_requirement
+description: Base network policy for graph-management sticky sessions.
+endpoints:
+  - "api:8000:read-write"
+  - "inference.local:443:read-write"
+  - "aiplatform.googleapis.com:443:read-write"
+  - "*.aiplatform.googleapis.com:443:read-write"
+  - "oauth2.googleapis.com:443:read-write"
+l7_allowed_paths:
+  - "/extraction/workloads/*"

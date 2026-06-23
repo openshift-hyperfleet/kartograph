@@ -1,0 +1,17 @@
+version: 1
+name: extraction-job
+enforcement: hard_requirement
+description: Network policy for batch extraction jobs executed in OpenShell sandboxes.
+endpoints:
+  - "api:8000:read-write"
+  - "inference.local:443:read-write"
+  - "github.com:443:full"
+  - "*.github.com:443:full"
+  - "pypi.org:443:read-only"
+  - "files.pythonhosted.org:443:read-only"
+  - "aiplatform.googleapis.com:443:read-write"
+  - "*.aiplatform.googleapis.com:443:read-write"
+  - "oauth2.googleapis.com:443:read-write"
+  - "api.anthropic.com:443:read-write"
+l7_allowed_paths:
+  - "/extraction/workloads/*"

@@ -22,6 +22,7 @@ import { CopyableText } from '@/components/ui/copyable-text'
 import type { TypeDefinition } from '~/types'
 
 const { listNodeLabels, listEdgeLabels, getNodeSchema, getEdgeSchema } = useGraphApi()
+const { queryGraph } = useQueryApi()
 const { extractErrorMessage } = useErrorHandler()
 const { hasTenant, tenantVersion } = useTenant()
 
@@ -47,6 +48,8 @@ const searchInputRef = ref<InstanceType<typeof Input> | null>(null)
 const expandedLabels = reactive(new Set<string>())
 const schemaCache = reactive(new Map<string, TypeDefinition>())
 const schemaLoadingLabels = reactive(new Set<string>())
+const instanceCountCache = reactive(new Map<string, number>())
+const instanceCountLoadingKeys = reactive(new Set<string>())
 
 // Virtual scroll container refs (virtualizers defined after filtered computeds)
 const nodeScrollRef = ref<HTMLElement | null>(null)
@@ -146,6 +149,10 @@ function toggleExpand(label: string, entityType: 'node' | 'edge') {
     if (!schemaCache.has(label)) {
       fetchLabelSchema(label, entityType)
     }
+    const cacheKey = `${entityType}:${label}`
+    if (!instanceCountCache.has(cacheKey)) {
+      fetchInstanceCount(label, entityType)
+    }
   }
   // Force re-measurement after DOM update for variable-height rows
   nextTick(() => {
@@ -173,6 +180,44 @@ async function fetchLabelSchema(label: string, entityType: 'node' | 'edge') {
       nodeVirtualizer.value.measure()
       edgeVirtualizer.value.measure()
     })
+  }
+}
+
+function getInstanceCount(label: string, entityType: 'node' | 'edge'): number | null {
+  const cacheKey = `${entityType}:${label}`
+  return instanceCountCache.has(cacheKey) ? (instanceCountCache.get(cacheKey) ?? 0) : null
+}
+
+function isInstanceCountLoading(label: string, entityType: 'node' | 'edge'): boolean {
+  return instanceCountLoadingKeys.has(`${entityType}:${label}`)
+}
+
+function escapeCypherLabel(label: string): string {
+  return label.replace(/`/g, '``')
+}
+
+async function fetchInstanceCount(label: string, entityType: 'node' | 'edge') {
+  const cacheKey = `${entityType}:${label}`
+  if (instanceCountLoadingKeys.has(cacheKey)) {
+    return
+  }
+  instanceCountLoadingKeys.add(cacheKey)
+  try {
+    const safeLabel = escapeCypherLabel(label)
+    const cypher = entityType === 'node'
+      ? `MATCH (n:\`${safeLabel}\`) RETURN count(n) AS instance_count`
+      : `MATCH ()-[r:\`${safeLabel}\`]->() RETURN count(r) AS instance_count`
+    const result = await queryGraph(cypher, 10, 1)
+    const value = result.rows[0]?.instance_count
+    const parsed = typeof value === 'number'
+      ? value
+      : Number.parseInt(String(value ?? '0'), 10)
+    instanceCountCache.set(cacheKey, Number.isFinite(parsed) ? parsed : 0)
+  } catch {
+    // Avoid noisy toasts from metadata enrichment failures.
+    instanceCountCache.set(cacheKey, 0)
+  } finally {
+    instanceCountLoadingKeys.delete(cacheKey)
   }
 }
 
@@ -247,6 +292,8 @@ watch(tenantVersion, () => {
     searchQuery.value = ''
     expandedLabels.clear()
     schemaCache.clear()
+    instanceCountCache.clear()
+    instanceCountLoadingKeys.clear()
     fetchNodeLabels()
     fetchEdgeLabels()
   }
@@ -392,6 +439,28 @@ onUnmounted(() => {
                   >
                     <Badge variant="default" class="shrink-0">Node</Badge>
                     <CopyableText :text="filteredNodeLabels[virtualRow.index]" label="Type label copied" :truncate="false" />
+                    <Badge
+                      v-if="schemaCache.get(filteredNodeLabels[virtualRow.index])?.prepopulated"
+                      variant="outline"
+                      class="text-[10px]"
+                    >
+                      Prepopulated
+                    </Badge>
+                    <Badge
+                      v-if="isInstanceCountLoading(filteredNodeLabels[virtualRow.index], 'node')"
+                      variant="secondary"
+                      class="gap-1 text-[10px]"
+                    >
+                      <Loader2 class="size-3 animate-spin" />
+                      Counting...
+                    </Badge>
+                    <Badge
+                      v-else-if="getInstanceCount(filteredNodeLabels[virtualRow.index], 'node') !== null"
+                      variant="secondary"
+                      class="text-[10px]"
+                    >
+                      {{ getInstanceCount(filteredNodeLabels[virtualRow.index], 'node') }} instances
+                    </Badge>
                   </button>
 
                   <!-- Contextual action buttons -->
@@ -587,6 +656,21 @@ onUnmounted(() => {
                   >
                     <Badge variant="outline" class="shrink-0">Edge</Badge>
                     <CopyableText :text="filteredEdgeLabels[virtualRow.index]" label="Type label copied" :truncate="false" />
+                    <Badge
+                      v-if="isInstanceCountLoading(filteredEdgeLabels[virtualRow.index], 'edge')"
+                      variant="secondary"
+                      class="gap-1 text-[10px]"
+                    >
+                      <Loader2 class="size-3 animate-spin" />
+                      Counting...
+                    </Badge>
+                    <Badge
+                      v-else-if="getInstanceCount(filteredEdgeLabels[virtualRow.index], 'edge') !== null"
+                      variant="secondary"
+                      class="text-[10px]"
+                    >
+                      {{ getInstanceCount(filteredEdgeLabels[virtualRow.index], 'edge') }} instances
+                    </Badge>
                   </button>
 
                   <!-- Contextual action buttons -->

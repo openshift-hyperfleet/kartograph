@@ -1,0 +1,147 @@
+"""Tests for quiescent extraction run reconciliation."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from extraction.domain.extraction_job import ExtractionRunRecord, ExtractionRunStatus
+from extraction.infrastructure.extraction_run_reconciliation import (
+    reconcile_quiescent_extraction_run,
+)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_when_jobs_remain() -> None:
+    session = AsyncMock()
+    repo = AsyncMock()
+    repo.count_by_status.return_value = {"pending": 1, "in_progress": 0}
+
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
+    ):
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id="kg-001",
+        )
+
+    assert reconciled is False
+    assert run_was_active is False
+    repo.upsert_run.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_finishes_active_run_and_advances_baselines() -> None:
+    session = AsyncMock()
+    repo = AsyncMock()
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
+    repo.get_run.return_value = ExtractionRunRecord(
+        id="run-001",
+        knowledge_graph_id="kg-001",
+        status=ExtractionRunStatus.RUNNING,
+        worker_count=10,
+        pause_requested=False,
+        started_at=None,
+        completed_at=None,
+        orchestrator_pid=None,
+    )
+    orchestrator = MagicMock()
+    advance_baselines = AsyncMock(return_value=2)
+
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
+    ):
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id="kg-001",
+            orchestrator=orchestrator,
+            advance_baselines=advance_baselines,
+        )
+
+    assert reconciled is True
+    assert run_was_active is True
+    repo.upsert_run.assert_awaited_once()
+    assert repo.upsert_run.await_args.kwargs["status"] == ExtractionRunStatus.IDLE
+    advance_baselines.assert_awaited_once_with(
+        session=session,
+        knowledge_graph_id="kg-001",
+    )
+    session.commit.assert_awaited_once()
+    orchestrator.stop_active_run.assert_called_once_with(knowledge_graph_id="kg-001")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_not_advance_baselines_when_run_already_idle() -> None:
+    session = AsyncMock()
+    repo = AsyncMock()
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 0}
+    repo.get_run.return_value = ExtractionRunRecord(
+        id="run-001",
+        knowledge_graph_id="kg-001",
+        status=ExtractionRunStatus.IDLE,
+        worker_count=0,
+        pause_requested=False,
+        started_at=None,
+        completed_at=None,
+        orchestrator_pid=None,
+    )
+    advance_baselines = AsyncMock()
+
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
+    ):
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id="kg-001",
+            advance_baselines=advance_baselines,
+        )
+
+    assert reconciled is False
+    assert run_was_active is False
+    repo.upsert_run.assert_not_awaited()
+    advance_baselines.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_finishes_run_without_advancing_when_failed_jobs_remain() -> (
+    None
+):
+    session = AsyncMock()
+    repo = AsyncMock()
+    repo.count_by_status.return_value = {"pending": 0, "in_progress": 0, "failed": 2}
+    repo.get_run.return_value = ExtractionRunRecord(
+        id="run-001",
+        knowledge_graph_id="kg-001",
+        status=ExtractionRunStatus.RUNNING,
+        worker_count=4,
+        pause_requested=False,
+        started_at=None,
+        completed_at=None,
+        orchestrator_pid=None,
+    )
+    orchestrator = MagicMock()
+    advance_baselines = AsyncMock()
+
+    with patch(
+        "extraction.infrastructure.extraction_run_reconciliation.ExtractionJobRepository",
+        return_value=repo,
+    ):
+        reconciled, run_was_active = await reconcile_quiescent_extraction_run(
+            session=session,
+            knowledge_graph_id="kg-001",
+            orchestrator=orchestrator,
+            advance_baselines=advance_baselines,
+        )
+
+    assert reconciled is True
+    assert run_was_active is True
+    repo.upsert_run.assert_awaited_once()
+    advance_baselines.assert_not_awaited()
+    session.commit.assert_awaited_once()
+    orchestrator.stop_active_run.assert_called_once_with(knowledge_graph_id="kg-001")

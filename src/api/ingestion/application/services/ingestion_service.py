@@ -9,13 +9,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ingestion.application.value_objects import IngestionRunResult
 from ingestion.ports.adapters import IDatasourceAdapter
 
 if TYPE_CHECKING:
     from shared_kernel.credential_reader import ICredentialReader
 from shared_kernel.job_package.builder import JobPackageBuilder
 from shared_kernel.job_package.value_objects import (
-    JobPackageId,
+    AdapterCheckpoint,
     SyncMode,
 )
 
@@ -58,7 +59,10 @@ class IngestionService:
         connection_config: dict[str, str],
         credentials_path: str | None,
         tenant_id: str | None = None,
-    ) -> JobPackageId:
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
+        pipeline_mode: str | None = None,
+    ) -> IngestionRunResult:
         """Run the ingestion pipeline for a data source sync.
 
         Args:
@@ -69,15 +73,19 @@ class IngestionService:
             connection_config: Key-value adapter configuration
             credentials_path: Path for encrypted credentials
             tenant_id: Tenant ID for credential decryption scoping
+            credentials: Optional decrypted credentials prepared by caller
+            baseline_commit: Optional baseline commit SHA used to seed
+                incremental extraction checkpoint state
 
         Returns:
-            The JobPackageId of the produced ZIP archive
+            IngestionRunResult with the produced JobPackage metadata
 
         Raises:
             ValueError: If the adapter_type is not registered
             Exception: Any exception from the adapter propagates upward;
                 callers should catch and emit IngestionFailed.
         """
+        pipeline_mode = pipeline_mode or "full"
         adapter = self._adapter_registry.get(adapter_type)
         if adapter is None:
             raise ValueError(
@@ -85,31 +93,44 @@ class IngestionService:
                 f"Registered adapters: {list(self._adapter_registry.keys())}"
             )
 
-        credentials: dict[str, str] = {}
-        if credentials_path:
+        # Credentials are usually provided by the session-aware event wrapper.
+        resolved_credentials: dict[str, str] = dict(credentials or {})
+        if not resolved_credentials and credentials_path:
             if not tenant_id:
                 raise ValueError(
                     "tenant_id is required when credentials_path is provided"
                 )
             if self._credential_reader is None:
                 raise RuntimeError("credential_reader is not configured")
-            credentials = await self._credential_reader.retrieve(
+            resolved_credentials = await self._credential_reader.retrieve(
                 credentials_path, tenant_id
+            )
+
+        checkpoint = None
+        sync_mode = SyncMode.INCREMENTAL
+        if pipeline_mode == "ingest_only":
+            # Graph-management prepare must snapshot the full branch so the sticky
+            # session workspace contains every repository file, not just deltas.
+            sync_mode = SyncMode.FULL_REFRESH
+        elif baseline_commit:
+            checkpoint = AdapterCheckpoint(
+                schema_version="1.0.0",
+                data={"commit_sha": baseline_commit},
             )
 
         # Extract raw items from the adapter using the new ExtractionResult API
         result = await adapter.extract(
             connection_config=connection_config,
-            credentials=credentials,
-            checkpoint=None,  # no checkpoint support yet; always full refresh
-            sync_mode=SyncMode.INCREMENTAL,
+            credentials=resolved_credentials,
+            checkpoint=checkpoint,
+            sync_mode=sync_mode,
         )
 
         # Build the JobPackage
         builder = JobPackageBuilder(
             data_source_id=data_source_id,
             knowledge_graph_id=knowledge_graph_id,
-            sync_mode=SyncMode.INCREMENTAL,
+            sync_mode=sync_mode,
         )
 
         # Register content blobs (deduplication is handled by the builder)
@@ -126,4 +147,15 @@ class IngestionService:
         self._work_dir.mkdir(parents=True, exist_ok=True)
         builder.build(self._work_dir)
 
-        return builder._package_id
+        prepared_commit_sha = None
+        if result.new_checkpoint is not None:
+            prepared_commit_sha = result.new_checkpoint.data.get("commit_sha")
+
+        return IngestionRunResult(
+            job_package_id=builder._package_id,
+            entry_count=len(result.changeset_entries),
+            branch_file_count=result.branch_file_count,
+            prepared_commit_sha=(
+                str(prepared_commit_sha) if prepared_commit_sha is not None else None
+            ),
+        )

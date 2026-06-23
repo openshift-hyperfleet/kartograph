@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from age.models import Edge as AgeEdge  # type: ignore
 from age.models import Vertex as AgeVertex
 
+from graph.infrastructure.age_bulk_loading.utils import validate_label_name
 from graph.ports.repositories import IGraphReadOnlyRepository
 from graph.domain.value_objects import EdgeRecord, NodeRecord, QueryResultRow
 from graph.ports.protocols import GraphClientProtocol, NodeNeighborsResult
@@ -21,6 +22,34 @@ from shared_kernel.graph_primitives import EntityIdGenerator
 
 if TYPE_CHECKING:
     pass
+
+
+def _coerce_cypher_count(value: object) -> int:
+    if isinstance(value, dict) and "total" in value:
+        return int(value["total"])
+    if isinstance(value, (int, float, str)):
+        return int(value)
+    return 0
+
+
+def _escape_cypher_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _property_contains_filter(
+    alias: str,
+    *,
+    property_name: str | None,
+    property_value: str | None,
+) -> str:
+    if not property_name or property_value is None:
+        return ""
+    validate_label_name(property_name)
+    escaped_value = _escape_cypher_string(property_value)
+    return (
+        f" AND toLower(toString({alias}.{property_name})) "
+        f"CONTAINS toLower('{escaped_value}')"
+    )
 
 
 class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
@@ -136,6 +165,335 @@ class GraphExtractionReadOnlyRepository(IGraphReadOnlyRepository):
                     nodes.append(self._vertex_to_node_record(result_map["node"]))
 
         return nodes
+
+    def find_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> list[NodeRecord]:
+        """List nodes of one entity type, optionally scoped to a knowledge graph."""
+        validate_label_name(node_type)
+        bounded_limit = max(1, min(limit, 500))
+        bounded_offset = max(0, offset)
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        prop_filter = _property_contains_filter(
+            "n",
+            property_name=property_name,
+            property_value=property_value,
+        )
+        query = f"""
+            MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            WHERE true{prop_filter}
+            RETURN {{node: n}}
+            ORDER BY n.slug
+            SKIP {bounded_offset}
+            LIMIT {bounded_limit}
+        """
+        result = self._client.execute_cypher(query)
+
+        nodes: list[NodeRecord] = []
+        for row in result.rows:
+            if len(row) > 0 and isinstance(row[0], dict):
+                result_map = row[0]
+                if "node" in result_map and result_map["node"] is not None:
+                    nodes.append(self._vertex_to_node_record(result_map["node"]))
+        return nodes
+
+    def find_existing_node_ids(
+        self,
+        node_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return node IDs from ``node_ids`` that already exist in the knowledge graph."""
+        if not node_ids:
+            return set()
+        existing: set[str] = set()
+        for offset in range(0, len(node_ids), chunk_size):
+            chunk = node_ids[offset : offset + chunk_size]
+            literals = ", ".join(
+                f"'{_escape_cypher_string(node_id)}'" for node_id in chunk
+            )
+            query = f"""
+                MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}})
+                WHERE n.id IN [{literals}]
+                RETURN n.id AS id
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
+
+    def find_existing_edge_ids(
+        self,
+        edge_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return edge IDs from ``edge_ids`` that already exist in the knowledge graph."""
+        if not edge_ids:
+            return set()
+        existing: set[str] = set()
+        for offset in range(0, len(edge_ids), chunk_size):
+            chunk = edge_ids[offset : offset + chunk_size]
+            literals = ", ".join(
+                f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk
+            )
+            query = f"""
+                MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{_escape_cypher_string(knowledge_graph_id)}'}}]->()
+                WHERE r.id IN [{literals}]
+                RETURN r.id AS id
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
+
+    def find_nodes_by_ids(
+        self,
+        node_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> dict[str, NodeRecord]:
+        """Return node snapshots keyed by application id."""
+        if not node_ids:
+            return {}
+        snapshots: dict[str, NodeRecord] = {}
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(node_ids), chunk_size):
+            chunk = node_ids[offset : offset + chunk_size]
+            literals = ", ".join(
+                f"'{_escape_cypher_string(node_id)}'" for node_id in chunk
+            )
+            query = f"""
+                MATCH (n {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}})
+                WHERE n.id IN [{literals}]
+                RETURN n
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if not row or row[0] is None:
+                    continue
+                node = self._vertex_to_node_record(row[0])
+                snapshots[node.id] = node
+        return snapshots
+
+    def find_edges_by_ids(
+        self,
+        edge_ids: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> dict[str, EdgeRecord]:
+        """Return edge snapshots keyed by application id."""
+        if not edge_ids:
+            return {}
+        snapshots: dict[str, EdgeRecord] = {}
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(edge_ids), chunk_size):
+            chunk = edge_ids[offset : offset + chunk_size]
+            literals = ", ".join(
+                f"'{_escape_cypher_string(edge_id)}'" for edge_id in chunk
+            )
+            query = f"""
+                MATCH ()-[r {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}}]->()
+                WHERE r.id IN [{literals}]
+                RETURN r
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if not row or row[0] is None:
+                    continue
+                edge = self._edge_to_edge_record(row[0])
+                snapshots[edge.id] = edge
+        return snapshots
+
+    def find_existing_slugs_for_entity_type(
+        self,
+        entity_type: str,
+        slugs: list[str],
+        *,
+        knowledge_graph_id: str,
+        chunk_size: int = 200,
+    ) -> set[str]:
+        """Return slugs that already exist for one entity type within a knowledge graph."""
+        if not slugs:
+            return set()
+        validate_label_name(entity_type)
+        existing: set[str] = set()
+        kg = _escape_cypher_string(knowledge_graph_id)
+        for offset in range(0, len(slugs), chunk_size):
+            chunk = slugs[offset : offset + chunk_size]
+            literals = ", ".join(f"'{_escape_cypher_string(slug)}'" for slug in chunk)
+            query = f"""
+                MATCH (n:{entity_type} {{graph_id: '{self._graph_id}', knowledge_graph_id: '{kg}'}})
+                WHERE n.slug IN [{literals}]
+                RETURN n.slug AS slug
+            """
+            result = self._client.execute_cypher(query)
+            for row in result.rows:
+                if row and row[0] is not None:
+                    existing.add(str(row[0]))
+        return existing
+
+    def count_nodes_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> int:
+        """Count nodes of one entity type within an optional knowledge graph scope."""
+        validate_label_name(node_type)
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        prop_filter = _property_contains_filter(
+            "n",
+            property_name=property_name,
+            property_value=property_value,
+        )
+        query = f"""
+            MATCH (n:{node_type} {{graph_id: '{self._graph_id}'{kg_filter}}})
+            WHERE true{prop_filter}
+            RETURN count(n) AS total
+        """
+        result = self._client.execute_cypher(query)
+        if not result.rows:
+            return 0
+        row = result.rows[0]
+        if not row:
+            return 0
+        value = row[0]
+        if isinstance(value, dict) and "total" in value:
+            return int(value["total"])
+        return _coerce_cypher_count(value)
+
+    def find_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> list[tuple[EdgeRecord, NodeRecord, NodeRecord]]:
+        """List relationship instances with resolved source and target nodes."""
+        validate_label_name(relationship_label)
+        if source_entity_type:
+            validate_label_name(source_entity_type)
+        if target_entity_type:
+            validate_label_name(target_entity_type)
+        bounded_limit = max(1, min(limit, 500))
+        bounded_offset = max(0, offset)
+        source_type = f":{source_entity_type}" if source_entity_type else ""
+        target_type = f":{target_entity_type}" if target_entity_type else ""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        prop_filter = _property_contains_filter(
+            "edge",
+            property_name=property_name,
+            property_value=property_value,
+        )
+        query = f"""
+            MATCH (source{source_type})-[edge:{relationship_label} {{
+                graph_id: '{self._graph_id}'{kg_filter}
+            }}]->(target{target_type})
+            WHERE true{prop_filter}
+            RETURN {{edge: edge, source: source, target: target}}
+            ORDER BY edge.id
+            SKIP {bounded_offset}
+            LIMIT {bounded_limit}
+        """
+        result = self._client.execute_cypher(query)
+
+        instances: list[tuple[EdgeRecord, NodeRecord, NodeRecord]] = []
+        for row in result.rows:
+            if len(row) == 0 or not isinstance(row[0], dict):
+                continue
+            result_map = row[0]
+            edge_vertex = result_map.get("edge")
+            source_vertex = result_map.get("source")
+            target_vertex = result_map.get("target")
+            if edge_vertex is None or source_vertex is None or target_vertex is None:
+                continue
+            instances.append(
+                (
+                    self._edge_to_edge_record(edge_vertex),
+                    self._vertex_to_node_record(source_vertex),
+                    self._vertex_to_node_record(target_vertex),
+                )
+            )
+        return instances
+
+    def count_relationship_instances(
+        self,
+        relationship_label: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        source_entity_type: str | None = None,
+        target_entity_type: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> int:
+        """Count relationship instances matching optional endpoint type filters."""
+        validate_label_name(relationship_label)
+        if source_entity_type:
+            validate_label_name(source_entity_type)
+        if target_entity_type:
+            validate_label_name(target_entity_type)
+        source_type = f":{source_entity_type}" if source_entity_type else ""
+        target_type = f":{target_entity_type}" if target_entity_type else ""
+        kg_filter = (
+            f", knowledge_graph_id: '{knowledge_graph_id}'"
+            if knowledge_graph_id
+            else ""
+        )
+        prop_filter = _property_contains_filter(
+            "edge",
+            property_name=property_name,
+            property_value=property_value,
+        )
+        query = f"""
+            MATCH (source{source_type})-[edge:{relationship_label} {{
+                graph_id: '{self._graph_id}'{kg_filter}
+            }}]->(target{target_type})
+            WHERE true{prop_filter}
+            RETURN count(edge) AS total
+        """
+        result = self._client.execute_cypher(query)
+        if not result.rows:
+            return 0
+        row = result.rows[0]
+        if not row:
+            return 0
+        value = row[0]
+        if isinstance(value, dict) and "total" in value:
+            return int(value["total"])
+        return _coerce_cypher_count(value)
 
     def get_neighbors(
         self,

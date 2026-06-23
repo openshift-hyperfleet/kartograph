@@ -29,3 +29,9 @@ class InvalidIdentifierError(Exception):
     """Raised when a cross-context identifier (tenant_id, workspace_id, etc.) is empty or whitespace."""
 
     pass
+
+
+class InvalidWorkspaceModeTransitionError(Exception):
+    """Raised when a workspace mode transition is invalid."""
+
+    pass

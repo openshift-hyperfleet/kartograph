@@ -23,8 +23,15 @@ certs:
 .PHONY: dev
 dev: certs
 	@echo "🧰 [Development] Starting application containers..."
-	docker compose -f compose.yaml build
-	docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
+	@./scripts/cleanup-openshell-sandboxes.sh
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile build-only build agent-runtime
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml build
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d --force-recreate api
+	@HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+		docker compose -f compose.yaml -f compose.dev.yaml --profile ui up -d
 	@echo "Done."
 	@echo "----------------------------"
 	@echo "API Root: http://localhost:8000"
@@ -35,6 +42,37 @@ dev: certs
 .PHONY: down
 down:
 	docker compose -f compose.yaml -f compose.dev.yaml down
+	@echo "Stopping Graph Management sticky, worker, and extraction job containers..."
+	-@docker ps -aq --filter name=kartograph-sticky- | xargs -r docker rm -f
+	-@docker ps -aq --filter name=kartograph-worker- | xargs -r docker rm -f
+	-@docker ps -aq --filter name=kartograph-extract- | xargs -r docker rm -f
+	-@./scripts/cleanup-openshell-sandboxes.sh
+
+.PHONY: dev-backup dev-restore dev-backup-list dev-repair-age-graphs
+dev-backup:
+	@./scripts/dev-data-backup.sh backup
+
+dev-restore:
+	@./scripts/dev-data-backup.sh restore $(or $(BACKUP),latest)
+
+dev-backup-list:
+	@./scripts/dev-data-backup.sh list
+
+dev-repair-age-graphs:
+	@./scripts/dev-data-backup.sh repair
+
+.PHONY: kg-backup kg-restore kg-backup-list
+kg-backup:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-backup KG_ID=<knowledge-graph-id>" && exit 1)
+	@./scripts/kg-data-backup.sh capture "$(KG_ID)"
+
+kg-restore:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-restore KG_ID=<knowledge-graph-id> [BACKUP=latest] [YES=1] [REPLACE=1]" && exit 1)
+	@./scripts/kg-data-backup.sh restore "$(KG_ID)" $(or $(BACKUP),latest) $(if $(YES),--yes,) $(if $(REPLACE),--replace,)
+
+kg-backup-list:
+	@test -n "$(KG_ID)" || (echo "Usage: make kg-backup-list KG_ID=<knowledge-graph-id>" && exit 1)
+	@./scripts/kg-data-backup.sh list "$(KG_ID)"
 
 
 .PHONY: run

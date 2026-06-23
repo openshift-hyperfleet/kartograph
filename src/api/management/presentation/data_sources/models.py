@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from management.application.services.data_source_service import DataSourceWithLatestRun
 from management.domain.aggregates import DataSource
+from management.domain.commit_pull_state import (
+    resolve_ingested_head_commit,
+    resolve_newest_unpulled_commit,
+)
 from management.domain.entities import DataSourceSyncRun
 from management.domain.value_objects import Ontology, OntologyEdgeType, OntologyNodeType
 
@@ -189,6 +194,41 @@ class DataSourceResponse(BaseModel):
     last_sync_at: datetime | None = Field(
         None, description="When the last sync completed"
     )
+    clone_head_commit: str | None = Field(
+        None, description="Latest known commit in the local/ingested clone"
+    )
+    last_extraction_baseline_commit: str | None = Field(
+        None, description="Commit used as baseline during the last extraction run"
+    )
+    tracked_branch_head_commit: str | None = Field(
+        None, description="Latest known commit at the tracked source branch head"
+    )
+    last_prepared_commit: str | None = Field(
+        None, description="Commit SHA captured during the last ingest-only prepare"
+    )
+    last_prepared_file_count: int | None = Field(
+        None,
+        description="Total files on the tracked branch at the last prepare commit",
+    )
+    ingested_head_commit: str | None = Field(
+        None,
+        description="Commit we have ingested locally (clone head / last prepare)",
+    )
+    newest_unpulled_commit: str | None = Field(
+        None,
+        description=(
+            "Newest commit on the tracked branch we do not have yet; "
+            "null when up to date with branch tip"
+        ),
+    )
+    job_package_available: bool | None = Field(
+        None,
+        description="Whether the latest prepared JobPackage archive exists on disk",
+    )
+    connection_config: dict[str, str] = Field(
+        default_factory=dict,
+        description="Adapter connection configuration (non-secret)",
+    )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
     ontology: OntologyModel | None = Field(
@@ -214,6 +254,15 @@ class DataSourceResponse(BaseModel):
             adapter_type=ds.adapter_type.value,
             schedule_type=ds.schedule.schedule_type.value,
             last_sync_at=ds.last_sync_at,
+            clone_head_commit=ds.clone_head_commit,
+            last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+            tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            last_prepared_commit=ds.last_prepared_commit,
+            last_prepared_file_count=ds.last_prepared_file_count,
+            ingested_head_commit=resolve_ingested_head_commit(ds),
+            newest_unpulled_commit=resolve_newest_unpulled_commit(ds),
+            job_package_available=None,
+            connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(
@@ -233,6 +282,83 @@ class SyncRunLogsResponse(BaseModel):
     )
 
 
+class MutationLogEntryPreviewResponse(BaseModel):
+    """Single mutation-log entry preview for a sync run."""
+
+    line_number: int = Field(..., description="1-based line number in the mutation log")
+    operation_class: str = Field(..., description="Operation class for this entry")
+    summary: str = Field(
+        ..., description="Human-readable preview summary for this entry"
+    )
+
+
+class MutationLogEntryPreviewPageResponse(BaseModel):
+    """Paginated mutation-log entry previews for a sync run."""
+
+    entries: list[MutationLogEntryPreviewResponse] = Field(
+        default_factory=list,
+        description="Preview entries for the requested page",
+    )
+    total: int = Field(..., description="Total preview entries available for this run")
+    offset: int = Field(..., description="Zero-based offset of this page")
+    limit: int = Field(..., description="Maximum entries requested for this page")
+    preview_available: bool = Field(
+        ...,
+        description=(
+            "False when detailed mutation-log entry previews are not yet stored "
+            "or cannot be retrieved for this run"
+        ),
+    )
+
+
+class DiffChangedFileResponse(BaseModel):
+    """Single changed file entry in a commit diff summary."""
+
+    path: str = Field(..., description="Repository-relative file path")
+    status: str = Field(
+        ...,
+        description="GitHub compare status (added, modified, removed, renamed, ...)",
+    )
+
+
+class DataSourceDiffSummaryResponse(BaseModel):
+    """Response model for baseline-vs-tracked commit diff summary."""
+
+    baseline_commit: str | None = Field(
+        None,
+        description="Commit baseline used for the previous extraction",
+    )
+    tracked_head_commit: str | None = Field(
+        None,
+        description="Latest tracked branch head commit used for comparison",
+    )
+    total_changed_files: int = Field(..., description="Total changed files in compare")
+    added_count: int = Field(..., description="Number of files added")
+    modified_count: int = Field(..., description="Number of files modified")
+    removed_count: int = Field(..., description="Number of files removed")
+    renamed_count: int = Field(..., description="Number of files renamed")
+    files_truncated: bool = Field(
+        ...,
+        description="True when changed_files is truncated by max_files",
+    )
+    changed_files: list[DiffChangedFileResponse] = Field(
+        default_factory=list,
+        description="Changed-file entries, bounded by max_files",
+    )
+
+
+class TriggerSyncRequest(BaseModel):
+    """Request body for triggering a data source sync."""
+
+    mode: Literal["full", "ingest_only"] = Field(
+        default="full",
+        description=(
+            "Pipeline mode: full runs ingestion through graph apply; "
+            "ingest_only prepares ingestion context without extraction"
+        ),
+    )
+
+
 class SyncRunResponse(BaseModel):
     """Response model for a data source sync run."""
 
@@ -240,13 +366,39 @@ class SyncRunResponse(BaseModel):
     data_source_id: str = Field(..., description="Data Source ID this run belongs to")
     status: str = Field(
         ...,
-        description="Sync run status (pending, ingesting, ai_extracting, applying, completed, failed)",
+        description=(
+            "Sync run status (pending, ingesting, ai_extracting, applying, "
+            "ingested, completed, failed)"
+        ),
     )
     started_at: datetime = Field(..., description="When the sync run started")
     completed_at: datetime | None = Field(
         None, description="When the sync run completed"
     )
     error: str | None = Field(None, description="Error message if the sync run failed")
+    mutation_log_id: str | None = Field(
+        None, description="Associated mutation log run ID when available"
+    )
+    knowledge_graph_id: str | None = Field(
+        None,
+        description="Knowledge graph scope for this mutation run when available",
+    )
+    session_id: str | None = Field(
+        None, description="Extraction session ID associated with this mutation run"
+    )
+    actor_id: str | None = Field(
+        None, description="Actor identity associated with this mutation run"
+    )
+    operation_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Operation counts grouped by operation class for this run",
+    )
+    token_usage_total: int | None = Field(
+        None, description="Total model tokens consumed during extraction for this run"
+    )
+    cost_total_usd: float | None = Field(
+        None, description="Estimated USD cost for extraction execution in this run"
+    )
     created_at: datetime = Field(
         ..., description="When the sync run record was created"
     )
@@ -268,8 +420,63 @@ class SyncRunResponse(BaseModel):
             started_at=run.started_at,
             completed_at=run.completed_at,
             error=run.error,
+            mutation_log_id=(
+                run.mutation_log_run.mutation_log_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            knowledge_graph_id=(
+                run.mutation_log_run.knowledge_graph_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            session_id=(
+                run.mutation_log_run.session_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            actor_id=(
+                run.mutation_log_run.actor_id
+                if run.mutation_log_run is not None
+                else None
+            ),
+            operation_counts=(
+                dict(run.mutation_log_run.operation_counts)
+                if run.mutation_log_run is not None
+                else {}
+            ),
+            token_usage_total=(
+                run.mutation_log_run.token_usage_total
+                if run.mutation_log_run is not None
+                else None
+            ),
+            cost_total_usd=(
+                run.mutation_log_run.cost_total_usd
+                if run.mutation_log_run is not None
+                else None
+            ),
             created_at=run.created_at,
         )
+
+
+RunControlAction = Literal[
+    "start",
+    "pause",
+    "halt",
+    "reset_running",
+    "reset_failed",
+    "reset_completed",
+    "reset_all",
+]
+
+
+class RunControlResponse(BaseModel):
+    """Response model for run-control actions."""
+
+    action: RunControlAction
+    affected_count: int
+    updated_runs: list[SyncRunResponse] = Field(default_factory=list)
+    started_run: SyncRunResponse | None = None
 
 
 class DataSourceWithSyncResponse(BaseModel):
@@ -292,6 +499,34 @@ class DataSourceWithSyncResponse(BaseModel):
     )
     last_sync_at: datetime | None = Field(
         None, description="When the last sync completed"
+    )
+    clone_head_commit: str | None = Field(
+        None, description="Latest known commit in the local/ingested clone"
+    )
+    last_extraction_baseline_commit: str | None = Field(
+        None, description="Commit used as baseline during the last extraction run"
+    )
+    tracked_branch_head_commit: str | None = Field(
+        None, description="Latest known commit at the tracked source branch head"
+    )
+    last_prepared_commit: str | None = Field(
+        None, description="Commit SHA captured during the last ingest-only prepare"
+    )
+    last_prepared_file_count: int | None = Field(
+        None,
+        description="Total files on the tracked branch at the last prepare commit",
+    )
+    ingested_head_commit: str | None = Field(
+        None,
+        description="Commit we have ingested locally (clone head / last prepare)",
+    )
+    newest_unpulled_commit: str | None = Field(
+        None,
+        description="Newest commit on branch we do not have yet; null if up to date",
+    )
+    connection_config: dict[str, str] = Field(
+        default_factory=dict,
+        description="Adapter connection configuration (non-secret)",
     )
     created_at: datetime = Field(..., description="When the DS was created")
     updated_at: datetime = Field(..., description="When the DS was last updated")
@@ -325,6 +560,14 @@ class DataSourceWithSyncResponse(BaseModel):
             adapter_type=ds.adapter_type.value,
             schedule_type=ds.schedule.schedule_type.value,
             last_sync_at=ds.last_sync_at,
+            clone_head_commit=ds.clone_head_commit,
+            last_extraction_baseline_commit=ds.last_extraction_baseline_commit,
+            tracked_branch_head_commit=ds.tracked_branch_head_commit,
+            last_prepared_commit=ds.last_prepared_commit,
+            last_prepared_file_count=ds.last_prepared_file_count,
+            ingested_head_commit=resolve_ingested_head_commit(ds),
+            newest_unpulled_commit=resolve_newest_unpulled_commit(ds),
+            connection_config=dict(ds.connection_config),
             created_at=ds.created_at,
             updated_at=ds.updated_at,
             ontology=(

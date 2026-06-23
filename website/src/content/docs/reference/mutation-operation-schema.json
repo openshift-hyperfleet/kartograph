@@ -193,8 +193,7 @@
           "set_properties": {
             "type": "object",
             "required": [
-              "data_source_id",
-              "source_path"
+              "data_source_id"
             ],
             "properties": {
               "data_source_id": {
@@ -210,7 +209,7 @@
             }
           }
         },
-        "errorMessage": "CREATE requires 'label' and 'set_properties' with 'data_source_id' and 'source_path'"
+        "errorMessage": "CREATE requires 'label' and 'set_properties' with 'data_source_id'"
       }
     },
     {
@@ -230,7 +229,6 @@
             "type": "object",
             "required": [
               "data_source_id",
-              "source_path",
               "slug"
             ],
             "properties": {
@@ -252,7 +250,7 @@
             }
           }
         },
-        "errorMessage": "CREATE node requires 'set_properties' with 'data_source_id', 'source_path', and 'slug'"
+        "errorMessage": "CREATE node requires 'set_properties' with 'data_source_id' and 'slug'"
       }
     },
     {

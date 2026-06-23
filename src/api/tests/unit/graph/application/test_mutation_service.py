@@ -104,22 +104,12 @@ class TestGraphMutationServiceApplyMutations:
         assert saved_type_def.entity_type == EntityType.NODE
         assert saved_type_def.description == "A person in the organization"
 
-        # System properties must be automatically added to required_properties
-        # per spec: system properties (data_source_id, source_path, slug) are
-        # automatically added to required properties for node types.
-        # Because "slug" was NOT in the caller-provided set, this assertion only
-        # passes when the service actually injects it — a regression would fail here.
         assert "data_source_id" in saved_type_def.required_properties
-        assert "source_path" in saved_type_def.required_properties
+        assert "source_path" not in saved_type_def.required_properties
         assert "slug" in saved_type_def.required_properties
 
     def test_apply_define_edge_type_adds_edge_system_properties(self):
-        """DEFINE for edge type adds data_source_id and source_path but NOT slug.
-
-        Spec (DEFINE edge type scenario): system properties for edges
-        (data_source_id, source_path) are automatically added. slug is a node-only
-        system property and MUST NOT appear in edge type definitions.
-        """
+        """DEFINE for edge type adds data_source_id but NOT slug or source_path."""
         from graph.application.services import GraphMutationService
 
         mock_applier = Mock()
@@ -154,9 +144,8 @@ class TestGraphMutationServiceApplyMutations:
             saved_type_def.description == "Dependency relationship between components"
         )
 
-        # Edge system properties MUST be automatically added
         assert "data_source_id" in saved_type_def.required_properties
-        assert "source_path" in saved_type_def.required_properties
+        assert "source_path" not in saved_type_def.required_properties
 
         # slug is a node-only system property — MUST NOT appear on edge types
         assert "slug" not in saved_type_def.required_properties

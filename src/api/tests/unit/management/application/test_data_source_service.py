@@ -459,6 +459,25 @@ def _make_ds(
     return ds
 
 
+def _make_sync_run(
+    *,
+    run_id: str,
+    data_source_id: str,
+    status: str,
+) -> DataSourceSyncRun:
+    now = datetime.now(UTC)
+    return DataSourceSyncRun(
+        id=run_id,
+        data_source_id=data_source_id,
+        status=status,
+        started_at=now,
+        completed_at=None,
+        error=None,
+        created_at=now,
+        logs=[],
+    )
+
+
 # ---- create ----
 
 
@@ -1028,6 +1047,206 @@ class TestDataSourceServiceTriggerSync:
         assert len(ds_repo.saved) == 1
         assert len(ds_probe.sync_requested_calls) == 1
         assert ds_probe.sync_requested_calls[0]["ds_id"] == ds.id.value
+
+
+class TestDataSourceServiceRunControls:
+    """Tests for extraction run-control operations."""
+
+    @pytest.mark.asyncio
+    async def test_pause_updates_active_runs_to_pending(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        sync_run_repo.seed(
+            _make_sync_run(
+                run_id="run-1", data_source_id=ds.id.value, status="ingesting"
+            ),
+            _make_sync_run(
+                run_id="run-2", data_source_id=ds.id.value, status="applying"
+            ),
+            _make_sync_run(
+                run_id="run-3", data_source_id=ds.id.value, status="completed"
+            ),
+        )
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="pause",
+        )
+
+        assert result.affected_count == 2
+        assert all(run.status == "pending" for run in result.updated_runs)
+
+    @pytest.mark.asyncio
+    async def test_halt_marks_active_runs_as_failed(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        sync_run_repo.seed(
+            _make_sync_run(
+                run_id="run-1", data_source_id=ds.id.value, status="ai_extracting"
+            )
+        )
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="halt",
+        )
+
+        assert result.affected_count == 1
+        halted = result.updated_runs[0]
+        assert halted.status == "failed"
+        assert halted.completed_at is not None
+        assert halted.error is not None
+
+    @pytest.mark.asyncio
+    async def test_reset_failed_moves_failed_runs_to_pending(
+        self, service, authz, ds_repo, sync_run_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+        failed = _make_sync_run(
+            run_id="run-1", data_source_id=ds.id.value, status="failed"
+        )
+        failed.error = "old error"
+        failed.completed_at = datetime.now(UTC)
+        sync_run_repo.seed(failed)
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="reset_failed",
+        )
+
+        assert result.affected_count == 1
+        updated = result.updated_runs[0]
+        assert updated.status == "pending"
+        assert updated.error is None
+        assert updated.completed_at is None
+
+    @pytest.mark.asyncio
+    async def test_start_action_creates_new_sync_run(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        ds = _make_ds()
+        authz.grant_all()
+        ds_repo.seed(ds)
+
+        result = await service.apply_run_control(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            action="start",
+        )
+
+        assert result.started_run is not None
+        assert result.started_run.status == "pending"
+        assert result.affected_count == 1
+
+
+class TestDataSourceServiceCommitReferenceActions:
+    """Tests for commit reference refresh/baseline actions."""
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_requires_manage_permission(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """refresh_commit_references() must check MANAGE permission."""
+        ds = _make_ds()
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="abc123",
+        )
+
+        authz.assert_check_called_once(
+            resource=f"data_source:{ds.id.value}",
+            permission=Permission.MANAGE,
+            subject=f"user:{user_id}",
+        )
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_updates_tracked_head_only(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """Refresh should update tracked head without touching baseline or clone."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = None
+        ds.clone_head_commit = "legacy-clone"
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="abc123",
+        )
+
+        assert updated.tracked_branch_head_commit == "abc123"
+        assert updated.clone_head_commit == "legacy-clone"
+        assert updated.last_extraction_baseline_commit is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_commit_references_preserves_existing_baseline(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """Refresh should not overwrite an existing extraction baseline."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = "baseline000"
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.refresh_commit_references(
+            user_id=user_id,
+            ds_id=ds.id.value,
+            tracked_branch_head_commit="tracked999",
+        )
+
+        assert updated.last_extraction_baseline_commit == "baseline000"
+        assert updated.tracked_branch_head_commit == "tracked999"
+
+    @pytest.mark.asyncio
+    async def test_adopt_tracked_head_as_baseline_updates_baseline(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """adopt_tracked_head_as_baseline() should copy tracked head to baseline."""
+        ds = _make_ds()
+        ds.last_extraction_baseline_commit = "old-base"
+        ds.tracked_branch_head_commit = "new-head"
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        updated = await service.adopt_tracked_head_as_baseline(
+            user_id=user_id,
+            ds_id=ds.id.value,
+        )
+
+        assert updated.last_extraction_baseline_commit == "new-head"
+
+    @pytest.mark.asyncio
+    async def test_adopt_tracked_head_as_baseline_requires_tracked_head(
+        self, service, authz, ds_repo, user_id
+    ) -> None:
+        """adopt_tracked_head_as_baseline() should reject when tracked head missing."""
+        ds = _make_ds()
+        ds.tracked_branch_head_commit = None
+        ds_repo.seed(ds)
+        authz.grant_all()
+
+        with pytest.raises(ValueError, match="tracked branch head"):
+            await service.adopt_tracked_head_as_baseline(
+                user_id=user_id,
+                ds_id=ds.id.value,
+            )
 
 
 class TestDataSourceServiceListAllForUser:

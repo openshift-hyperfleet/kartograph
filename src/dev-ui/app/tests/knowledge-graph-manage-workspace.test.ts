@@ -1,0 +1,741 @@
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+import {
+  WORKSPACE_STEP_ORDER,
+  WORKSPACE_STEP_TITLES,
+  buildDataSourcesStepUrl,
+  buildMaintainStepUrl,
+  buildManageStepUrl,
+  buildSuggestedNextStep,
+  buildWorkspaceStepCards,
+  isMaintenanceReady,
+  parseManageStepQuery,
+  resolveStepDestination,
+  stepStatusTintClass,
+} from '../utils/kgManageWorkspace'
+import {
+  GRAPH_MANAGEMENT_MODE_LABELS,
+  GRAPH_MANAGEMENT_MODE_ORDER,
+  buildGraphManagementRailItems,
+  buildGraphManagementStepUrl,
+  filterRailItemsForMode,
+  isRailItemValidInMode,
+  parseGraphManagementModeQuery,
+  resolveDefaultGraphManagementMode,
+  resolveRailSelectionForMode,
+  resolveSharedSessionMode,
+} from '../utils/kgGraphManagement'
+import { filterSchemaRailItems } from '../utils/kgGraphManagementArtifacts'
+
+const manageWorkspaceVue = readFileSync(
+  resolve(__dirname, '../pages/knowledge-graphs/[kgId]/manage.vue'),
+  'utf-8',
+)
+const kgIndexVue = readFileSync(
+  resolve(__dirname, '../pages/knowledge-graphs/index.vue'),
+  'utf-8',
+)
+const dataSourcesVue = readFileSync(
+  resolve(__dirname, '../pages/data-sources/index.vue'),
+  'utf-8',
+)
+const sharedConversationPanelVue = readFileSync(
+  resolve(__dirname, '../components/extraction/SharedConversationPanel.vue'),
+  'utf-8',
+)
+const graphExtractionArchivedHistoryVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphExtractionArchivedHistory.vue'),
+  'utf-8',
+)
+const graphExtractionJobsWorkspaceVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphExtractionJobsWorkspace.vue'),
+  'utf-8',
+)
+const graphMaintenanceWorkspaceVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphMaintenanceWorkspace.vue'),
+  'utf-8',
+)
+const graphManagementMutationAuthoringVue = readFileSync(
+  resolve(__dirname, '../components/graph-management/GraphManagementMutationAuthoringPanel.vue'),
+  'utf-8',
+)
+const manageWorkspaceHubTs = readFileSync(
+  resolve(__dirname, '../utils/kgManageWorkspaceHub.ts'),
+  'utf-8',
+)
+
+const baseWorkspaceStatus = {
+  workspace_mode: 'schema_bootstrap' as const,
+  transition_eligible: false,
+  readiness: {
+    has_minimum_entity_types: false,
+    has_minimum_relationship_types: false,
+    prepopulated_types_ready: false,
+    blocking_reasons: ['Missing entity types'],
+  },
+}
+
+describe('Knowledge Graph Manage Workspace - graph management controls', () => {
+  it('loads workspace status projection from management API', () => {
+    expect(manageWorkspaceVue).toContain('/workspace-status')
+    expect(manageWorkspaceVue).toContain('loadWorkspaceStatus')
+  })
+
+  it('exposes Validate action calling workspace validate endpoint', () => {
+    expect(manageWorkspaceVue).toContain('validateWorkspace')
+    expect(manageWorkspaceVue).toContain('/workspace/validate')
+    expect(manageWorkspaceVue).toContain('Validate')
+  })
+
+  it('exposes Go to Extraction/Mutations action calling transition endpoint', () => {
+    expect(manageWorkspaceVue).toContain('transitionToExtraction')
+    expect(manageWorkspaceVue).toContain('/workspace/transition-to-extraction')
+    expect(manageWorkspaceVue).toContain('Go to Extraction/Mutations')
+  })
+})
+
+describe('Knowledge Graph Manage Workspace - graph writes history', () => {
+  it('renders graph writes history step with archived extraction component', () => {
+    expect(manageWorkspaceVue).toContain('GraphExtractionArchivedHistory')
+    expect(manageWorkspaceVue).toContain("activeStep === 'mutation-logs'")
+  })
+
+  it('loads archived history from management API', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('/extraction-jobs/archived-history')
+    expect(graphExtractionArchivedHistoryVue).toContain('loadHistory')
+  })
+
+  it('shows write count and cost instead of token fractions in job rows', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(job.costUsd)')
+    expect(graphExtractionArchivedHistoryVue).toContain('writeOps')
+    expect(graphExtractionArchivedHistoryVue).not.toContain('inputTokens }}/{{')
+  })
+
+  it('distinguishes GMA sessions from extraction worker jobs', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('graph_management_session')
+    expect(graphExtractionArchivedHistoryVue).toContain('GMA session')
+    expect(graphExtractionArchivedHistoryVue).toContain('Extraction job')
+  })
+})
+
+describe('KG-MANAGE-012a - completed job archival maintenance', () => {
+  it('exposes archive completed action alongside reset maintenance controls', () => {
+    expect(graphExtractionJobsWorkspaceVue).toContain('/archive-completed')
+    expect(graphExtractionJobsWorkspaceVue).toContain('Archive Completed')
+    expect(graphExtractionJobsWorkspaceVue).toContain('archiveCompletedJobs')
+  })
+})
+
+describe('KG-MANAGE-012b - maintain workspace commit and job controls', () => {
+  it('labels new files section and exposes commit refresh actions', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('New Files to Process')
+    expect(graphMaintenanceWorkspaceVue).toContain('Check for new commits')
+    expect(graphMaintenanceWorkspaceVue).toContain('New commits vs baseline')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('not ingested yet')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Unpulled commits')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('will ingest on queue')
+    expect(graphMaintenanceWorkspaceVue).toContain('diff-summary')
+  })
+
+  it('defaults maintain files per job to two and shows preview', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('filesPerJob = ref(2)')
+    expect(graphMaintenanceWorkspaceVue).toContain('Files per job')
+    expect(graphMaintenanceWorkspaceVue).toContain('estimatedJobsFromFiles')
+    expect(graphMaintenanceWorkspaceVue).toContain('readyJobsCount')
+    expect(graphMaintenanceWorkspaceVue).toContain('runControlsInitialized')
+  })
+
+  it('explains by-file maintenance and hybrid run controls', () => {
+    expect(graphMaintenanceWorkspaceVue).toContain('by-file')
+    expect(graphMaintenanceWorkspaceVue).toContain('Queue maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('Run ready maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('canRunReadyMaintenanceJobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('Schedule recurring maintenance jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('Live maintenance activity')
+    expect(graphMaintenanceWorkspaceVue).toContain('Job Status')
+    expect(graphMaintenanceWorkspaceVue).toContain('Archive Completed')
+    expect(graphMaintenanceWorkspaceVue).toContain('Regenerate jobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('regenerateMaintenanceJobs')
+    expect(graphMaintenanceWorkspaceVue).toContain('regenerateConfirmOpen')
+    expect(graphMaintenanceWorkspaceVue).toContain('variant="destructive"')
+    expect(graphMaintenanceWorkspaceVue).toContain('Regenerate maintenance jobs?')
+    expect(graphMaintenanceWorkspaceVue).toContain('Scheduled maintenance is blocked')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Maintenance run history')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Sync changed sources only')
+    expect(graphMaintenanceWorkspaceVue).not.toContain('Run maintenance jobs now')
+  })
+})
+
+describe('KG-MANAGE-012 - archived graph writes grouping', () => {
+  it('groups archived jobs by run and job set', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('payload.runs')
+    expect(graphExtractionArchivedHistoryVue).toContain('jobSets')
+    expect(graphExtractionArchivedHistoryVue).toContain('set.jobSet')
+  })
+
+  it('defaults selection to first run and job set', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedRunIndex')
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedJobSetIndex')
+    expect(graphExtractionArchivedHistoryVue).toContain('selectedJobId')
+  })
+
+  it('shows job identifier, write ops, and cost in job list items', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('job.jobId')
+    expect(graphExtractionArchivedHistoryVue).toContain('job.writeOps')
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(job.costUsd)')
+  })
+})
+
+describe('KG-MANAGE-013 - archived job detail richness', () => {
+  it('renders entity and relationship mutation metrics for selected job', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('entitiesCreated')
+    expect(graphExtractionArchivedHistoryVue).toContain('relationshipsModified')
+    expect(graphExtractionArchivedHistoryVue).toContain('formatCost(selectedJob.costUsd)')
+  })
+
+  it('loads applied mutation JSONL for selected archived job', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('/archived-mutations')
+    expect(graphExtractionArchivedHistoryVue).toContain('loadSelectedMutations')
+    expect(graphExtractionArchivedHistoryVue).toContain('mutationJsonl')
+  })
+})
+
+describe('KG-MANAGE-014 - no-preview fallback state', () => {
+  it('shows explicit fallback when archived mutation JSONL is unavailable', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain(
+      'No stored mutation JSONL for this entry',
+    )
+  })
+})
+
+describe('Knowledge Graph Manage Workspace - bootstrap readiness guidance', () => {
+  it('renders a bootstrap progress checklist section with explicit checks', () => {
+    expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')
+    expect(manageWorkspaceVue).toContain('progressChecklist')
+    expect(manageWorkspaceVue).toContain('Minimum entity types')
+    expect(manageWorkspaceVue).toContain('Minimum relationship types')
+    expect(manageWorkspaceVue).toContain('Prepopulated instance coverage')
+  })
+
+  it('renders diagnostics panel with prepopulated type failures and blocking reasons', () => {
+    expect(manageWorkspaceVue).toContain('Validation diagnostics')
+    expect(manageWorkspaceVue).toContain('prepopulated_types_without_instances')
+    expect(manageWorkspaceVue).toContain('blocking_reasons')
+  })
+
+  it('renders explicit next steps guidance for transition readiness', () => {
+    expect(manageWorkspaceVue).toContain('Next steps')
+    expect(manageWorkspaceVue).toContain('Run Validate to refresh readiness signals')
+    expect(manageWorkspaceVue).toContain('Transition is enabled')
+  })
+})
+
+describe('KG-MANAGE-001 - manage entry navigation', () => {
+  it('routes Manage action to graph-scoped manage workspace', () => {
+    expect(kgIndexVue).toContain('navigateTo(`/knowledge-graphs/${kg.id}/manage`)')
+  })
+
+  it('loads graph identity for manage header and back action', () => {
+    expect(manageWorkspaceVue).toContain('/management/knowledge-graphs/${kgId.value}')
+    expect(manageWorkspaceVue).toContain('loadKgIdentity')
+    expect(manageWorkspaceVue).toContain('Back to Knowledge Graphs')
+  })
+})
+
+describe('KG-MANAGE-002 - workspace hub tile set', () => {
+  it('renders Project workspace section with hub tiles and stats', () => {
+    expect(manageWorkspaceVue).toContain('Project workspace')
+    expect(manageWorkspaceVue).toContain('workspaceHubTiles')
+    expect(manageWorkspaceVue).toContain('workspaceHubTileClasses')
+    expect(manageWorkspaceVue).toContain('GraphSchemaExplorer')
+    expect(manageWorkspaceVue).toContain('More Detail')
+    expect(manageWorkspaceVue).toContain('dataSourcesDetailUrl')
+    expect(manageWorkspaceVue).toContain('Archived writes')
+    expect(manageWorkspaceVue).toContain('archivedWriteCount')
+    expect(manageWorkspaceVue).toContain('/extraction-jobs/archived-history')
+    expect(manageWorkspaceHubTs).toContain('Data sources')
+    expect(manageWorkspaceHubTs).toContain('Graph Management')
+    expect(manageWorkspaceHubTs).toContain('Graph Writes History')
+    expect(manageWorkspaceHubTs).toContain('Maintain')
+  })
+
+  it('buildWorkspaceStepCards returns the canonical four-card set', () => {
+    const cards = buildWorkspaceStepCards({
+      kgId: 'kg-1',
+      dataSourceCount: 1,
+      maintenanceReadyCount: 0,
+      mutationLogRunCount: 0,
+      workspaceStatus: baseWorkspaceStatus,
+    })
+
+    expect(cards.map((card) => card.title)).toEqual([
+      'Data Sources',
+      'Graph Management',
+      'Maintain',
+      'Graph Writes History',
+    ])
+  })
+})
+
+describe('KG-MANAGE-003 - suggested next step callout', () => {
+  it('renders next-step callout in the workspace hub card', () => {
+    expect(manageWorkspaceVue).toContain('Suggested next step')
+    expect(manageWorkspaceVue).toContain('workspaceHubNextStep')
+    expect(manageWorkspaceVue).toContain('Next step')
+  })
+
+  it('prioritizes data sources when no sources are connected', () => {
+    const next = buildSuggestedNextStep({
+      kgId: 'kg-1',
+      dataSourceCount: 0,
+      maintenanceReadyCount: 0,
+      mutationLogRunCount: 0,
+      workspaceStatus: baseWorkspaceStatus,
+    })
+
+    expect(next.stepId).toBe('data-sources')
+    expect(next.actionLabel).toBe('Open')
+  })
+
+  it('uses Run action when maintenance is ready', () => {
+    const next = buildSuggestedNextStep({
+      kgId: 'kg-1',
+      dataSourceCount: 2,
+      maintenanceReadyCount: 1,
+      mutationLogRunCount: 3,
+      workspaceStatus: {
+        workspace_mode: 'extraction_operations',
+        transition_eligible: true,
+        readiness: {
+          has_minimum_entity_types: true,
+          has_minimum_relationship_types: true,
+          prepopulated_types_ready: true,
+          blocking_reasons: [],
+        },
+      },
+    })
+
+    expect(next.stepId).toBe('maintain')
+    expect(next.actionLabel).toBe('Run')
+  })
+})
+
+describe('KG-MANAGE-004 - workspace hub tile semantics', () => {
+  it('renders hub tile classes, badges, subtitles, and link labels', () => {
+    expect(manageWorkspaceVue).toContain('workspaceHubTileClasses')
+    expect(manageWorkspaceVue).toContain('workspaceHubStepBadgeClass')
+    expect(manageWorkspaceVue).toContain('item.subtitle')
+    expect(manageWorkspaceVue).toContain('item.linkLabel')
+    expect(manageWorkspaceVue).toContain('item.lockedReason')
+  })
+
+  it('maps each status label to a tint class in graph-management rail', () => {
+    expect(stepStatusTintClass('ready')).toContain('emerald')
+    expect(stepStatusTintClass('in_progress')).toContain('blue')
+    expect(stepStatusTintClass('needs_attention')).toContain('amber')
+    expect(stepStatusTintClass('blocked')).toContain('destructive')
+  })
+
+  it('uses Open, Revisit, or Run action labels on cards', () => {
+    const cards = buildWorkspaceStepCards({
+      kgId: 'kg-1',
+      dataSourceCount: 2,
+      maintenanceReadyCount: 1,
+      mutationLogRunCount: 4,
+      workspaceStatus: {
+        workspace_mode: 'extraction_operations',
+        transition_eligible: true,
+        readiness: {
+          has_minimum_entity_types: true,
+          has_minimum_relationship_types: true,
+          prepopulated_types_ready: true,
+          blocking_reasons: [],
+        },
+      },
+    })
+
+    expect(cards.every((card) => ['Open', 'Revisit', 'Run'].includes(card.actionLabel))).toBe(true)
+    expect(cards.find((card) => card.id === 'maintain')?.actionLabel).toBe('Run')
+  })
+})
+
+describe('KG-MANAGE-005 - graph-scoped data sources step', () => {
+  it('keeps data-sources route utility for workspace cards but not graph-management redirects', () => {
+    expect(manageWorkspaceVue).not.toContain('navigateTo(buildDataSourcesStepUrl(kgId))')
+    expect(buildDataSourcesStepUrl('kg-abc', 0)).toBe('/knowledge-graphs/kg-abc/data-sources/new')
+    expect(buildDataSourcesStepUrl('kg-abc', 2)).toBe('/knowledge-graphs/kg-abc/data-sources')
+  })
+
+  it('manage workspace passes data source count when opening data-sources step', () => {
+    expect(manageWorkspaceVue).toContain('dataSourceCount: dataSourceCount.value')
+  })
+
+  it('kg-scoped data sources pages preserve manage return path', () => {
+    const kgDataSourcesIndex = readFileSync(
+      resolve(__dirname, '../pages/knowledge-graphs/[kgId]/data-sources/index.vue'),
+      'utf-8',
+    )
+    expect(kgDataSourcesIndex).toContain('Back to workspace overview')
+    expect(kgDataSourcesIndex).toContain('buildKgManageUrl')
+    expect(kgDataSourcesIndex).toContain('Data sources overview')
+    expect(kgDataSourcesIndex).toContain('max-w-7xl')
+  })
+})
+
+describe('KG-MANAGE-015 - graph-scoped maintain step and round trip', () => {
+  it('routes maintain workspace cards to manage step', () => {
+    expect(buildMaintainStepUrl('kg-abc')).toBe(
+      '/knowledge-graphs/kg-abc/manage?step=maintain',
+    )
+    expect(parseManageStepQuery('maintain')).toBe('maintain')
+  })
+
+  it('renders maintain workspace on manage page', () => {
+    expect(manageWorkspaceVue).toContain("activeStep === 'maintain'")
+    expect(manageWorkspaceVue).toContain('GraphMaintenanceWorkspace')
+  })
+
+  it('returns to manage overview from in-page steps', () => {
+    expect(manageWorkspaceVue).toContain('returnToWorkspaceOverview')
+    expect(buildManageStepUrl('kg-abc')).toBe('/knowledge-graphs/kg-abc/manage')
+    expect(resolveStepDestination('kg-abc', 'graph-management')).toBe(
+      '/knowledge-graphs/kg-abc/manage?step=graph-management',
+    )
+  })
+
+  it('detects maintenance readiness from commit diff semantics', () => {
+    expect(isMaintenanceReady({
+      last_extraction_baseline_commit: 'abc',
+      tracked_branch_head_commit: 'def',
+    })).toBe(true)
+    expect(isMaintenanceReady({
+      last_extraction_baseline_commit: 'abc',
+      tracked_branch_head_commit: 'abc',
+    })).toBe(false)
+  })
+})
+
+describe('Shared conversation panel - extraction UX contract', () => {
+  it('renders phase-2 style conversational intelligence header and session toggle', () => {
+    expect(sharedConversationPanelVue).toContain('Graph Management Assistant')
+    expect(sharedConversationPanelVue).toContain('Start session')
+    expect(sharedConversationPanelVue).toContain('End session')
+    expect(sharedConversationPanelVue).toContain('Sparkles')
+  })
+
+  it('renders clear-chat confirmation dialog before emitting clear action', () => {
+    expect(sharedConversationPanelVue).toContain('Clear conversation?')
+    expect(sharedConversationPanelVue).toContain('confirmClearChat')
+    expect(sharedConversationPanelVue).toContain("emit('clearChat')")
+  })
+
+  it('renders bubble chat, thinking state, and auto-scroll', () => {
+    expect(sharedConversationPanelVue).toContain('thinkingDisplayLines')
+    expect(sharedConversationPanelVue).toContain('normalizeThinkingActivityLines')
+    expect(sharedConversationPanelVue).toContain('THINKING_DISPLAY_LINE_COUNT')
+    expect(sharedConversationPanelVue).toContain('chatScrollRef')
+    expect(sharedConversationPanelVue).toContain('renderAssistantMarkdown')
+    expect(sharedConversationPanelVue).toContain('showInitialConversationLoading')
+    expect(sharedConversationPanelVue).toContain('showConversationRefreshIndicator')
+    expect(sharedConversationPanelVue).toContain('scrollToBottom')
+    expect(sharedConversationPanelVue).toContain('target.scrollTop = target.scrollHeight')
+  })
+
+  it('accepts mode-aware input placeholder and session status props', () => {
+    expect(sharedConversationPanelVue).toContain('inputPlaceholder')
+    expect(sharedConversationPanelVue).toContain('sessionStatusLabel')
+    expect(sharedConversationPanelVue).toContain('footerHint')
+  })
+})
+
+describe('KG-MANAGE-006 - graph management conversation-first layout', () => {
+  it('renders graph management step with shared conversation panel', () => {
+    expect(manageWorkspaceVue).toContain("activeStep === 'graph-management'")
+    expect(manageWorkspaceVue).toContain('SharedConversationPanel')
+    expect(manageWorkspaceVue).toContain('graph-management-controls')
+  })
+
+  it('uses a centered max-width page container like other KG workspace steps', () => {
+    expect(manageWorkspaceVue).toContain('mx-auto max-w-7xl')
+  })
+
+  it('uses per-mode session endpoints and cached conversation state', () => {
+    expect(manageWorkspaceVue).toContain('graphManagementSessionMode')
+    expect(manageWorkspaceVue).toContain('graph_management_ui_mode')
+    expect(manageWorkspaceVue).toContain('modeConversationState')
+    expect(manageWorkspaceVue).toContain('restoreModeConversation')
+  })
+})
+
+describe('KG-MANAGE-007 - graph management modes', () => {
+  it('supports the three canonical graph management modes', () => {
+    for (const mode of GRAPH_MANAGEMENT_MODE_ORDER) {
+      expect(GRAPH_MANAGEMENT_MODE_LABELS[mode]).toBeTruthy()
+      expect(manageWorkspaceVue).toContain(mode)
+    }
+    expect(manageWorkspaceVue).toContain('graphManagementMode')
+    expect(manageWorkspaceVue).toContain('parseGraphManagementModeQuery')
+    expect(manageWorkspaceVue).toContain('isGraphManagementModeUnlocked')
+    expect(manageWorkspaceVue).toContain('graphManagementModeLockReason')
+  })
+
+  it('defaults mode from workspace lifecycle state', () => {
+    expect(resolveDefaultGraphManagementMode('schema_bootstrap')).toBe('initial-schema-design')
+    expect(resolveDefaultGraphManagementMode('extraction_operations')).toBe('extraction-jobs')
+  })
+
+  it('updates chat placeholder by mode without changing session scope', () => {
+    expect(manageWorkspaceVue).toContain('graphManagementInputPlaceholder')
+    expect(manageWorkspaceVue).toContain('GRAPH_MANAGEMENT_INPUT_PLACEHOLDERS')
+  })
+})
+
+describe('KG-MANAGE-008 - hybrid lower panel shared rail', () => {
+  it('renders artifact navigator and detail panel in k-extract-style layout', () => {
+    expect(manageWorkspaceVue).toContain('graph-management-artifacts')
+    expect(manageWorkspaceVue).toContain('Design Artifacts')
+    expect(manageWorkspaceVue).toContain('refreshDesignArtifacts')
+    expect(manageWorkspaceVue).toContain('GraphDesignEntitiesPanel')
+    expect(manageWorkspaceVue).toContain('GraphDesignRelationshipsPanel')
+    expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
+    expect(manageWorkspaceVue).not.toContain('graph-management-session-pointers')
+    expect(manageWorkspaceVue).toContain('graphManagementArtifactRowClass')
+    expect(manageWorkspaceVue).toContain('schemaRailItems')
+    expect(manageWorkspaceVue).toContain('lg:grid-cols-[minmax(0,15.5rem)_minmax(0,1fr)]')
+    expect(manageWorkspaceVue).toContain('lg:sticky lg:top-4')
+    expect(manageWorkspaceVue).toContain("querySelector<HTMLElement>('.graph-management-detail')")
+    expect(manageWorkspaceVue).toContain('scrollTo')
+    expect(manageWorkspaceVue).toContain('overflow-y-auto overscroll-contain')
+  })
+
+  it('builds rail items with status and last-updated metadata', () => {
+    const items = buildGraphManagementRailItems({
+      workspaceMode: 'schema_bootstrap',
+      transitionEligible: false,
+      blockingReasonCount: 1,
+      prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: false,
+      hasMinimumRelationshipTypes: false,
+      sessionUpdatedAt: '2026-05-22T12:00:00Z',
+      hasActiveSession: true,
+    })
+
+    expect(items.every((item) => item.status && item.lastUpdated && item.label)).toBe(true)
+    expect(items.map((item) => item.id)).not.toContain('session-pointers')
+  })
+})
+
+describe('KG-MANAGE-009 - hybrid lower panel mode-specific detail', () => {
+  it('renders mode-specific detail panel content regions', () => {
+    expect(manageWorkspaceVue).toContain('graph-management-artifact-detail')
+    expect(manageWorkspaceVue).toContain('graph-management-detail')
+    expect(manageWorkspaceVue).toContain('selectedRailItemId')
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-readiness'")
+    expect(manageWorkspaceVue).toContain('GraphExtractionJobsWorkspace')
+    expect(manageWorkspaceVue).toContain("graphManagementMode === 'extraction-jobs'")
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'mutation-authoring'")
+    expect(manageWorkspaceVue).toContain('GraphManagementMutationAuthoringPanel')
+  })
+
+  it('filters rail items to the active mode', () => {
+    const items = buildGraphManagementRailItems({
+      workspaceMode: 'extraction_operations',
+      transitionEligible: true,
+      blockingReasonCount: 0,
+      prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: true,
+      hasMinimumRelationshipTypes: true,
+      sessionUpdatedAt: null,
+      hasActiveSession: true,
+    })
+
+    expect(filterRailItemsForMode(items, 'extraction-jobs').map((item) => item.id)).toContain(
+      'extraction-jobs-setup',
+    )
+    expect(
+      filterSchemaRailItems(filterRailItemsForMode(items, 'one-off-mutations')).map((item) => item.id),
+    ).toEqual([
+      'schema-entities',
+      'schema-relationships',
+      'mutation-authoring',
+    ])
+  })
+})
+
+describe('KG-MANAGE-010 - schema design parity behavior', () => {
+  it('exposes schema readiness and validation detail in initial schema design mode', () => {
+    expect(manageWorkspaceVue).toContain('GraphDesignEntitiesPanel')
+    expect(manageWorkspaceVue).toContain('GraphDesignRelationshipsPanel')
+    expect(manageWorkspaceVue).toContain('refreshDesignArtifacts')
+    expect(manageWorkspaceVue).toContain("selectedRailItemId === 'schema-relationships'")
+    expect(manageWorkspaceVue).toContain('progressChecklist')
+    expect(manageWorkspaceVue).toContain('Bootstrap progress checklist')
+    expect(manageWorkspaceVue).toContain('blocking_reasons')
+    expect(manageWorkspaceVue).toContain('prepopulated_types_without_instances')
+  })
+
+  it('keeps validate and transition controls available for schema design work', () => {
+    expect(manageWorkspaceVue).toContain('validateWorkspace')
+    expect(manageWorkspaceVue).toContain('transitionToExtraction')
+    expect(manageWorkspaceVue).toContain('canTransition')
+  })
+})
+
+describe('KG-MANAGE-011 - session reset behavior', () => {
+  it('supports explicit clear chat reset on the per-mode session', () => {
+    expect(manageWorkspaceVue).toContain('clearChat')
+    expect(manageWorkspaceVue).toContain('/sessions/${graphManagementSessionMode.value}/clear-chat')
+    expect(manageWorkspaceVue).toContain('graph_management_ui_mode')
+    expect(sharedConversationPanelVue).toContain('Clear chat')
+  })
+
+  it('keeps graph management mode unchanged after clear chat', () => {
+    const clearChatBlock = manageWorkspaceVue.match(
+      /async function clearChat\(\) \{[\s\S]*?\n\}/,
+    )?.[0] ?? ''
+    expect(clearChatBlock).toContain('clearChat')
+    expect(clearChatBlock).not.toContain('graphManagementMode.value =')
+  })
+})
+
+describe('KG-MANAGE-016 - graph management top controls', () => {
+  it('renders mode switcher, session status, and validation affordance without scrolling', () => {
+    expect(manageWorkspaceVue).toContain('graph-management-controls')
+    expect(manageWorkspaceVue).toContain('graphManagementModeLabel')
+    expect(manageWorkspaceVue).toContain('sessionStatusLabel')
+    expect(manageWorkspaceVue).toContain('validateWorkspace')
+    expect(manageWorkspaceVue).toContain('toggleGraphManagementSession')
+    expect(sharedConversationPanelVue).toContain('Clear chat')
+  })
+
+  it('maps shared session mode from workspace lifecycle without UI mode coupling', () => {
+    expect(resolveSharedSessionMode('schema_bootstrap')).toBe('schema_bootstrap')
+    expect(resolveSharedSessionMode('extraction_operations')).toBe('extraction_operations')
+  })
+
+  it('preserves rail selection across mode changes when still valid', () => {
+    const items = buildGraphManagementRailItems({
+      workspaceMode: 'extraction_operations',
+      transitionEligible: true,
+      blockingReasonCount: 0,
+      prepopulatedGapCount: 0,
+      hasMinimumEntityTypes: true,
+      hasMinimumRelationshipTypes: true,
+      sessionUpdatedAt: '2026-05-22T12:00:00Z',
+      hasActiveSession: true,
+    })
+
+    expect(
+      resolveRailSelectionForMode('extraction-jobs-setup', 'extraction-jobs', items),
+    ).toBe('extraction-jobs-setup')
+    expect(
+      isRailItemValidInMode('schema-readiness', 'extraction-jobs', items),
+    ).toBe(false)
+    expect(
+      resolveRailSelectionForMode('schema-readiness', 'extraction-jobs', items),
+    ).toBe('extraction-jobs-setup')
+  })
+
+  it('builds graph management URLs with mode query for keyboard navigation', () => {
+    expect(buildGraphManagementStepUrl('kg-abc', 'one-off-mutations')).toBe(
+      '/knowledge-graphs/kg-abc/manage?step=graph-management&gm_mode=one-off-mutations',
+    )
+    expect(parseGraphManagementModeQuery('initial-schema-design')).toBe('initial-schema-design')
+  })
+})
+
+describe('KG-MANAGE-017 - chat input keyboard contract', () => {
+  it('wires Enter-to-send and Shift+Enter newline handling in shared conversation panel', () => {
+    expect(sharedConversationPanelVue).toContain('handleComposerEnter')
+    expect(sharedConversationPanelVue).toContain('@keydown.enter="handleComposerEnter"')
+    expect(sharedConversationPanelVue).toContain('Shift+Enter for a new line')
+    expect(sharedConversationPanelVue).toContain("emit('sendMessage'")
+    expect(manageWorkspaceVue).toContain('streamExtractionChatTurn')
+    expect(manageWorkspaceVue).toContain('streamRuntimeWarmup')
+    expect(manageWorkspaceVue).toContain('warmupAssistantRuntime')
+    expect(manageWorkspaceVue).toContain('preparing-runtime')
+    expect(manageWorkspaceVue).toContain('conversationSessionForPanel')
+    expect(manageWorkspaceVue).toContain('@send-message="sendChatMessage"')
+  })
+})
+
+describe('KG-MANAGE-018 - keyboard operable step and rail actions', () => {
+  it('uses native links for workspace hub tiles', () => {
+    expect(manageWorkspaceVue).toContain('workspaceHubTiles')
+    expect(manageWorkspaceVue).toContain('<NuxtLink')
+    expect(manageWorkspaceVue).toContain('focus-visible:ring-2 focus-visible:ring-ring')
+  })
+
+  it('supports keyboard activation for schema artifact navigation', () => {
+    expect(manageWorkspaceVue).toContain('onSchemaRailKeydown')
+    expect(manageWorkspaceVue).toContain('@keydown="onSchemaRailKeydown($event, item.id)"')
+  })
+
+  it('exposes keyboard-reachable graph management mode switch tabs', () => {
+    expect(manageWorkspaceVue).toContain('role="tablist"')
+    expect(manageWorkspaceVue).toContain('onModeSwitchKeydown')
+    expect(manageWorkspaceVue).toContain('@keydown="onModeSwitchKeydown($event, mode)"')
+  })
+})
+
+describe('KG-MANAGE-019 - section-specific loading, empty, and error states', () => {
+  it('uses section state contracts for workspace and graph management', () => {
+    expect(manageWorkspaceVue).toContain('resolveSectionState')
+    expect(manageWorkspaceVue).toContain('workspaceOverviewState')
+    expect(manageWorkspaceVue).toContain('graphManagementSectionState')
+    expect(manageWorkspaceVue).toContain('Retry workspace load')
+    expect(manageWorkspaceVue).toContain('Retry session load')
+  })
+
+  it('renders loading and empty states inside graph writes history component', () => {
+    expect(graphExtractionArchivedHistoryVue).toContain('Loading graph writes history')
+    expect(graphExtractionArchivedHistoryVue).toContain('No archived graph writes yet')
+    expect(graphExtractionArchivedHistoryVue).toContain('@click="loadHistory"')
+  })
+})
+
+describe('KG-MANAGE-020 - forbidden and disabled action restrictions', () => {
+  it('detects forbidden responses and surfaces explicit restriction messaging', () => {
+    expect(manageWorkspaceVue).toContain('isForbiddenHttpError')
+    expect(manageWorkspaceVue).toContain('workspaceForbiddenReason')
+    expect(manageWorkspaceVue).toContain('sessionForbiddenReason')
+    expect(manageWorkspaceVue).toContain('role="alert"')
+    expect(manageWorkspaceVue).toContain(':forbidden="sessionForbidden"')
+    expect(sharedConversationPanelVue).toContain('forbidden?: boolean')
+    expect(sharedConversationPanelVue).toContain('v-if="forbidden"')
+  })
+
+  it('explains disabled transition actions and avoids partial updates on forbidden', () => {
+    expect(manageWorkspaceVue).toContain('transitionRestrictionReason')
+    expect(manageWorkspaceVue).toContain('buildTransitionRestrictionReason')
+    expect(manageWorkspaceVue).toContain('shouldApplyMutationResult')
+    expect(manageWorkspaceVue).toContain('statusProjection.value = previousStatus')
+  })
+})
+
+describe('KG-MANAGE-021 - unified in-place graph operations', () => {
+  it('runs extraction jobs workspace in graph-management without data-sources redirect', () => {
+    expect(manageWorkspaceVue).toContain('GraphExtractionJobsWorkspace')
+    expect(manageWorkspaceVue).not.toContain('Open Data Source Operations')
+    expect(manageWorkspaceVue).not.toContain('Open Maintain Step')
+  })
+
+  it('applies one-off mutations directly in graph-management without mutations-console redirect', () => {
+    expect(manageWorkspaceVue).toContain('GraphManagementMutationAuthoringPanel')
+    expect(graphManagementMutationAuthoringVue).toContain('MutationTemplates')
+    expect(graphManagementMutationAuthoringVue).toContain('applyMutations')
+    expect(graphManagementMutationAuthoringVue).toContain('getMergedEditorContent')
+    expect(manageWorkspaceVue).not.toContain('navigateTo(`/graph/mutations?kg_id=${kgId}&view=editor`)')
+  })
+
+  it('filters recent job events by pending, in progress, archived, and failed', () => {
+    expect(graphExtractionJobsWorkspaceVue).toContain('recentJobStatusFilter')
+    expect(graphExtractionJobsWorkspaceVue).toContain("'pending'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("'in_progress'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("'archived'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("'failed'")
+    expect(graphExtractionJobsWorkspaceVue).toContain("status === 'archived'")
+    expect(graphExtractionJobsWorkspaceVue).not.toContain("filter((event) => event.status !== 'archived')")
+  })
+})

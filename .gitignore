@@ -173,6 +173,8 @@ src/dev-ui/.output/
 
 certs/
 .instances/
+.kartograph/backups/
+.kartograph/kg-backups/
 
 # Demo web interface (not for production)
 demo-web/

@@ -18,7 +18,7 @@ class TestSystemPropertiesConstants:
     def test_common_system_properties_defined(self):
         """Should define common system properties."""
         assert "data_source_id" in COMMON_SYSTEM_PROPERTIES
-        assert "source_path" in COMMON_SYSTEM_PROPERTIES
+        assert "source_path" not in COMMON_SYSTEM_PROPERTIES
 
     def test_node_system_properties_defined(self):
         """Should define node-specific system properties."""
@@ -37,20 +37,16 @@ class TestGetSystemPropertiesForEntity:
         """Should return common + node-specific properties for nodes."""
         props = get_system_properties_for_entity(EntityType.NODE)
 
-        # Should include common properties
         assert "data_source_id" in props
-        assert "source_path" in props
-
-        # Should include node-specific properties
+        assert "source_path" not in props
         assert "slug" in props
 
     def test_returns_edge_system_properties(self):
         """Should return common + edge-specific properties for edges."""
         props = get_system_properties_for_entity(EntityType.EDGE)
 
-        # Should include common properties
         assert "data_source_id" in props
-        assert "source_path" in props
+        assert "source_path" not in props
 
         # Should NOT include node-specific properties
         assert "slug" not in props

@@ -2023,6 +2023,101 @@ describe('Backend API Alignment — Scenario: Resource operations succeed end-to
   })
 })
 
+describe('Source commit refresh actions', () => {
+  it('refreshCommitRefs calls refresh endpoint and reloads data sources on success', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const refreshingCommitRefs: Record<string, boolean> = {}
+
+    async function refreshCommitRefs(dsId: string) {
+      refreshingCommitRefs[dsId] = true
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/commit-refs/refresh`, {
+          method: 'POST',
+        })
+        await loadDataSources()
+      } finally {
+        refreshingCommitRefs[dsId] = false
+      }
+    }
+
+    await refreshCommitRefs('ds-1')
+    expect(apiFetch).toHaveBeenCalledWith('/management/data-sources/ds-1/commit-refs/refresh', {
+      method: 'POST',
+    })
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(refreshingCommitRefs['ds-1']).toBe(false)
+  })
+
+  it('adoptTrackedHeadBaseline calls adopt endpoint and reloads data on success', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({})
+    const loadDataSources = vi.fn().mockResolvedValue(undefined)
+    const adoptingBaselines: Record<string, boolean> = {}
+
+    async function adoptTrackedHeadBaseline(dsId: string) {
+      adoptingBaselines[dsId] = true
+      try {
+        await apiFetch(`/management/data-sources/${dsId}/commit-refs/adopt-tracked-head`, {
+          method: 'POST',
+        })
+        await loadDataSources()
+      } finally {
+        adoptingBaselines[dsId] = false
+      }
+    }
+
+    await adoptTrackedHeadBaseline('ds-2')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/management/data-sources/ds-2/commit-refs/adopt-tracked-head',
+      { method: 'POST' },
+    )
+    expect(loadDataSources).toHaveBeenCalledOnce()
+    expect(adoptingBaselines['ds-2']).toBe(false)
+  })
+})
+
+describe('Diff summary panel behavior', () => {
+  it('detects maintenance readiness when tracked head differs from baseline', () => {
+    function isMaintenanceReady(ds: {
+      last_extraction_baseline_commit?: string | null
+      tracked_branch_head_commit?: string | null
+    }): boolean {
+      if (!ds.last_extraction_baseline_commit || !ds.tracked_branch_head_commit) return false
+      return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
+    }
+
+    expect(
+      isMaintenanceReady({
+        last_extraction_baseline_commit: 'aaa',
+        tracked_branch_head_commit: 'bbb',
+      }),
+    ).toBe(true)
+    expect(
+      isMaintenanceReady({
+        last_extraction_baseline_commit: 'aaa',
+        tracked_branch_head_commit: 'aaa',
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps changed-file list collapsed by default and toggles on demand', () => {
+    const expanded: Record<string, boolean> = {}
+
+    function isDiffExpanded(dsId: string): boolean {
+      return expanded[dsId] === true
+    }
+    function toggleDiffExpanded(dsId: string) {
+      expanded[dsId] = !isDiffExpanded(dsId)
+    }
+
+    expect(isDiffExpanded('ds-1')).toBe(false)
+    toggleDiffExpanded('ds-1')
+    expect(isDiffExpanded('ds-1')).toBe(true)
+    toggleDiffExpanded('ds-1')
+    expect(isDiffExpanded('ds-1')).toBe(false)
+  })
+})
+
 // ── task-082: Ontology Editor — save to backend after post-extraction edit ───
 // Spec: "GIVEN a knowledge graph with completed extraction
 //        WHEN the user modifies the ontology
@@ -3041,5 +3136,119 @@ describe('Data Sources — kg_id query param pre-selects KG and opens wizard (Ta
 
     // openWizard must accept a preselectedKgId so auto-open from kg_id query works
     expect(source).toMatch(/openWizard\s*\([^)]*preselectedKgId/)
+  })
+})
+
+describe('Data-sources-focused layout - structural verification', () => {
+  const { readFileSync } = require('fs')
+  const { resolve } = require('path')
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('keeps data-source catalog guidance and removes telemetry dashboard copy', () => {
+    expect(source).toContain('Data source catalog')
+    expect(source).not.toContain('Active workers')
+    expect(source).not.toContain('Estimated cost trend')
+  })
+
+  it('removes scheduled maintenance orchestration from this page', () => {
+    expect(source).not.toContain('Scheduled maintenance orchestration')
+    expect(source).not.toContain('maintenance-runs/trigger')
+  })
+
+  it('renders URL-first onboarding with provider detection and coming soon messaging', () => {
+    expect(source).toContain('Paste your source URLs')
+    expect(source).toContain('Add another')
+    expect(source).toContain('Detected:')
+    expect(source).toContain('onboarding is coming soon, sorry.')
+    expect(source).toContain('Add to project')
+  })
+
+  it('uses shadcn Select for knowledge graph dropdown styling consistency', () => {
+    expect(source).toContain('<Select v-model="selectedKnowledgeGraphId">')
+    expect(source).toContain('SelectTrigger')
+    expect(source).toContain('SelectContent')
+    expect(source).not.toContain('<select')
+  })
+})
+
+describe('Bulk onboarding partial-success behavior', () => {
+  it('retains only failed entries when batch create is partially successful', async () => {
+    const pendingSources = [
+      { id: '1', name: 'repo-one', url: 'https://github.com/acme/repo-one', branch: 'main' },
+      { id: '2', name: 'repo-two', url: 'https://github.com/acme/repo-two', branch: 'main' },
+      { id: '3', name: 'repo-three', url: 'https://github.com/acme/repo-three', branch: 'main' },
+    ]
+    const createDataSource = vi.fn()
+      .mockResolvedValueOnce({ id: 'ds-1' })
+      .mockRejectedValueOnce(new Error('token invalid'))
+      .mockResolvedValueOnce({ id: 'ds-3' })
+    const failedIds: string[] = []
+    let successCount = 0
+
+    for (const entry of pendingSources) {
+      try {
+        await createDataSource(entry)
+        successCount += 1
+      } catch {
+        failedIds.push(entry.id)
+      }
+    }
+
+    const remaining = pendingSources.filter((entry) => failedIds.includes(entry.id))
+    expect(successCount).toBe(2)
+    expect(remaining.map((entry) => entry.id)).toEqual(['2'])
+  })
+})
+
+describe('Commit-hash status cues - structural verification', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('renders commit status section with canonical commit labels', () => {
+    expect(source).toContain('Commit Status')
+    expect(source).toContain('Commit during last extraction')
+    expect(source).toContain('Tracked branch head commit')
+    expect(source).not.toContain('Local clone commit')
+  })
+
+  it('renders visual readiness cue when new commits exist', () => {
+    expect(source).toContain('isMaintenanceReady')
+    expect(source).toContain('New commits available')
+    expect(source).toContain('Up to date')
+  })
+})
+
+describe('Maintenance readiness with commit-diff semantics - structural verification', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../pages/data-sources/index.vue'),
+    'utf-8',
+  )
+
+  it('derives readiness from baseline-vs-tracked-head commit comparison', () => {
+    expect(source).toContain('function isMaintenanceReady')
+    expect(source).toContain('last_extraction_baseline_commit')
+    expect(source).toContain('tracked_branch_head_commit')
+    expect(source).toContain('!==')
+  })
+
+  it('renders maintenance readiness badge and diff summary counts', () => {
+    expect(source).toContain('isMaintenanceReady(ds) ? \'New commits available\' : \'Up to date\'')
+    expect(source).toContain('changed files')
+    expect(source).toContain('added_count')
+    expect(source).toContain('modified_count')
+    expect(source).toContain('removed_count')
+    expect(source).toContain('renamed_count')
+  })
+
+  it('keeps changed-file list collapsed by default and expandable on demand', () => {
+    expect(source).toContain('Changed-file list is collapsed by default')
+    expect(source).toContain('Show changed files')
+    expect(source).toContain('Hide changed files')
+    expect(source).toContain('isDiffExpanded')
   })
 })

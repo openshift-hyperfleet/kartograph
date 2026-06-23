@@ -176,6 +176,52 @@ class TestOutboxWorkerProcessBatch:
         # Verify session.execute was called (for mark_processed)
         mock_session.execute.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_processes_sync_started_events_with_bounded_parallelism(self):
+        """SyncStarted events should fan out in parallel when configured."""
+        mock_session = AsyncMock()
+        mock_probe = MagicMock()
+        in_flight = 0
+        max_in_flight = 0
+
+        async def handle(event_type: str, payload: dict) -> None:
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+
+        mock_handler = AsyncMock()
+        mock_handler.handle.side_effect = handle
+
+        entries: list[OutboxEntry] = []
+        for i in range(5):
+            entries.append(
+                OutboxEntry(
+                    id=uuid4(),
+                    aggregate_type="sync_run",
+                    aggregate_id=f"01SYNC{i:02d}",
+                    event_type="SyncStarted",
+                    payload={"sync_run_id": f"run-{i}"},
+                    occurred_at=datetime(2026, 1, 8, 12, 0, 0, tzinfo=UTC),
+                    processed_at=None,
+                    created_at=datetime(2026, 1, 8, 12, 0, 1, tzinfo=UTC),
+                )
+            )
+
+        worker = OutboxWorker(
+            session_factory=AsyncMock(),
+            handler=mock_handler,
+            probe=mock_probe,
+            event_source=None,
+            sync_started_max_concurrency=3,
+        )
+
+        await worker._process_entries(entries, mock_session)
+
+        assert max_in_flight >= 2
+        assert max_in_flight <= 3
+
 
 class TestOutboxWorkerLifecycle:
     """Tests for worker start/stop lifecycle."""

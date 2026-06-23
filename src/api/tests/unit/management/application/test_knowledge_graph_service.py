@@ -19,11 +19,20 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.domain.aggregates import DataSource, KnowledgeGraph
+from management.domain.entities.data_source_sync_run import DataSourceSyncRun
 from management.domain.value_objects import (
     DataSourceId,
+    EdgeTypeDefinition,
+    KnowledgeGraphMaintenanceRunOutcome,
+    KnowledgeGraphMaintenanceSchedule,
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphWorkspaceStatus,
     KnowledgeGraphId,
+    NodeTypeDefinition,
+    OntologyConfig,
     Schedule,
     ScheduleType,
+    WorkspaceMode,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 from management.ports.exceptions import (
@@ -33,6 +42,7 @@ from management.ports.exceptions import (
 )
 from shared_kernel.authorization.types import Permission
 from tests.fakes.authorization import InMemoryAuthorizationProvider
+from tests.fakes.canonical_schema import InMemoryCanonicalSchemaRepository
 from tests.fakes.management import (
     InMemoryDataSourceRepository,
     InMemoryKnowledgeGraphRepository,
@@ -106,7 +116,22 @@ def workspace_id():
 
 
 @pytest.fixture
-def service(mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_id):
+def canonical_schema_repo():
+    """In-memory canonical schema repository."""
+    return InMemoryCanonicalSchemaRepository()
+
+
+@pytest.fixture
+def service(
+    mock_session,
+    kg_repo,
+    ds_repo,
+    secret_store,
+    authz,
+    probe,
+    tenant_id,
+    canonical_schema_repo,
+):
     """KnowledgeGraphService wired with in-memory fakes."""
     return KnowledgeGraphService(
         session=mock_session,
@@ -116,6 +141,7 @@ def service(mock_session, kg_repo, ds_repo, secret_store, authz, probe, tenant_i
         authz=authz,
         scope_to_tenant=tenant_id,
         probe=probe,
+        canonical_schema_repository=canonical_schema_repo,
     )
 
 
@@ -145,6 +171,18 @@ def _make_kg(
     # Clear events from construction
     kg.collect_events()
     return kg
+
+
+async def _seed_stored_ontology(
+    kg,
+    kg_repo,
+    canonical_schema_repo: InMemoryCanonicalSchemaRepository,
+    config: OntologyConfig,
+) -> None:
+    """Attach ontology to aggregate and canonical schema store."""
+    kg.set_ontology(config)
+    kg_repo.seed(kg)
+    canonical_schema_repo.seed(kg.id.value, config)
 
 
 def _make_ds(
@@ -408,6 +446,249 @@ class TestKnowledgeGraphServiceGet:
         assert result is kg
         assert len(probe.knowledge_graph_retrieved_calls) == 1
         assert probe.knowledge_graph_retrieved_calls[0]["kg_id"] == kg.id.value
+
+
+class TestKnowledgeGraphServiceWorkspaceStatus:
+    """Tests for KnowledgeGraphService.get_workspace_status."""
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_returns_none_when_not_found(self, service, user_id):
+        """Should return None if KG does not exist."""
+        result = await service.get_workspace_status(user_id=user_id, kg_id="missing")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_returns_none_when_view_denied(
+        self, service, kg_repo, user_id
+    ):
+        """Should return None if caller lacks VIEW on KG."""
+        kg = _make_kg()
+        kg_repo.seed(kg)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_includes_mode_readiness_and_session_pointers(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        """Should project mode/readiness flags and default null session pointers."""
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert isinstance(result, KnowledgeGraphWorkspaceStatus)
+        assert result.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP
+        assert result.readiness.has_minimum_entity_types is True
+        assert result.readiness.has_minimum_relationship_types is True
+        assert result.readiness.prepopulated_types_ready is True
+        assert result.readiness.prepopulated_types_without_instances == ()
+        assert result.readiness.blocking_reasons == ()
+        assert result.transition_eligible is True
+        assert result.session_pointers.active_schema_bootstrap_session_id is None
+        assert result.session_pointers.active_extraction_operations_session_id is None
+        assert result.session_pointers.most_recent_completed_session_id is None
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_transition_not_eligible_without_schema_readiness(
+        self, service, authz, kg_repo, user_id
+    ):
+        """Should report transition_eligible false when readiness checks fail."""
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.has_minimum_entity_types is False
+        assert result.readiness.has_minimum_relationship_types is False
+        assert (
+            "At least one entity type is required" in result.readiness.blocking_reasons
+        )
+        assert (
+            "At least one relationship type is required"
+            in result.readiness.blocking_reasons
+        )
+        assert result.transition_eligible is False
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_fails_for_prepopulated_relationship_without_instances(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        """Should block transition when prepopulated relationship has zero instances."""
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(
+                    label="test", prepopulated=True, prepopulated_instance_count=1
+                ),
+                NodeTypeDefinition(
+                    label="api_endpoint",
+                    prepopulated=True,
+                    prepopulated_instance_count=1,
+                ),
+            ),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="contains",
+                    source_labels=("test",),
+                    target_labels=("api_endpoint",),
+                    prepopulated=True,
+                    prepopulated_instance_count=0,
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.prepopulated_types_ready is False
+        assert result.readiness.prepopulated_relationship_types_without_instances == (
+            "test|contains|api_endpoint",
+        )
+        assert result.transition_eligible is False
+
+    @pytest.mark.asyncio
+    async def test_workspace_status_fails_for_prepopulated_type_without_instances(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        """Should block transition when prepopulated type has zero instances."""
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(
+                NodeTypeDefinition(
+                    label="Repository",
+                    prepopulated=True,
+                    prepopulated_instance_count=0,
+                ),
+            ),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        result = await service.get_workspace_status(user_id=user_id, kg_id=kg.id.value)
+
+        assert result is not None
+        assert result.readiness.prepopulated_types_ready is False
+        assert result.readiness.prepopulated_types_without_instances == ("Repository",)
+        assert result.transition_eligible is False
+
+
+class TestKnowledgeGraphServiceWorkspaceCommands:
+    """Tests for validate_workspace and transition_workspace_to_extraction."""
+
+    @pytest.mark.asyncio
+    async def test_validate_workspace_requires_edit_permission(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        with pytest.raises(UnauthorizedError):
+            await service.validate_workspace(user_id=user_id, kg_id=kg.id.value)
+
+    @pytest.mark.asyncio
+    async def test_validate_workspace_returns_projection_when_authorized(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        result = await service.validate_workspace(user_id=user_id, kg_id=kg.id.value)
+
+        assert result.knowledge_graph_id == kg.id.value
+        assert result.workspace_mode == WorkspaceMode.SCHEMA_BOOTSTRAP
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_requires_edit_permission(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_view(authz, kg.id.value, user_id)
+
+        with pytest.raises(UnauthorizedError):
+            await service.transition_workspace_to_extraction(
+                user_id=user_id,
+                kg_id=kg.id.value,
+            )
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_changes_mode_and_creates_session_pointer(
+        self, service, authz, kg_repo, canonical_schema_repo, user_id
+    ):
+        kg = _make_kg()
+        ontology_config = OntologyConfig(
+            node_types=(NodeTypeDefinition(label="Repository"),),
+            edge_types=(
+                EdgeTypeDefinition(
+                    label="CONTAINS",
+                    source_labels=("Repository",),
+                    target_labels=("Repository",),
+                ),
+            ),
+        )
+        await _seed_stored_ontology(kg, kg_repo, canonical_schema_repo, ontology_config)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        result = await service.transition_workspace_to_extraction(
+            user_id=user_id,
+            kg_id=kg.id.value,
+        )
+
+        assert result.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS
+        assert result.transition_eligible is False
+        assert (
+            result.session_pointers.active_extraction_operations_session_id is not None
+        )
+
+    @pytest.mark.asyncio
+    async def test_transition_workspace_rejects_when_not_ready(
+        self, service, authz, kg_repo, user_id
+    ):
+        kg = _make_kg()
+        kg_repo.seed(kg)
+        await _grant_kg_edit(authz, kg.id.value, user_id)
+
+        with pytest.raises(ValueError, match="not ready for transition"):
+            await service.transition_workspace_to_extraction(
+                user_id=user_id,
+                kg_id=kg.id.value,
+            )
 
 
 # ---- list_for_workspace ----
@@ -1077,6 +1358,182 @@ class TestListForWorkspaceWithPermission:
 
         assert len(result) == 1
         assert result[0].id.value == kg1.id.value
+
+
+class _InMemorySyncRunRepository:
+    """Minimal in-memory sync-run repository for KG maintenance tests."""
+
+    def __init__(self) -> None:
+        self.saved: list[DataSourceSyncRun] = []
+
+    async def save(self, sync_run: DataSourceSyncRun) -> None:
+        self.saved.append(sync_run)
+
+    async def get_by_id(self, sync_run_id: str) -> DataSourceSyncRun | None:
+        for run in self.saved:
+            if run.id == sync_run_id:
+                return run
+        return None
+
+    async def find_by_data_source(self, data_source_id: str) -> list[DataSourceSyncRun]:
+        return [run for run in self.saved if run.data_source_id == data_source_id]
+
+    async def get_latest_for_data_source(
+        self, data_source_id: str
+    ) -> DataSourceSyncRun | None:
+        matches = [run for run in self.saved if run.data_source_id == data_source_id]
+        return max(matches, key=lambda run: run.created_at) if matches else None
+
+
+class TestKnowledgeGraphMaintenanceScheduling:
+    """Tests for KG-scoped maintenance schedule and run history APIs."""
+
+    @pytest.mark.asyncio
+    async def test_upsert_maintenance_schedule_persists_timezone_and_next_run(
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
+    ):
+        """Upserting schedule stores config and computes a next_run_at timestamp."""
+        kg = _make_kg(kg_id="kg-maint-001", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+        sync_run_repo = _InMemorySyncRunRepository()
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            sync_run_repository=sync_run_repo,
+        )
+
+        schedule = await svc.upsert_maintenance_schedule(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            cron_expression="0 9 * * *",
+            timezone_name="America/New_York",
+            enabled=True,
+        )
+
+        assert isinstance(schedule, KnowledgeGraphMaintenanceSchedule)
+        assert schedule.cron_expression == "0 9 * * *"
+        assert schedule.timezone_name == "America/New_York"
+        assert schedule.enabled is True
+        assert schedule.next_run_at is not None
+
+    @pytest.mark.asyncio
+    async def test_trigger_maintenance_run_records_no_changes_outcome(
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
+    ):
+        """When no DS has commit deltas, trigger records NO_CHANGES."""
+        kg = _make_kg(kg_id="kg-maint-002", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+
+        expected = KnowledgeGraphMaintenanceRunRecord(
+            run_id="run-no-change",
+            triggered_at=datetime.now(UTC),
+            outcome=KnowledgeGraphMaintenanceRunOutcome.NO_CHANGES,
+            target_data_source_ids=("ds-no-change",),
+        )
+        pipeline = AsyncMock()
+        pipeline.trigger = AsyncMock(return_value=expected)
+
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            maintenance_pipeline=pipeline,
+        )
+
+        run = await svc.trigger_maintenance_run(
+            user_id=user_id,
+            kg_id=kg.id.value,
+        )
+
+        assert run is expected
+        pipeline.trigger.assert_awaited_once_with(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            files_per_job=2,
+            worker_count=8,
+            start_extraction=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_trigger_maintenance_run_delegates_to_pipeline(
+        self,
+        mock_session,
+        kg_repo,
+        ds_repo,
+        secret_store,
+        authz,
+        probe,
+        tenant_id,
+        user_id,
+    ):
+        """Maintenance trigger delegates ingest orchestration to the pipeline service."""
+        kg = _make_kg(kg_id="kg-maint-003", tenant_id=tenant_id)
+        kg_repo.seed(kg)
+        await _grant_kg_manage(authz, kg.id.value, user_id)
+
+        expected = KnowledgeGraphMaintenanceRunRecord(
+            run_id="run-ingest",
+            triggered_at=datetime.now(UTC),
+            outcome=KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED,
+            target_data_source_ids=("ds-changed",),
+        )
+        pipeline = AsyncMock()
+        pipeline.trigger = AsyncMock(return_value=expected)
+
+        svc = KnowledgeGraphService(
+            session=mock_session,
+            knowledge_graph_repository=kg_repo,
+            data_source_repository=ds_repo,
+            secret_store=secret_store,
+            authz=authz,
+            scope_to_tenant=tenant_id,
+            probe=probe,
+            maintenance_pipeline=pipeline,
+        )
+
+        run = await svc.trigger_maintenance_run(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            files_per_job=5,
+            worker_count=3,
+            start_extraction=False,
+        )
+
+        assert run.outcome == KnowledgeGraphMaintenanceRunOutcome.INGEST_STARTED
+        pipeline.trigger.assert_awaited_once_with(
+            user_id=user_id,
+            kg_id=kg.id.value,
+            files_per_job=5,
+            worker_count=3,
+            start_extraction=False,
+        )
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_kgs_in_workspace(

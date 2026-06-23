@@ -69,6 +69,48 @@ class GraphQueryService:
         )
         return nodes
 
+    def list_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> list[NodeRecord]:
+        """List nodes of one entity type."""
+        nodes = self._repository.find_nodes_by_label(
+            node_type,
+            knowledge_graph_id=knowledge_graph_id,
+            limit=limit,
+            offset=offset,
+            property_name=property_name,
+            property_value=property_value,
+        )
+        self._probe.slug_searched(
+            slug=f"type:{node_type}",
+            node_type=node_type,
+            result_count=len(nodes),
+        )
+        return nodes
+
+    def count_by_label(
+        self,
+        node_type: str,
+        *,
+        knowledge_graph_id: str | None = None,
+        property_name: str | None = None,
+        property_value: str | None = None,
+    ) -> int:
+        """Count nodes of one entity type."""
+        return self._repository.count_nodes_by_label(
+            node_type,
+            knowledge_graph_id=knowledge_graph_id,
+            property_name=property_name,
+            property_value=property_value,
+        )
+
     def get_neighbors(
         self,
         node_id: str,

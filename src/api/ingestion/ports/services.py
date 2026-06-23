@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from shared_kernel.job_package.value_objects import JobPackageId
+from ingestion.application.value_objects import IngestionRunResult
 
 
 class IIngestionService(Protocol):
@@ -23,7 +23,10 @@ class IIngestionService(Protocol):
         connection_config: dict[str, str],
         credentials_path: str | None,
         tenant_id: str | None = None,
-    ) -> JobPackageId:
+        credentials: dict[str, str] | None = None,
+        baseline_commit: str | None = None,
+        pipeline_mode: str | None = None,
+    ) -> IngestionRunResult:
         """Run the ingestion pipeline.
 
         Args:
@@ -33,9 +36,11 @@ class IIngestionService(Protocol):
             adapter_type: Which adapter to use (e.g. "github")
             connection_config: Adapter-specific connection configuration
             credentials_path: Optional Vault path for credentials
+            credentials: Optional decrypted credentials prepared upstream
+            baseline_commit: Optional commit SHA used as incremental baseline
 
         Returns:
-            JobPackageId for the produced archive
+            IngestionRunResult with the produced archive metadata
 
         Raises:
             ValueError: If the adapter_type is unknown

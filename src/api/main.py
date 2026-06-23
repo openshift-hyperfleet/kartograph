@@ -4,15 +4,18 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from util import dev_routes
 
 import health_routes
 from graph.presentation import routes as graph_routes
 from iam.presentation import router as iam_router
 from management.presentation import router as management_router
+from extraction.presentation import router as extraction_router
 from infrastructure.database.dependencies import (
     close_database_engines,
     init_database_engines,
@@ -24,6 +27,7 @@ from infrastructure.settings import (
     get_cors_settings,
     get_database_settings,
     get_iam_settings,
+    get_management_settings,
     get_oidc_settings,
     get_outbox_worker_settings,
     get_spicedb_settings,
@@ -48,6 +52,7 @@ from shared_kernel.outbox.observability import (
 )
 from infrastructure.mcp_dependencies import dispose_mcp_auth_engine
 from query.presentation.mcp import mcp_http_app_proxy, query_mcp_app
+from graph.ports.mutation_log import MutationLogApplyResult
 
 # Default work directory for JobPackage ZIP archives
 _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
@@ -78,6 +83,7 @@ class _SessionedSyncLifecycleHandler:
         {
             "SyncStarted",
             "JobPackageProduced",
+            "IngestionPrepared",
             "IngestionFailed",
             "MutationLogProduced",
             "ExtractionFailed",
@@ -134,18 +140,102 @@ class _SessionedIngestionEventHandler:
     def supported_event_types(self) -> frozenset[str]:
         return self._SUPPORTED
 
+    @staticmethod
+    def _parse_github_connection_config(
+        config: dict[str, str],
+    ) -> tuple[str, str, str]:
+        """Parse GitHub config into owner/repo/branch."""
+        if "repo_url" in config:
+            parsed = urlparse(config["repo_url"])
+            path_parts = [part for part in parsed.path.split("/") if part]
+            if len(path_parts) < 2:
+                raise ValueError("repo_url must include owner and repo")
+            owner = path_parts[0]
+            repo = path_parts[1].removesuffix(".git")
+            branch = config.get("branch", "main")
+            if len(path_parts) >= 4 and path_parts[2] == "tree":
+                branch = "/".join(path_parts[3:])
+            return owner, repo, branch
+
+        if "owner" in config and "repo" in config:
+            return config["owner"], config["repo"], config.get("branch", "main")
+
+        raise ValueError(
+            "connection_config must include either 'repo_url' or 'owner'+'repo' keys"
+        )
+
+    async def _resolve_github_tracked_head_commit(
+        self,
+        connection_config: dict[str, str],
+        credentials: dict[str, str],
+    ) -> str | None:
+        """Resolve latest tracked branch head commit for GitHub sources."""
+        try:
+            owner, repo, branch = self._parse_github_connection_config(
+                connection_config
+            )
+        except ValueError:
+            return None
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Kartograph-GitHub-Ingestion/1.0",
+        }
+        token = credentials.get("token") or credentials.get("access_token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        url = f"https://api.github.com/repos/{owner}/{repo}/branches/{branch}"
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        sha = payload.get("commit", {}).get("sha")
+        return str(sha) if sha else None
+
+    async def _ingest_only_archive_available(
+        self,
+        *,
+        session: Any,
+        data_source_id: str,
+    ) -> bool:
+        """Return whether a previously prepared JobPackage archive still exists on disk."""
+        from management.infrastructure.job_package_archive_reader import (
+            SqlJobPackageArchiveReader,
+        )
+        from shared_kernel.job_package.archive_availability import (
+            job_package_archive_exists,
+        )
+
+        reader = SqlJobPackageArchiveReader(
+            session=session,
+            job_package_work_dir=_JOB_PACKAGE_WORK_DIR,
+        )
+        package_id = await reader.latest_job_package_id_for_data_source(
+            data_source_id=data_source_id,
+        )
+        return job_package_archive_exists(
+            work_dir=_JOB_PACKAGE_WORK_DIR,
+            job_package_id=package_id,
+        )
+
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
-        from infrastructure.outbox.repository import OutboxRepository
+        from ingestion.infrastructure.adapters.github import GitHubAdapter
         from ingestion.application.services.ingestion_service import IngestionService
         from ingestion.infrastructure.event_handler import IngestionEventHandler
+        from infrastructure.outbox.repository import OutboxRepository
+        from management.domain.value_objects import DataSourceId
+        from management.infrastructure.repositories.data_source_repository import (
+            DataSourceRepository,
+        )
+        from management.infrastructure.repositories.fernet_secret_store import (
+            FernetSecretStore,
+        )
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
-            from ingestion.infrastructure.adapters.github import GitHubAdapter
-            from infrastructure.settings import get_management_settings
-            from management.infrastructure.repositories.fernet_secret_store import (
-                FernetSecretStore,
-            )
+            ds_repo = DataSourceRepository(session=session, outbox=outbox)
 
             credential_reader = None
             if payload.get("credentials_path"):
@@ -175,7 +265,73 @@ class _SessionedIngestionEventHandler:
                 ingestion_service=ingestion_service,
                 outbox=outbox,
             )
-            await ingestion_handler.handle(event_type, payload)
+            enriched_payload = dict(payload)
+
+            data_source_id = str(payload.get("data_source_id", ""))
+            tenant_id = (
+                str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            )
+            adapter_type = str(payload.get("adapter_type", ""))
+            credentials: dict[str, str] = {}
+            if data_source_id and adapter_type == "github":
+                ds = await ds_repo.get_by_id(DataSourceId(value=data_source_id))
+                if ds is not None:
+                    pipeline_mode = str(payload.get("pipeline_mode", "full"))
+                    if pipeline_mode == "ingest_only":
+                        from management.domain.commit_pull_state import (
+                            resolve_ingested_head_commit,
+                        )
+
+                        baseline_commit = resolve_ingested_head_commit(ds)
+                    else:
+                        baseline_commit = ds.last_extraction_baseline_commit
+                    if baseline_commit:
+                        enriched_payload["baseline_commit"] = baseline_commit
+
+                    if (
+                        ds.credentials_path
+                        and tenant_id
+                        and credential_reader is not None
+                    ):
+                        try:
+                            credentials = await credential_reader.retrieve(
+                                path=ds.credentials_path,
+                                tenant_id=tenant_id,
+                            )
+                        except KeyError:
+                            credentials = {}
+                    tracked_head = None
+                    try:
+                        tracked_head = await self._resolve_github_tracked_head_commit(
+                            connection_config=ds.connection_config,
+                            credentials=credentials,
+                        )
+                    except Exception:
+                        tracked_head = None
+                    if tracked_head:
+                        enriched_payload["tracked_branch_head_commit"] = tracked_head
+                        ds.tracked_branch_head_commit = tracked_head
+                        await ds_repo.save(ds)
+                        baseline_commit = enriched_payload.get("baseline_commit")
+                        if (
+                            isinstance(baseline_commit, str)
+                            and baseline_commit
+                            and baseline_commit == tracked_head
+                        ):
+                            if pipeline_mode == "ingest_only":
+                                if await self._ingest_only_archive_available(
+                                    session=session,
+                                    data_source_id=data_source_id,
+                                ):
+                                    enriched_payload["no_changes_detected"] = True
+                            else:
+                                enriched_payload["no_changes_detected"] = True
+
+            await ingestion_handler.handle(
+                event_type,
+                enriched_payload,
+                runtime_credentials=credentials,
+            )
             await session.commit()
 
 
@@ -192,6 +348,8 @@ class _StubExtractionService:
         data_source_id: str,
         knowledge_graph_id: str,
         job_package_id: str,
+        runtime_context: Any,
+        workload_credentials: Any = None,
     ) -> str:
         raise NotImplementedError(
             "AI extraction pipeline is not yet implemented. "
@@ -219,14 +377,46 @@ class _SessionedExtractionEventHandler:
     async def handle(self, event_type: str, payload: dict[str, Any]) -> None:
         from infrastructure.outbox.repository import OutboxRepository
         from extraction.infrastructure.event_handler import ExtractionEventHandler
+        from extraction.infrastructure.runtime_context_builder import (
+            FilesystemExtractionRuntimeContextBuilder,
+        )
+        from extraction.infrastructure.workload_runtime_factory import (
+            create_ephemeral_extraction_worker_launcher,
+            get_workload_credential_issuer,
+        )
+        from management.domain.value_objects import KnowledgeGraphId
+        from management.infrastructure.repositories.knowledge_graph_repository import (
+            KnowledgeGraphRepository,
+        )
 
         async with self._session_factory() as session:
             outbox = OutboxRepository(session=session)
+            kg_repo = KnowledgeGraphRepository(session=session, outbox=outbox)
+            runtime_context_builder = FilesystemExtractionRuntimeContextBuilder(
+                work_dir=_JOB_PACKAGE_WORK_DIR,
+            )
             extraction_handler = ExtractionEventHandler(
                 extraction_service=self._extraction_service,
                 outbox=outbox,
+                runtime_context_builder=runtime_context_builder,
+                credential_issuer=get_workload_credential_issuer(),
+                worker_launcher=create_ephemeral_extraction_worker_launcher(),
             )
-            await extraction_handler.handle(event_type, payload)
+
+            tenant_id = (
+                str(payload.get("tenant_id", "")) if payload.get("tenant_id") else ""
+            )
+            knowledge_graph_id = str(payload.get("knowledge_graph_id", ""))
+            if not tenant_id and knowledge_graph_id:
+                kg = await kg_repo.get_by_id(KnowledgeGraphId(value=knowledge_graph_id))
+                if kg is not None:
+                    tenant_id = kg.tenant_id
+
+            await extraction_handler.handle(
+                event_type,
+                payload,
+                tenant_id=tenant_id or None,
+            )
             await session.commit()
 
 
@@ -238,7 +428,7 @@ class _StubMutationLogApplier:
     result in MutationApplicationFailed being emitted.
     """
 
-    async def apply_mutation_log(self, mutation_log_id: str) -> bool:
+    async def apply_mutation_log(self, mutation_log_id: str) -> MutationLogApplyResult:
         raise NotImplementedError(
             "Graph mutation application via outbox is not yet fully implemented. "
             "Register a real IMutationLogApplier to enable graph writes from the outbox."
@@ -288,6 +478,9 @@ async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
     """
     from infrastructure.outbox.repository import OutboxRepository
     from management.application.services.sync_scheduler import SyncSchedulerService
+    from infrastructure.management.maintenance_pipeline_dependencies import (
+        build_maintenance_pipeline_for_background,
+    )
     from management.infrastructure.repositories.data_source_repository import (
         DataSourceRepository,
     )
@@ -306,6 +499,15 @@ async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
                     sync_run_repository=sync_run_repo,
                 )
                 await scheduler.check_and_trigger_due_syncs()
+                await session.commit()
+
+            async with session_factory() as session:
+                maintenance = build_maintenance_pipeline_for_background(
+                    session_factory=session_factory,
+                    session=session,
+                )
+                await maintenance.check_scheduled_triggers()
+                await maintenance.advance_pending_pipelines()
                 await session.commit()
         except asyncio.CancelledError:
             break
@@ -357,6 +559,21 @@ async def kartograph_lifespan(app: FastAPI):
     """
     # Startup: initialize database engines
     init_database_engines(app)
+
+    from infrastructure.management.extraction_baseline_hook import (
+        register_extraction_baseline_advancer,
+    )
+    from management.infrastructure.extraction_baseline_updater import (
+        advance_extraction_baselines_for_knowledge_graph,
+    )
+
+    async def _advance_extraction_baselines(*, session, knowledge_graph_id: str) -> int:
+        return await advance_extraction_baselines_for_knowledge_graph(
+            session=session,
+            knowledge_graph_id=knowledge_graph_id,
+        )
+
+    register_extraction_baseline_advancer(_advance_extraction_baselines)
 
     # Startup: create shared SpiceDB client for bootstrap and outbox worker
     spicedb_settings = get_spicedb_settings()
@@ -488,6 +705,7 @@ async def kartograph_lifespan(app: FastAPI):
             poll_interval_seconds=outbox_settings.poll_interval_seconds,
             batch_size=outbox_settings.batch_size,
             max_retries=outbox_settings.max_retries,
+            sync_started_max_concurrency=outbox_settings.sync_started_max_concurrency,
         )
         await worker.start()
         app.state.outbox_worker = worker
@@ -561,6 +779,9 @@ app.include_router(iam_router)
 
 # Include Management bounded context routes
 app.include_router(management_router)
+
+# Include Extraction bounded context routes
+app.include_router(extraction_router)
 
 # Include dev utility routes (easy to remove for production)
 app.include_router(dev_routes.router)

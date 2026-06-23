@@ -43,8 +43,12 @@ class AGEGraphProvisioner:
     """Creates AGE graphs using a psycopg2 connection.
 
     Uses create-if-not-exists semantics by checking ag_catalog.ag_graph
-    before calling create_graph. This is idempotent and safe for replay.
+    before calling create_graph. When catalog metadata exists but the graph
+    is not queryable (common after a partial Postgres restore), the graph is
+    dropped and recreated. This is idempotent and safe for replay.
     """
+
+    _GRAPH_OID_MISSING = "does not exist"
 
     def __init__(self, connection_factory: "ConnectionFactory") -> None:
         """Initialize the provisioner with a connection factory.
@@ -54,12 +58,51 @@ class AGEGraphProvisioner:
         """
         self._connection_factory = connection_factory
 
+    @staticmethod
+    def _prepare_age_session(cursor) -> None:
+        cursor.execute("LOAD 'age'")
+        cursor.execute('SET search_path = ag_catalog, "$user", public')
+
+    def _graph_is_queryable(self, cursor, graph_name: str) -> bool:
+        """Return True when cypher queries can run against the named graph."""
+        self._prepare_age_session(cursor)
+        try:
+            cursor.execute(
+                "SELECT * FROM cypher(%s, $$ RETURN 1 $$) AS (result agtype)",
+                (graph_name,),
+            )
+            cursor.fetchone()
+            return True
+        except Exception as exc:
+            message = str(exc).lower()
+            if self._GRAPH_OID_MISSING in message or "graph" in message:
+                return False
+            raise
+
+    @staticmethod
+    def _drop_graph(cursor, graph_name: str) -> None:
+        cursor.execute(
+            "SELECT ag_catalog.drop_graph(%s, true)",
+            (graph_name,),
+        )
+
+    @staticmethod
+    def _create_graph(cursor, graph_name: str) -> None:
+        cursor.execute(
+            "SELECT ag_catalog.create_graph(%s)",
+            (graph_name,),
+        )
+
     def ensure_graph_exists(self, graph_name: str) -> None:
         """Create the AGE graph if it does not already exist.
 
         Uses a transaction-level advisory lock to make the existence check
         and graph creation atomic, preventing race conditions under concurrent
         duplicate event deliveries (e.g. outbox replay).
+
+        When catalog metadata exists but the graph OID is missing or corrupt
+        (``graph with oid N does not exist``), the stale graph is dropped and
+        recreated so workload reads/writes can proceed.
 
         The connection is always committed or rolled back on every code path,
         including the no-op/exists path, to avoid leaking open transactions
@@ -75,32 +118,26 @@ class AGEGraphProvisioner:
         conn = self._connection_factory.get_connection()
         try:
             with conn.cursor() as cursor:
-                # Acquire a transaction-level advisory lock keyed by graph name.
-                # This makes the check + create atomic: concurrent callers block
-                # here until the first caller's transaction commits or rolls back.
-                # The lock is released automatically when the transaction ends.
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)",
                     (graph_name,),
                 )
 
-                # Check if graph exists in the AGE catalog
                 cursor.execute(
                     "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
                     (graph_name,),
                 )
-                if cursor.fetchone() is not None:
-                    # Graph already exists — idempotent no-op.
-                    # Rollback to release advisory lock and cleanly end the
-                    # transaction; avoids leaking an open transaction to the pool.
+                catalog_exists = cursor.fetchone() is not None
+
+                if catalog_exists and self._graph_is_queryable(cursor, graph_name):
                     conn.rollback()
                     return
 
-                # Attempt to create the graph
-                cursor.execute(
-                    "SELECT ag_catalog.create_graph(%s)",
-                    (graph_name,),
-                )
+                if catalog_exists:
+                    self._prepare_age_session(cursor)
+                    self._drop_graph(cursor, graph_name)
+
+                self._create_graph(cursor, graph_name)
 
             conn.commit()
 
@@ -110,6 +147,16 @@ class AGEGraphProvisioner:
 
         finally:
             self._connection_factory.return_connection(conn)
+
+
+def ensure_tenant_graph_operational(
+    connection_factory: "ConnectionFactory",
+    tenant_id: str,
+) -> str:
+    """Ensure ``tenant_{tenant_id}`` exists and accepts Cypher queries."""
+    graph_name = f"tenant_{tenant_id}"
+    AGEGraphProvisioner(connection_factory).ensure_graph_exists(graph_name)
+    return graph_name
 
 
 class TenantAGEGraphHandler:

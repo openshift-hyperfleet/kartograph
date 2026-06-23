@@ -12,6 +12,7 @@ from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
 )
 from management.dependencies.knowledge_graph import get_knowledge_graph_service
+from management.domain.ontology_prepopulation import PrepopulationValidationError
 from management.ports.exceptions import (
     DuplicateKnowledgeGraphNameError,
     KnowledgeGraphNotFoundError,
@@ -21,13 +22,288 @@ from management.presentation.knowledge_graphs.models import (
     CreateKnowledgeGraphRequest,
     KnowledgeGraphListResponse,
     KnowledgeGraphResponse,
+    KnowledgeGraphWorkspaceStatusResponse,
+    MaintenanceRunListResponse,
+    MaintenanceRunResponse,
+    MaintenanceRunTriggerRequest,
+    MaintenanceRegenerateJobsRequest,
+    MaintenanceRegenerateJobsResponse,
+    MaintenanceStartReadyRequest,
+    MaintenanceStartReadyResponse,
+    MaintenanceScheduleResponse,
+    MaintenanceScheduleUpsertRequest,
     OntologyConfigRequest,
     OntologyConfigResponse,
+    DesignArtifactsResponse,
+    DesignArtifactInstanceListResponse,
+    DesignArtifactRelationshipInstanceListResponse,
     UpdateKnowledgeGraphRequest,
 )
+from management.application.design_artifacts import DEFAULT_INSTANCES_PER_TYPE
+from infrastructure.management.design_artifacts_service import DesignArtifactsService
+from management.dependencies.design_artifacts import get_design_artifacts_service
 from shared_kernel.authorization.types import Permission
 
 router = APIRouter(tags=["knowledge-graphs"])
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/maintenance-schedule",
+    response_model=MaintenanceScheduleResponse,
+    summary="Get KG maintenance schedule configuration",
+)
+async def get_knowledge_graph_maintenance_schedule(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceScheduleResponse:
+    """Get knowledge-graph scoped maintenance schedule settings."""
+    try:
+        schedule = await service.get_maintenance_schedule(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return MaintenanceScheduleResponse.from_domain(schedule)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load maintenance schedule",
+        )
+
+
+@router.put(
+    "/knowledge-graphs/{kg_id}/maintenance-schedule",
+    response_model=MaintenanceScheduleResponse,
+    summary="Create or update KG maintenance schedule configuration",
+)
+async def upsert_knowledge_graph_maintenance_schedule(
+    kg_id: str,
+    request: MaintenanceScheduleUpsertRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceScheduleResponse:
+    """Upsert knowledge-graph scoped maintenance schedule settings."""
+    try:
+        schedule = await service.upsert_maintenance_schedule(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            cron_expression=request.cron_expression,
+            timezone_name=request.timezone_name,
+            enabled=request.enabled,
+            files_per_job=request.files_per_job,
+            worker_count=request.worker_count,
+        )
+        return MaintenanceScheduleResponse.from_domain(schedule)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save maintenance schedule",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/maintenance-runs",
+    response_model=MaintenanceRunListResponse,
+    summary="List KG maintenance run outcomes",
+)
+async def list_knowledge_graph_maintenance_runs(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MaintenanceRunListResponse:
+    """List persisted maintenance orchestration outcomes for a KG."""
+    try:
+        runs = await service.list_maintenance_runs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            limit=limit,
+        )
+        items = [MaintenanceRunResponse.from_domain(run) for run in runs]
+        return MaintenanceRunListResponse(runs=items, count=len(items))
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list maintenance runs",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/trigger",
+    response_model=MaintenanceRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Trigger KG maintenance orchestration",
+)
+async def trigger_knowledge_graph_maintenance_run(
+    kg_id: str,
+    request: MaintenanceRunTriggerRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceRunResponse:
+    """Trigger a maintenance run across all data sources in a knowledge graph."""
+    try:
+        run = await service.trigger_maintenance_run(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            files_per_job=request.files_per_job,
+            worker_count=request.worker_count,
+            start_extraction=request.start_extraction,
+        )
+        return MaintenanceRunResponse.from_domain(run)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to trigger maintenance run",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/start-ready",
+    response_model=MaintenanceStartReadyResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Start workers for queued maintenance jobs",
+)
+async def start_ready_maintenance_jobs(
+    kg_id: str,
+    request: MaintenanceStartReadyRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceStartReadyResponse:
+    """Start or resume extraction workers for pending maintenance jobs only."""
+    try:
+        result = await service.start_ready_maintenance_jobs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            worker_count=request.worker_count,
+        )
+        return MaintenanceStartReadyResponse(
+            success=bool(result.get("success")),
+            message=str(result.get("message") or ""),
+            pending_jobs=int(result.get("pending_jobs") or 0),
+            in_progress_jobs=int(result.get("in_progress_jobs") or 0),
+            worker_count=int(result.get("worker_count") or request.worker_count),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start ready maintenance jobs",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/maintenance-runs/regenerate-jobs",
+    response_model=MaintenanceRegenerateJobsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Regenerate pending maintenance jobs from current diffs",
+)
+async def regenerate_maintenance_jobs(
+    kg_id: str,
+    request: MaintenanceRegenerateJobsRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> MaintenanceRegenerateJobsResponse:
+    """Replace pending maintenance jobs using the current baseline-to-head diff."""
+    try:
+        result = await service.regenerate_maintenance_jobs(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+            files_per_job=request.files_per_job,
+        )
+        return MaintenanceRegenerateJobsResponse(
+            success=bool(result.get("success")),
+            message=str(result.get("message") or ""),
+            generated_jobs=int(result.get("generated_jobs") or 0),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate maintenance jobs",
+        )
 
 
 @router.get(
@@ -153,6 +429,116 @@ async def get_knowledge_graph(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve knowledge graph",
+        )
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/workspace-status",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Get knowledge graph workspace status projection",
+    description="""
+Return mode/readiness/session status used by the knowledge graph Manage workspace UI.
+
+Returns 404 when the knowledge graph does not exist or the caller lacks `view`
+permission on the knowledge graph.
+""",
+)
+async def get_knowledge_graph_workspace_status(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Get workspace status projection for a knowledge graph."""
+    try:
+        status_projection = await service.get_workspace_status(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        if status_projection is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Knowledge graph {kg_id} not found",
+            )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve workspace status",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/workspace/validate",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Validate bootstrap readiness for workspace transition",
+)
+async def validate_knowledge_graph_workspace(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Validate workspace readiness with edit authorization."""
+    try:
+        status_projection = await service.validate_workspace(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to validate workspace status",
+        )
+
+
+@router.post(
+    "/knowledge-graphs/{kg_id}/workspace/transition-to-extraction",
+    response_model=KnowledgeGraphWorkspaceStatusResponse,
+    summary="Transition workspace from bootstrap to extraction operations",
+)
+async def transition_workspace_to_extraction(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[KnowledgeGraphService, Depends(get_knowledge_graph_service)],
+) -> KnowledgeGraphWorkspaceStatusResponse:
+    """Transition workspace mode after successful validation."""
+    try:
+        status_projection = await service.transition_workspace_to_extraction(
+            user_id=current_user.user_id.value,
+            kg_id=kg_id,
+        )
+        return KnowledgeGraphWorkspaceStatusResponse.from_domain(status_projection)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except KnowledgeGraphNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to transition workspace mode",
         )
 
 
@@ -325,6 +711,107 @@ async def update_knowledge_graph(
 
 
 @router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts",
+    response_model=DesignArtifactsResponse,
+    summary="Get design artifacts for a knowledge graph",
+    description="""
+Return canonical schema definitions merged with live graph instances from the tenant AGE database.
+
+Used by the Graph Management workspace to render k-extract-style design artifact panels.
+Requires `view` permission on the knowledge graph.
+""",
+)
+async def get_knowledge_graph_design_artifacts(
+    kg_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
+) -> DesignArtifactsResponse:
+    """Get merged ontology and graph instance artifacts for one knowledge graph."""
+    payload = await service.get_design_artifacts(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        limit=limit,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactsResponse.model_validate(payload)
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts/entity-instances",
+    response_model=DesignArtifactInstanceListResponse,
+    summary="List entity instances for one type",
+)
+async def list_design_artifact_entity_instances(
+    kg_id: str,
+    entity_type: Annotated[str, Query(min_length=1)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    property_name: Annotated[str | None, Query(min_length=1)] = None,
+    property_value: Annotated[str | None, Query()] = None,
+) -> DesignArtifactInstanceListResponse:
+    """Paginated entity instance browsing with optional property search."""
+    payload = await service.list_entity_instances(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        entity_type=entity_type,
+        limit=limit,
+        offset=offset,
+        property_name=property_name,
+        property_value=property_value,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactInstanceListResponse.model_validate(payload)
+
+
+@router.get(
+    "/knowledge-graphs/{kg_id}/design-artifacts/relationship-instances",
+    response_model=DesignArtifactRelationshipInstanceListResponse,
+    summary="List relationship instances for one type",
+)
+async def list_design_artifact_relationship_instances(
+    kg_id: str,
+    relationship_type: Annotated[str, Query(min_length=1)],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DesignArtifactsService, Depends(get_design_artifacts_service)],
+    source_entity_type: Annotated[str | None, Query(min_length=1)] = None,
+    target_entity_type: Annotated[str | None, Query(min_length=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = DEFAULT_INSTANCES_PER_TYPE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    property_name: Annotated[str | None, Query(min_length=1)] = None,
+    property_value: Annotated[str | None, Query()] = None,
+) -> DesignArtifactRelationshipInstanceListResponse:
+    """Paginated relationship instance browsing with optional property search."""
+    payload = await service.list_relationship_instances(
+        user_id=current_user.user_id.value,
+        kg_id=kg_id,
+        relationship_type=relationship_type,
+        source_entity_type=source_entity_type,
+        target_entity_type=target_entity_type,
+        limit=limit,
+        offset=offset,
+        property_name=property_name,
+        property_value=property_value,
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Knowledge graph {kg_id} not found or not accessible",
+        )
+    return DesignArtifactRelationshipInstanceListResponse.model_validate(payload)
+
+
+@router.get(
     "/knowledge-graphs/{kg_id}/ontology",
     response_model=OntologyConfigResponse,
     summary="Get ontology for a knowledge graph",
@@ -420,6 +907,11 @@ async def save_knowledge_graph_ontology(
     except KnowledgeGraphNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except PrepopulationValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
     except HTTPException:

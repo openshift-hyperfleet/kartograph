@@ -67,17 +67,19 @@ The system SHALL guide users through creating a knowledge graph before adding da
 ### Requirement: Data Source Connection
 The system SHALL provide a guided flow for connecting external data sources to a knowledge graph.
 
-#### Scenario: Adapter type selection
+#### Scenario: URL-first provider detection
 - GIVEN a user adding a data source to a knowledge graph
 - WHEN the flow begins
-- THEN the user selects an adapter type first (e.g., GitHub)
-- AND the form adapts to show adapter-specific fields
+- THEN the user can add multiple source URLs using repeated URL input rows (`Add another`)
+- AND the system auto-detects the provider type from the URL (GitHub, GitLab, Jira)
+- AND unsupported providers are clearly marked as coming soon without allowing completion
 
 #### Scenario: Connection configuration
-- GIVEN a selected adapter type (e.g., GitHub)
+- GIVEN a detected GitHub provider
 - WHEN the user configures the connection
-- THEN they provide the minimum required fields (e.g., repository URL, access token)
-- AND the system infers defaults where possible (e.g., data source name from repo name)
+- THEN they provide the minimum required fields (knowledge graph, repository URL, tracked branch, and source name)
+- AND the system infers defaults where possible (e.g., data source name from repo name and default branch from repository metadata)
+- AND credentials are entered in a single one-time token field
 
 #### Scenario: Credential handling
 - GIVEN credentials provided during data source setup
@@ -86,26 +88,7 @@ The system SHALL provide a guided flow for connecting external data sources to a
 - AND the plaintext is never persisted in the browser
 
 ### Requirement: Ontology Design
-The system SHALL support an agent-assisted ontology design flow when connecting a data source.
-
-#### Scenario: Intent description
-- GIVEN a user who has connected a data source
-- WHEN the connection is saved
-- THEN the user is prompted to describe (in free text) what problems or questions they want to solve with this data
-
-#### Scenario: Agent-proposed ontology
-- GIVEN a free-text intent description and a connected data source
-- WHEN the user submits their intent
-- THEN the system performs a lightweight scan of the data source
-- AND an AI agent explores the scanned data and proposes an ontology (node types, edge types, properties)
-- AND the proposed ontology is presented to the user for review
-
-#### Scenario: Ontology review and approval
-- GIVEN a proposed ontology
-- WHEN the user reviews it
-- THEN they can approve the ontology as-is
-- OR iterate by editing individual types and relationships
-- AND extraction begins only after the user explicitly approves
+The system SHALL support an editable ontology experience for connected data sources.
 
 #### Scenario: Individual type editing
 - GIVEN a proposed or existing ontology
@@ -143,6 +126,24 @@ The system SHALL show sync progress and status for each data source.
 - GIVEN a data source the user has manage permission on
 - WHEN the user triggers a sync
 - THEN a new sync run begins and progress is shown
+
+#### Scenario: Commit-hash status cues
+- GIVEN a Git-backed data source card in the UI
+- WHEN commit reference data is available
+- THEN the UI displays `Local clone commit`, `Commit during last extraction`, and tracked branch head commit values
+- AND the UI visually indicates whether new commits are available since the last extraction baseline
+
+#### Scenario: Maintenance-readiness cue
+- GIVEN a Git-backed data source where tracked branch head differs from commit during last extraction
+- WHEN the user views data source status
+- THEN the UI highlights that maintenance/extraction work can be run for new source changes
+
+#### Scenario: Diff summary cue
+- GIVEN a Git-backed data source with commit references for baseline and latest tracked branch head
+- WHEN the user opens sync/maintenance details
+- THEN the UI shows a diff summary relative to the last extraction baseline suitable for deciding whether to run maintenance
+- AND the summary includes aggregate counts and a changed-file list
+- AND the changed-file list is collapsed by default and expanded on demand to avoid overwhelming the page
 
 ### Requirement: Get Started Querying (MCP Connection)
 The system SHALL make it easy for users to connect AI agents to their knowledge graph via MCP.
@@ -511,3 +512,30 @@ The system SHALL support light and dark color schemes.
 - GIVEN the user interface
 - THEN a dark mode toggle is available in the header
 - AND the preference persists across sessions
+
+### Requirement: Knowledge Graph Manage Actions
+The system SHALL expose knowledge graph row actions as Manage, Query, and Delete.
+
+#### Scenario: Knowledge graph action set
+- GIVEN the knowledge graph list
+- THEN each knowledge graph row shows actions for Manage, Query, and Delete
+- AND legacy actions not in this set are not shown in the row action cluster
+
+#### Scenario: Manage navigation
+- GIVEN a user clicks Manage on a knowledge graph row
+- WHEN navigation completes
+- THEN the user lands on that knowledge graph's mode-aware workspace page
+
+### Requirement: Detailed KG Manage Experience Specification
+The system SHALL define detailed KG Manage workspace behavior in a dedicated canonical UX spec to avoid drift.
+
+#### Scenario: Canonical detailed behavior source
+- GIVEN requirements for the graph manage page flow, conversation UX, modes, and step cards
+- THEN details are defined in `specs/ui/kg-manage-experience.spec.md`
+- AND this file remains the high-level UX umbrella for broader product behavior
+
+#### Scenario: Cross-spec consistency
+- GIVEN updates to KG manage interaction behavior
+- WHEN UX requirements are changed
+- THEN `specs/ui/kg-manage-experience.spec.md` is updated first
+- AND summary references here are kept consistent with it

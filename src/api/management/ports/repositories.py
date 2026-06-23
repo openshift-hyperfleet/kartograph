@@ -66,6 +66,10 @@ class IKnowledgeGraphRepository(Protocol):
         """
         ...
 
+    async def find_all(self) -> list[KnowledgeGraph]:
+        """List all knowledge graphs across tenants."""
+        ...
+
     async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
         """Delete a knowledge graph and emit domain events.
 

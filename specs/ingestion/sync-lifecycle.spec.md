@@ -70,6 +70,28 @@ The system SHALL support both manual and scheduled sync triggers.
 - WHEN the schedule fires
 - THEN a sync is initiated as if manually triggered
 
+### Requirement: Commit-Baseline-Aware Ingestion
+The system SHALL maintain commit-aware ingestion context for Git-backed sources.
+
+#### Scenario: Baseline at extraction start
+- GIVEN a Git-backed data source with a local clone
+- WHEN a sync run starts
+- THEN the run baseline is set to `commit_during_last_extraction`
+- AND incremental extraction compares current source state against that baseline
+
+#### Scenario: Branch head refresh for ingestion readiness
+- GIVEN a Git-backed data source with a tracked branch
+- WHEN sync orchestration prepares ingestion context
+- THEN the latest tracked branch HEAD is resolved and stored as `tracked_branch_head_commit`
+- AND ingestion context for that run is prepared from the corresponding latest files
+
+#### Scenario: No-new-commit outcome
+- GIVEN `tracked_branch_head_commit` equals `commit_during_last_extraction`
+- WHEN a sync run is requested
+- THEN the system may short-circuit heavy extraction work
+- AND a sync run record is still created for auditability
+- AND run status and logs indicate no source changes were detected
+
 ### Requirement: Staleness-Based Node Lifecycle
 The system SHALL use timestamp comparison to detect stale graph nodes instead of explicit delete events.
 

@@ -10,10 +10,11 @@ State machine transitions:
   IngestionFailed          → failed (with error)
   MutationLogProduced      → applying
   ExtractionFailed         → failed (with error)
+  IngestionPrepared        → ingested (ingestion context ready; no extraction)
   MutationsApplied         → completed (DataSource.last_sync_at updated)
   MutationApplicationFailed → failed (with error)
 
-Terminal states (completed, failed) cannot be transitioned further.
+Terminal states (ingested, completed, failed) cannot be transitioned further.
 """
 
 from __future__ import annotations
@@ -21,7 +22,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from management.domain.entities import MutationLogRunMetadata
 from management.domain.value_objects import DataSourceId
+from management.infrastructure.extraction_baseline_updater import (
+    seed_unset_extraction_baselines_for_knowledge_graph,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +47,7 @@ _STATUS_MAP: dict[str, str] = {
     "JobPackageProduced": "ai_extracting",
     "MutationLogProduced": "applying",
     "MutationsApplied": "completed",
+    "IngestionPrepared": "ingested",
 }
 
 _SUPPORTED_EVENTS = frozenset(_STATUS_MAP.keys()) | _FAILURE_EVENTS
@@ -118,10 +124,55 @@ class SyncLifecycleHandler:
             sync_run.completed_at = now
             sync_run.logs.append(f"[{now.isoformat()}] {event_type}: {error_msg}")
 
+        elif event_type == "IngestionPrepared":
+            sync_run.status = "ingested"
+            sync_run.completed_at = now
+            job_package_id = payload.get("job_package_id")
+            if job_package_id:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] Ingestion context prepared "
+                    f"(job_package_id={job_package_id})"
+                )
+            elif payload.get("no_changes_detected") is True:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] No source changes detected; "
+                    "ingestion context preparation skipped."
+                )
+            else:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] Ingestion context prepared for later extraction."
+                )
+            await self._update_data_source_ingestion_prepared(
+                data_source_id=sync_run.data_source_id,
+                prepared_commit=payload.get("prepared_commit_sha"),
+                prepared_file_count=payload.get("prepared_file_count"),
+                no_changes_detected=payload.get("no_changes_detected") is True,
+            )
+
         elif event_type == "MutationsApplied":
             sync_run.status = "completed"
             sync_run.completed_at = now
             sync_run.logs.append(f"[{now.isoformat()}] Sync completed")
+            if payload.get("no_changes_detected") is True:
+                sync_run.logs.append(
+                    f"[{now.isoformat()}] No source changes were detected; "
+                    "heavy extraction was short-circuited."
+                )
+            if sync_run.mutation_log_run is not None:
+                sync_run.mutation_log_run.completed_at = now
+                if payload.get("token_usage_total") is not None:
+                    sync_run.mutation_log_run.token_usage_total = int(
+                        payload["token_usage_total"]
+                    )
+                if payload.get("cost_total_usd") is not None:
+                    sync_run.mutation_log_run.cost_total_usd = float(
+                        payload["cost_total_usd"]
+                    )
+                if payload.get("operation_counts") is not None:
+                    sync_run.mutation_log_run.operation_counts = {
+                        str(k): int(v)
+                        for k, v in dict(payload["operation_counts"]).items()
+                    }
             await self._update_data_source_last_sync_at(
                 data_source_id=sync_run.data_source_id,
                 now=now,
@@ -135,6 +186,36 @@ class SyncLifecycleHandler:
             sync_run.logs.append(
                 f"[{now.isoformat()}] {event_type}: status → {new_status}"
             )
+            if event_type == "MutationLogProduced":
+                sync_run.mutation_log_run = MutationLogRunMetadata(
+                    mutation_log_id=str(payload["mutation_log_id"]),
+                    knowledge_graph_id=str(payload["knowledge_graph_id"]),
+                    session_id=(
+                        str(payload["session_id"])
+                        if payload.get("session_id") is not None
+                        else None
+                    ),
+                    actor_id=(
+                        str(payload["actor_id"])
+                        if payload.get("actor_id") is not None
+                        else None
+                    ),
+                    started_at=now,
+                    token_usage_total=(
+                        int(payload["token_usage_total"])
+                        if payload.get("token_usage_total") is not None
+                        else None
+                    ),
+                    cost_total_usd=(
+                        float(payload["cost_total_usd"])
+                        if payload.get("cost_total_usd") is not None
+                        else None
+                    ),
+                    operation_counts={
+                        str(k): int(v)
+                        for k, v in dict(payload.get("operation_counts") or {}).items()
+                    },
+                )
 
         await self._sync_run_repo.save(sync_run)
         await self._session.commit()
@@ -155,4 +236,38 @@ class SyncLifecycleHandler:
             return
 
         ds.record_sync_completed()
+        ds.advance_extraction_baseline_to_tracked_head()
         await self._ds_repo.save(ds)
+
+    async def _update_data_source_ingestion_prepared(
+        self,
+        *,
+        data_source_id: str,
+        prepared_commit: str | None,
+        prepared_file_count: int | None,
+        no_changes_detected: bool,
+    ) -> None:
+        """Persist ingest-only prepare metadata on the data source."""
+        ds = await self._ds_repo.get_by_id(DataSourceId(value=data_source_id))
+        if ds is None:
+            return
+
+        commit = prepared_commit
+        if not commit and no_changes_detected:
+            commit = ds.tracked_branch_head_commit
+
+        file_count = prepared_file_count
+        if no_changes_detected:
+            file_count = None
+
+        ds.record_ingestion_prepared(
+            prepared_commit=commit,
+            prepared_file_count=file_count,
+        )
+        ds.maybe_seed_extraction_baseline_from_prepare(prepared_commit=commit)
+        await self._ds_repo.save(ds)
+        await seed_unset_extraction_baselines_for_knowledge_graph(
+            session=self._session,
+            knowledge_graph_id=ds.knowledge_graph_id,
+            data_source_repository=self._ds_repo,
+        )

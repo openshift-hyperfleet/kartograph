@@ -1,19 +1,76 @@
 # Development overrides for compose.yaml
 services:
+  agent-runtime:
+    build:
+      context: ./src/agent-runtime
+      dockerfile: Dockerfile
+    image: kartograph-agent-runtime:dev
+    profiles: [ "build-only" ]
+
   api:
-    # Run as root in dev to handle host file permissions (any umask)
-    user: "${UID}:${GID}"
+    # Root required for OpenShell XDG config/forwards mounts under /root/.config
+    user: "0:0"
     environment:
       UV_CACHE_DIR: /tmp/uv-cache
+      HOST_UID: ${HOST_UID}
+      HOST_GID: ${HOST_GID}
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_NETWORK: kartograph_kartograph
+      KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE: kartograph-agent-runtime:dev
+      KARTOGRAPH_EXTRACTION_RUNTIME_API_BASE_URL: http://api:8000
+      KARTOGRAPH_EXTRACTION_RUNTIME_WORKLOAD_TOKEN_SIGNING_KEY: kartograph-dev-workload-token-signing-key
+      KARTOGRAPH_ENV: development
+      KARTOGRAPH_EXTRACTION_RUNTIME_JOB_PACKAGE_WORK_DIR: /tmp/kartograph/job_packages
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_UID: ${HOST_UID}
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_RUN_GID: ${HOST_GID}
+      KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_TURN_TIMEOUT_SECONDS: "3600"
+      KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_MAX_TURNS: "500"
+      KARTOGRAPH_EXTRACTION_RUNTIME_CONTAINER_HARDENING_ENABLED: "true"
+      KARTOGRAPH_EXTRACTION_RUNTIME_BACKEND: openshell
+      KARTOGRAPH_EXTRACTION_RUNTIME_JOB_RUNNER: openshell
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_URL: https://host.docker.internal:17670
+      # Forwards run inside this container; bind to 127.0.0.1 here, not on the host.
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_RUNTIME_HOST: 127.0.0.1
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_API_BASE_URL: http://host.docker.internal:8000
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_POLICY_DIR: /etc/openshell/policies
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_GATEWAY_NAME: openshell
+      # OpenShell CLI in the API container reads host gateway registration + mTLS from here
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_XDG_CONFIG_HOME: /root/.config
+      # Host gateway must listen beyond localhost — in ~/.config/openshell/gateway.toml:
+      #   bind_address = "0.0.0.0:17670"
+      # then: systemctl --user restart openshell-gateway
+      KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_IMAGE: ghcr.io/opendatahub-io/ai-helpers:latest
+      # OpenShell extraction jobs use agentic-ci claude-sandbox (not ai-helpers or sticky runtime).
+      KARTOGRAPH_EXTRACTION_RUNTIME_OPENSHELL_EXTRACTION_IMAGE: quay.io/aipcc/agentic-ci/claude-sandbox:latest
+      KARTOGRAPH_EXTRACTION_RUNTIME_AGENTIC_CI_HARNESS: claude-code
+      KARTOGRAPH_EXTRACTION_RUNTIME_EXTRACTION_JOB_WORK_DIR: /tmp/kartograph/extraction_jobs
+      # Vertex AI for Claude Agent SDK in sticky assistant containers
+      CLAUDE_CODE_USE_VERTEX: "1"
+      ANTHROPIC_VERTEX_PROJECT_ID: itpc-gcp-hcm-pe-eng-claude
+      CLOUD_ML_REGION: us-east5
+      KARTOGRAPH_GCLOUD_CONFIG_MOUNT: ${HOME}/.config/gcloud
     volumes:
       # Mount the entire app directory  (minus  venv) for hot-reload
       - ./src/api:/app:z
       - /app/.venv
+      # Shared workdirs for OpenShell sandboxes and job packages
+      - /tmp/kartograph/job_packages:/tmp/kartograph/job_packages
+      - /tmp/kartograph/extraction_jobs:/tmp/kartograph/extraction_jobs
+      # gcloud ADC for Vertex-backed agentic-ci extraction job containers
+      - ${HOME}/.config/gcloud:${HOME}/.config/gcloud:ro,z
+      # OpenShell CLI + mTLS config (host gateway; API container invokes openshell subprocess)
+      - /usr/bin/openshell:/usr/bin/openshell:ro
+      - ${HOME}/.config/openshell:/root/.config/openshell:ro,z
+      # forward start -d writes PID/state here; read-only parent mount hangs the CLI
+      - openshell-forwards:/root/.config/openshell/forwards
+      # OpenShell policy templates (Phase 3) when backend=openshell
+      - ./src/api/extraction/infrastructure/openshell/policies:/etc/openshell/policies:ro,z
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - /bin/bash
       - -c
       - |
-        uv run fastapi dev main.py --host 0.0.0.0 --port 8000
+        uv sync --frozen && uv run alembic upgrade head && uv run fastapi dev main.py --host 0.0.0.0 --port 8000
 
   dev-ui:
     build:
@@ -30,7 +87,10 @@ services:
       - /app/.output
     environment:
       - HOST=0.0.0.0
-    command: ["pnpm", "run", "dev"]
+    command: [ "pnpm", "run", "dev" ]
     ports:
       - "3000:3000"
       - "24678:24678"
+
+volumes:
+  openshell-forwards:

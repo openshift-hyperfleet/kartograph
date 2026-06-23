@@ -51,6 +51,10 @@ def pytest_configure(config):
         "markers",
         "keycloak: mark test as requiring Keycloak authentication server",
     )
+    config.addinivalue_line(
+        "markers",
+        "container_runtime: mark test as requiring docker/podman engine",
+    )
 
 
 @pytest.fixture(scope="session")

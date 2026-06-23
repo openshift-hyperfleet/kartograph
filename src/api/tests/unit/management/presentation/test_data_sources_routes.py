@@ -7,7 +7,7 @@ following the patterns established in tests/unit/iam/presentation/.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, status
@@ -18,6 +18,8 @@ from iam.domain.value_objects import TenantId, UserId
 from management.application.services.data_source_service import DataSourceService
 from management.domain.aggregates import DataSource
 from management.domain.entities import DataSourceSyncRun
+from management.domain.entities.data_source_sync_run import MutationLogRunMetadata
+from management.infrastructure.git_diff_summary_service import DiffSummaryResult
 from management.domain.value_objects import (
     DataSourceId,
     Ontology,
@@ -41,6 +43,18 @@ def mock_ds_service() -> AsyncMock:
 def mock_sync_run_repo() -> AsyncMock:
     """Mock DataSourceSyncRunRepository for testing."""
     return AsyncMock(spec=IDataSourceSyncRunRepository)
+
+
+@pytest.fixture
+def mock_diff_summary_service() -> AsyncMock:
+    """Mock GitDiffSummaryService for diff-summary route testing."""
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_commit_reference_service() -> AsyncMock:
+    """Mock GitCommitReferenceService for commit-ref route testing."""
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -69,6 +83,9 @@ def sample_data_source(mock_current_user: CurrentUser) -> DataSource:
         last_sync_at=None,
         created_at=now,
         updated_at=now,
+        clone_head_commit="1111111111111111111111111111111111111111",
+        last_extraction_baseline_commit="2222222222222222222222222222222222222222",
+        tracked_branch_head_commit="3333333333333333333333333333333333333333",
     )
 
 
@@ -88,24 +105,67 @@ def sample_sync_run(sample_data_source: DataSource) -> DataSourceSyncRun:
 
 
 @pytest.fixture
+def mock_write_session() -> AsyncMock:
+    """Mock write DB session for JobPackage archive lookups."""
+    session = AsyncMock()
+    result = MagicMock()
+    result.fetchall.return_value = []
+    session.execute = AsyncMock(return_value=result)
+    return session
+
+
+@pytest.fixture(autouse=True)
+def _noop_reconcile_quiescent_extraction_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """List data sources reconciles extraction runs; unit tests skip that path."""
+
+    async def _noop(**_kwargs: object) -> tuple[bool, bool]:
+        return False, False
+
+    monkeypatch.setattr(
+        "management.presentation.data_sources.routes.reconcile_data_source_extraction_run",
+        _noop,
+    )
+    monkeypatch.setattr(
+        "management.presentation.data_sources.routes.get_write_sessionmaker",
+        lambda _request: MagicMock(),
+    )
+
+
+@pytest.fixture
 def test_client(
     mock_ds_service: AsyncMock,
     mock_sync_run_repo: AsyncMock,
+    mock_diff_summary_service: AsyncMock,
+    mock_commit_reference_service: AsyncMock,
     mock_current_user: CurrentUser,
+    mock_write_session: AsyncMock,
 ) -> TestClient:
     """Create TestClient with mocked dependencies."""
     from iam.dependencies.user import get_current_user
+    from infrastructure.database.dependencies import get_write_session
     from management.dependencies.data_source import (
         get_data_source_service,
+        get_git_commit_reference_service,
+        get_git_diff_summary_service,
         get_sync_run_repository,
     )
     from management.presentation import router
 
     app = FastAPI()
 
+    async def _override_write_session():
+        yield mock_write_session
+
     app.dependency_overrides[get_data_source_service] = lambda: mock_ds_service
     app.dependency_overrides[get_sync_run_repository] = lambda: mock_sync_run_repo
+    app.dependency_overrides[get_git_diff_summary_service] = (
+        lambda: mock_diff_summary_service
+    )
+    app.dependency_overrides[get_git_commit_reference_service] = (
+        lambda: mock_commit_reference_service
+    )
     app.dependency_overrides[get_current_user] = lambda: mock_current_user
+    app.dependency_overrides[get_write_session] = _override_write_session
 
     app.include_router(router)
 
@@ -134,6 +194,15 @@ class TestListDataSourcesRoute:
         assert result[0]["id"] == sample_data_source.id.value
         assert result[0]["name"] == sample_data_source.name
         assert result[0]["adapter_type"] == sample_data_source.adapter_type.value
+        assert result[0]["clone_head_commit"] == sample_data_source.clone_head_commit
+        assert (
+            result[0]["last_extraction_baseline_commit"]
+            == sample_data_source.last_extraction_baseline_commit
+        )
+        assert (
+            result[0]["tracked_branch_head_commit"]
+            == sample_data_source.tracked_branch_head_commit
+        )
 
     def test_list_data_sources_returns_empty_list(
         self,
@@ -350,6 +419,28 @@ class TestTriggerSyncRoute:
         mock_ds_service.trigger_sync.assert_called_once_with(
             user_id=mock_current_user.user_id.value,
             ds_id=sample_data_source.id.value,
+            pipeline_mode="full",
+        )
+
+    def test_trigger_sync_passes_ingest_only_mode(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+        mock_current_user: CurrentUser,
+    ) -> None:
+        mock_ds_service.trigger_sync.return_value = sample_sync_run
+
+        test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/sync",
+            json={"mode": "ingest_only"},
+        )
+
+        mock_ds_service.trigger_sync.assert_called_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            pipeline_mode="ingest_only",
         )
 
     def test_trigger_sync_returns_403_when_unauthorized(
@@ -414,6 +505,74 @@ class TestListSyncRunsRoute:
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
 
+    def test_list_sync_runs_includes_token_and_cost_metadata_when_available(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Sync run response should expose token/cost telemetry metadata."""
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-1",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-1",
+            actor_id="actor-1",
+            started_at=sample_sync_run.started_at,
+            token_usage_total=3210,
+            cost_total_usd=1.23,
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.find_by_data_source.return_value = [sample_sync_run]
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()[0]
+        assert payload["token_usage_total"] == 3210
+        assert payload["cost_total_usd"] == pytest.approx(1.23)
+
+    def test_list_sync_runs_includes_mutation_log_run_preview_fields(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        """Sync run response should include mutation-run IDs and op class counts."""
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-1",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-1",
+            actor_id="actor-preview-1",
+            started_at=sample_sync_run.started_at,
+            token_usage_total=144,
+            cost_total_usd=0.07,
+            operation_counts={"create_node": 8, "create_edge": 13, "update_node": 2},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.find_by_data_source.return_value = [sample_sync_run]
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()[0]
+        assert payload["mutation_log_id"] == "mlog-preview-1"
+        assert payload["knowledge_graph_id"] == sample_data_source.knowledge_graph_id
+        assert payload["session_id"] == "sess-preview-1"
+        assert payload["actor_id"] == "actor-preview-1"
+        assert payload["operation_counts"] == {
+            "create_node": 8,
+            "create_edge": 13,
+            "update_node": 2,
+        }
+
     def test_list_sync_runs_returns_404_when_ds_not_found(
         self,
         test_client: TestClient,
@@ -429,6 +588,206 @@ class TestListSyncRunsRoute:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_sync_run_repo.find_by_data_source.assert_not_called()
+
+
+class TestMutationLogEntryPreviewRoutes:
+    """Tests for GET /management/data-sources/{ds_id}/sync-runs/{run_id}/mutation-log-entries."""
+
+    def test_list_mutation_log_entries_returns_paginated_previews_from_operation_counts(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-1",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-1",
+            actor_id="actor-preview-1",
+            started_at=sample_sync_run.started_at,
+            operation_counts={"create_node": 3},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=0&limit=20"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["total"] == 3
+        assert payload["offset"] == 0
+        assert payload["limit"] == 20
+        assert payload["preview_available"] is True
+        assert payload["entries"][0] == {
+            "line_number": 1,
+            "operation_class": "create_node",
+            "summary": "create_node operation 1 of 3",
+        }
+        assert payload["entries"][2] == {
+            "line_number": 3,
+            "operation_class": "create_node",
+            "summary": "create_node operation 3 of 3",
+        }
+
+    def test_list_mutation_log_entries_honors_offset_and_limit(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = MutationLogRunMetadata(
+            mutation_log_id="mlog-preview-2",
+            knowledge_graph_id=sample_data_source.knowledge_graph_id,
+            session_id="sess-preview-2",
+            actor_id="actor-preview-2",
+            started_at=sample_sync_run.started_at,
+            operation_counts={"create_edge": 1, "create_node": 2},
+        )
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=1&limit=1"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["total"] == 3
+        assert payload["offset"] == 1
+        assert payload["limit"] == 1
+        assert payload["preview_available"] is True
+        assert payload["entries"] == [
+            {
+                "line_number": 2,
+                "operation_class": "create_node",
+                "summary": "create_node operation 1 of 2",
+            }
+        ]
+
+    def test_list_mutation_log_entries_returns_unavailable_when_no_mutation_metadata(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        sample_sync_run.mutation_log_run = None
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = sample_sync_run
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            f"{sample_sync_run.id}/mutation-log-entries?offset=0&limit=20"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "entries": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 20,
+            "preview_available": False,
+        }
+
+    def test_list_mutation_log_entries_returns_404_when_run_missing(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_sync_run_repo: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        mock_ds_service.get.return_value = sample_data_source
+        mock_sync_run_repo.get_by_id.return_value = None
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/sync-runs/"
+            "missing-run/mutation-log-entries"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestRunControlRoutes:
+    """Tests for POST /management/data-sources/{ds_id}/run-controls/{action}."""
+
+    def test_pause_run_control_returns_200_with_affected_count(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        mock_ds_service.apply_run_control.return_value = type(
+            "_Result",
+            (),
+            {
+                "action": "pause",
+                "affected_count": 1,
+                "updated_runs": [sample_sync_run],
+                "started_run": None,
+            },
+        )()
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/pause"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["action"] == "pause"
+        assert payload["affected_count"] == 1
+        assert len(payload["updated_runs"]) == 1
+        assert payload["started_run"] is None
+
+    def test_start_run_control_returns_started_run(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_sync_run: DataSourceSyncRun,
+    ) -> None:
+        mock_ds_service.apply_run_control.return_value = type(
+            "_Result",
+            (),
+            {
+                "action": "start",
+                "affected_count": 1,
+                "updated_runs": [],
+                "started_run": sample_sync_run,
+            },
+        )()
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/start"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["action"] == "start"
+        assert payload["affected_count"] == 1
+        assert payload["started_run"]["id"] == sample_sync_run.id
+
+    def test_run_control_returns_403_when_unauthorized(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+    ) -> None:
+        mock_ds_service.apply_run_control.side_effect = UnauthorizedError(
+            "no permission"
+        )
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/run-controls/halt"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestGetSyncRunLogsRoute:
@@ -714,6 +1073,150 @@ class TestListAllDataSourcesRoute:
         mock_ds_service.list_all_for_user.assert_called_once_with(
             user_id=mock_current_user.user_id.value
         )
+
+
+class TestDataSourceDiffSummaryRoute:
+    """Tests for GET /management/data-sources/{ds_id}/diff-summary endpoint."""
+
+    def test_diff_summary_returns_counts_and_changed_files(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_diff_summary_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Diff summary should include aggregate counts + changed file list."""
+        mock_ds_service.get.return_value = sample_data_source
+        mock_diff_summary_service.build_summary.return_value = DiffSummaryResult(
+            baseline_commit="abc",
+            tracked_head_commit="def",
+            total_changed_files=2,
+            added_count=1,
+            modified_count=1,
+            removed_count=0,
+            renamed_count=0,
+            files_truncated=False,
+            changed_files=(
+                {"path": "src/a.py", "status": "added"},
+                {"path": "src/b.py", "status": "modified"},
+            ),
+        )
+
+        response = test_client.get(
+            f"/management/data-sources/{sample_data_source.id.value}/diff-summary"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["total_changed_files"] == 2
+        assert payload["added_count"] == 1
+        assert payload["modified_count"] == 1
+        assert payload["files_truncated"] is False
+        assert payload["changed_files"][0]["path"] == "src/a.py"
+
+    def test_diff_summary_returns_404_when_data_source_inaccessible(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_diff_summary_service: AsyncMock,
+    ) -> None:
+        """Diff summary route should return 404 when DS is not found/authorized."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.get(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/diff-summary"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_diff_summary_service.build_summary.assert_not_called()
+
+
+class TestDataSourceCommitReferenceRoutes:
+    """Tests for commit-reference refresh/baseline endpoints."""
+
+    def test_refresh_commit_references_returns_updated_data_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_commit_reference_service: AsyncMock,
+        mock_current_user: CurrentUser,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Refresh endpoint should return updated commit references."""
+        refreshed = sample_data_source
+        refreshed.tracked_branch_head_commit = "aaa"
+        refreshed.last_extraction_baseline_commit = None
+        mock_ds_service.get.return_value = sample_data_source
+        mock_commit_reference_service.resolve_tracked_head_commit.return_value = "aaa"
+        mock_ds_service.refresh_commit_references.return_value = refreshed
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/refresh"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["tracked_branch_head_commit"] == "aaa"
+        assert payload["last_extraction_baseline_commit"] is None
+        mock_ds_service.refresh_commit_references.assert_awaited_once_with(
+            user_id=mock_current_user.user_id.value,
+            ds_id=sample_data_source.id.value,
+            tracked_branch_head_commit="aaa",
+        )
+
+    def test_refresh_commit_references_returns_404_when_inaccessible(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        mock_commit_reference_service: AsyncMock,
+    ) -> None:
+        """Refresh endpoint should return 404 if DS not found/authorized."""
+        mock_ds_service.get.return_value = None
+
+        response = test_client.post(
+            "/management/data-sources/01JPQRST1234567890ABCDEFDS/commit-refs/refresh"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_ds_service.refresh_commit_references.assert_not_called()
+        mock_commit_reference_service.resolve_tracked_head_commit.assert_not_called()
+
+    def test_adopt_tracked_head_as_baseline_returns_updated_data_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Adopt endpoint should return DS with baseline moved to tracked head."""
+        updated = sample_data_source
+        updated.last_extraction_baseline_commit = "tracked-head"
+        updated.tracked_branch_head_commit = "tracked-head"
+        mock_ds_service.adopt_tracked_head_as_baseline.return_value = updated
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/adopt-tracked-head"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        payload = response.json()
+        assert payload["last_extraction_baseline_commit"] == "tracked-head"
+
+    def test_adopt_tracked_head_as_baseline_returns_404_for_missing_source(
+        self,
+        test_client: TestClient,
+        mock_ds_service: AsyncMock,
+        sample_data_source: DataSource,
+    ) -> None:
+        """Adopt endpoint should return 404 if service reports missing DS."""
+        mock_ds_service.adopt_tracked_head_as_baseline.side_effect = ValueError(
+            "Data source not found"
+        )
+
+        response = test_client.post(
+            f"/management/data-sources/{sample_data_source.id.value}/commit-refs/adopt-tracked-head"
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestUpdateDataSourceRoute:

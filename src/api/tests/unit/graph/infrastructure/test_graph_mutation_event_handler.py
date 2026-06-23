@@ -18,6 +18,7 @@ from uuid import UUID
 import pytest
 
 from graph.infrastructure.event_handler import GraphMutationEventHandler
+from graph.ports.mutation_log import MutationLogApplyResult
 
 
 class _FakeOutboxRepository:
@@ -59,11 +60,16 @@ class _FakeMutationLogApplier:
         self._error = error
         self.calls: list[str] = []
 
-    async def apply_mutation_log(self, mutation_log_id: str) -> bool:
+    async def apply_mutation_log(self, mutation_log_id: str) -> MutationLogApplyResult:
         self.calls.append(mutation_log_id)
         if self._fail:
             raise RuntimeError(self._error)
-        return True
+        return MutationLogApplyResult(
+            success=True,
+            operation_counts={"create_node": 2, "update_edge": 1},
+            token_usage_total=321,
+            cost_total_usd=0.42,
+        )
 
 
 @pytest.fixture
@@ -150,6 +156,12 @@ class TestGraphMutationEventHandlerSuccess:
         assert event["payload"]["sync_run_id"] == "run-001"
         assert event["payload"]["data_source_id"] == "ds-001"
         assert event["payload"]["knowledge_graph_id"] == "kg-001"
+        assert event["payload"]["operation_counts"] == {
+            "create_node": 2,
+            "update_edge": 1,
+        }
+        assert event["payload"]["token_usage_total"] == 321
+        assert event["payload"]["cost_total_usd"] == 0.42
 
     async def test_mutations_applied_aggregate_type(
         self,

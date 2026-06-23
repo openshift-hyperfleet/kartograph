@@ -58,6 +58,9 @@ class InMemoryKnowledgeGraphRepository:
     async def find_by_tenant(self, tenant_id: str) -> list[KnowledgeGraph]:
         return [kg for kg in self._store.values() if kg.tenant_id == tenant_id]
 
+    async def find_all(self) -> list[KnowledgeGraph]:
+        return list(self._store.values())
+
     async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
         self.deleted.append(knowledge_graph)
         if knowledge_graph.id.value in self._store:

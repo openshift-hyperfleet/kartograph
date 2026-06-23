@@ -9,6 +9,19 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "agentic-ci"
+version = "0.2.22"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "tenacity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4b/ca/2e123744a6111508bd5445a45b05304a97f7b5c69dec851667efbd1fcf35/agentic_ci-0.2.22.tar.gz", hash = "sha256:da0661c3d4574121af9ef282214d257ff2ac27e8bce665516a738a9a1d5a8c2c", size = 65361, upload-time = "2026-06-09T14:51:09.698Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/c6/88460334c8b725fa4187ff4f8004f1f89f5d6caf003751a154945cdc2421/agentic_ci-0.2.22-py3-none-any.whl", hash = "sha256:650b551c803850334532c081450e1ba4624373079dc4f6f9ced5d258117e3f4e", size = 80512, upload-time = "2026-06-09T14:51:08.163Z" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.17.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1289,9 +1302,10 @@ wheels = [
 
 [[package]]
 name = "kartograph-api"
-version = "3.36.1"
+version = "3.37.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "agentic-ci" },
     { name = "alembic" },
     { name = "apache-age-python" },
     { name = "asyncpg" },
@@ -1333,6 +1347,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "agentic-ci", specifier = ">=0.2.22" },
     { name = "alembic", specifier = ">=1.17.2" },
     { name = "apache-age-python", specifier = ">=0.0.7" },
     { name = "asyncpg", specifier = ">=0.31.0" },

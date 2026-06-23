@@ -13,7 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from management.domain.aggregates import KnowledgeGraph
-from management.domain.value_objects import KnowledgeGraphId, OntologyConfig
+from management.domain.extraction_job_config import ExtractionJobConfigDocument
+from management.domain.value_objects import (
+    KnowledgeGraphMaintenanceRunRecord,
+    KnowledgeGraphMaintenanceSchedule,
+    KnowledgeGraphId,
+    OntologyConfig,
+    WorkspaceMode,
+)
 from management.infrastructure.models import KnowledgeGraphModel
 from management.infrastructure.observability import (
     DefaultKnowledgeGraphRepositoryProbe,
@@ -67,7 +74,25 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             if model:
                 model.name = knowledge_graph.name
                 model.description = knowledge_graph.description
+                model.workspace_mode = knowledge_graph.workspace_mode.value
+                model.active_schema_bootstrap_session_id = (
+                    knowledge_graph.active_schema_bootstrap_session_id
+                )
+                model.active_extraction_operations_session_id = (
+                    knowledge_graph.active_extraction_operations_session_id
+                )
+                model.most_recent_completed_session_id = (
+                    knowledge_graph.most_recent_completed_session_id
+                )
                 model.updated_at = knowledge_graph.updated_at
+                model.maintenance_schedule = (
+                    knowledge_graph.maintenance_schedule.to_dict()
+                    if knowledge_graph.maintenance_schedule is not None
+                    else None
+                )
+                model.maintenance_run_history = [
+                    run.to_dict() for run in knowledge_graph.maintenance_run_history
+                ]
             else:
                 model = KnowledgeGraphModel(
                     id=knowledge_graph.id.value,
@@ -75,8 +100,26 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
                     workspace_id=knowledge_graph.workspace_id,
                     name=knowledge_graph.name,
                     description=knowledge_graph.description,
+                    workspace_mode=knowledge_graph.workspace_mode.value,
+                    active_schema_bootstrap_session_id=(
+                        knowledge_graph.active_schema_bootstrap_session_id
+                    ),
+                    active_extraction_operations_session_id=(
+                        knowledge_graph.active_extraction_operations_session_id
+                    ),
+                    most_recent_completed_session_id=(
+                        knowledge_graph.most_recent_completed_session_id
+                    ),
                     created_at=knowledge_graph.created_at,
                     updated_at=knowledge_graph.updated_at,
+                    maintenance_schedule=(
+                        knowledge_graph.maintenance_schedule.to_dict()
+                        if knowledge_graph.maintenance_schedule is not None
+                        else None
+                    ),
+                    maintenance_run_history=[
+                        run.to_dict() for run in knowledge_graph.maintenance_run_history
+                    ],
                 )
                 self._session.add(model)
 
@@ -134,6 +177,12 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
         kgs = [self._to_domain(model) for model in models]
         self._probe.knowledge_graphs_listed(tenant_id, len(kgs))
         return kgs
+
+    async def find_all(self) -> list[KnowledgeGraph]:
+        stmt = select(KnowledgeGraphModel)
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_domain(model) for model in models]
 
     async def delete(self, knowledge_graph: KnowledgeGraph) -> bool:
         stmt = select(KnowledgeGraphModel).where(
@@ -204,11 +253,47 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
 
         return OntologyConfig.from_dict(model.ontology)
 
+    async def save_extraction_job_config(
+        self,
+        kg_id: str,
+        config: ExtractionJobConfigDocument,
+    ) -> None:
+        from sqlalchemy import update
+
+        stmt = (
+            update(KnowledgeGraphModel)
+            .where(KnowledgeGraphModel.id == kg_id)
+            .values(extraction_job_config=config.to_dict())
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        if result.rowcount == 0:  # type: ignore[attr-defined]
+            raise KnowledgeGraphNotFoundError(f"Knowledge graph '{kg_id}' not found")
+
+    async def get_extraction_job_config(
+        self, kg_id: str
+    ) -> ExtractionJobConfigDocument | None:
+        stmt = select(KnowledgeGraphModel).where(KnowledgeGraphModel.id == kg_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return ExtractionJobConfigDocument.from_dict(model.extraction_job_config)
+
     def _to_domain(self, model: KnowledgeGraphModel) -> KnowledgeGraph:
         """Reconstitute aggregate from database state without generating events."""
         ontology: OntologyConfig | None = None
         if model.ontology is not None:
             ontology = OntologyConfig.from_dict(model.ontology)
+        maintenance_schedule: KnowledgeGraphMaintenanceSchedule | None = None
+        if model.maintenance_schedule is not None:
+            maintenance_schedule = KnowledgeGraphMaintenanceSchedule.from_dict(
+                model.maintenance_schedule
+            )
+        maintenance_run_history = tuple(
+            KnowledgeGraphMaintenanceRunRecord.from_dict(raw_run)
+            for raw_run in (model.maintenance_run_history or [])
+        )
 
         return KnowledgeGraph(
             id=KnowledgeGraphId(value=model.id),
@@ -219,4 +304,12 @@ class KnowledgeGraphRepository(IKnowledgeGraphRepository):
             created_at=model.created_at,
             updated_at=model.updated_at,
             ontology=ontology,
+            maintenance_schedule=maintenance_schedule,
+            maintenance_run_history=maintenance_run_history,
+            workspace_mode=WorkspaceMode(model.workspace_mode),
+            active_schema_bootstrap_session_id=model.active_schema_bootstrap_session_id,
+            active_extraction_operations_session_id=(
+                model.active_extraction_operations_session_id
+            ),
+            most_recent_completed_session_id=model.most_recent_completed_session_id,
         )

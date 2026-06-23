@@ -77,17 +77,20 @@ class GraphMutationEventHandler:
         now = datetime.now(UTC)
 
         try:
-            success = await self._mutation_log_applier.apply_mutation_log(
+            apply_result = await self._mutation_log_applier.apply_mutation_log(
                 mutation_log_id
             )
 
-            if success:
+            if apply_result.success:
                 await self._outbox.append(
                     event_type="MutationsApplied",
                     payload={
                         "sync_run_id": sync_run_id,
                         "data_source_id": data_source_id,
                         "knowledge_graph_id": knowledge_graph_id,
+                        "operation_counts": apply_result.operation_counts,
+                        "token_usage_total": apply_result.token_usage_total,
+                        "cost_total_usd": apply_result.cost_total_usd,
                         "occurred_at": now.isoformat(),
                     },
                     occurred_at=now,
@@ -101,6 +104,9 @@ class GraphMutationEventHandler:
                         "sync_run_id": sync_run_id,
                         "data_source_id": data_source_id,
                         "error": "Mutation application returned failure",
+                        "operation_counts": apply_result.operation_counts,
+                        "token_usage_total": apply_result.token_usage_total,
+                        "cost_total_usd": apply_result.cost_total_usd,
                         "occurred_at": now.isoformat(),
                     },
                     occurred_at=now,

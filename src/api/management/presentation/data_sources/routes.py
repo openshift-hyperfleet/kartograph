@@ -2,31 +2,238 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
+from infrastructure.database.dependencies import get_write_session
+from infrastructure.management.extraction_run_control import (
+    reconcile_data_source_extraction_run,
+)
+from infrastructure.management.extraction_jobs_dependencies import (
+    get_write_sessionmaker,
+)
 from management.application.services.data_source_service import DataSourceService
 from management.dependencies.data_source import (
     get_data_source_service,
+    get_git_commit_reference_service,
+    get_git_diff_summary_service,
     get_sync_run_repository,
 )
-from management.ports.exceptions import UnauthorizedError
+from management.infrastructure.git_commit_reference_service import (
+    GitCommitReferenceService,
+)
+from management.infrastructure.git_diff_summary_service import GitDiffSummaryService
+from management.infrastructure.job_package_archive_reader import (
+    SqlJobPackageArchiveReader,
+)
+from management.ports.exceptions import DuplicateDataSourceNameError, UnauthorizedError
 from management.ports.repositories import IDataSourceSyncRunRepository
+from shared_kernel.job_package.archive_availability import (
+    job_package_archive_exists,
+    job_package_work_dir,
+)
 from management.presentation.data_sources.models import (
     CreateDataSourceRequest,
+    DataSourceDiffSummaryResponse,
+    DiffChangedFileResponse,
     DataSourceListResponse,
     DataSourceResponse,
     DataSourceWithSyncResponse,
+    RunControlAction,
+    RunControlResponse,
+    MutationLogEntryPreviewResponse,
+    MutationLogEntryPreviewPageResponse,
     SyncRunLogsResponse,
     SyncRunResponse,
+    TriggerSyncRequest,
     UpdateDataSourceRequest,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
 router = APIRouter(tags=["data-sources"])
+
+
+def _build_operation_count_entry_previews(
+    operation_counts: dict[str, int],
+) -> list[tuple[int, str, str]]:
+    """Expand operation counts into stable, per-entry preview rows."""
+    previews: list[tuple[int, str, str]] = []
+    line_number = 1
+    for operation_class in sorted(operation_counts.keys()):
+        raw_count = operation_counts.get(operation_class, 0)
+        count = int(raw_count) if raw_count is not None else 0
+        if count <= 0:
+            continue
+        for occurrence in range(1, count + 1):
+            previews.append(
+                (
+                    line_number,
+                    operation_class,
+                    f"{operation_class} operation {occurrence} of {count}",
+                )
+            )
+            line_number += 1
+    return previews
+
+
+@router.post(
+    "/data-sources/{ds_id}/commit-refs/refresh",
+    status_code=status.HTTP_200_OK,
+    summary="Check remote branch tip and unpulled commits for a data source",
+)
+async def refresh_commit_references(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    commit_ref_service: Annotated[
+        GitCommitReferenceService, Depends(get_git_commit_reference_service)
+    ],
+) -> DataSourceResponse:
+    """Resolve the remote branch tip and whether we have unpulled commits.
+
+    Updates ``tracked_branch_head_commit`` to the current GitHub branch HEAD
+    (the commit ``git pull`` would fast-forward to). The response includes
+    ``newest_unpulled_commit`` when that tip is ahead of our ingested head.
+    """
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        tracked_head = await commit_ref_service.resolve_tracked_head_commit(ds)
+        if tracked_head is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Unable to resolve tracked branch head commit for this data source",
+            )
+
+        updated = await service.refresh_commit_references(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            tracked_branch_head_commit=tracked_head,
+        )
+        return DataSourceResponse.from_domain(updated)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh commit references",
+        )
+
+
+@router.post(
+    "/data-sources/{ds_id}/commit-refs/adopt-tracked-head",
+    status_code=status.HTTP_200_OK,
+    summary="Adopt tracked branch head as extraction baseline",
+)
+async def adopt_tracked_head_as_baseline(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> DataSourceResponse:
+    """Set extraction baseline commit to the current tracked branch head."""
+    try:
+        updated = await service.adopt_tracked_head_as_baseline(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        return DataSourceResponse.from_domain(updated)
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        detail = str(e)
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "tracked branch head" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to adopt tracked head as baseline",
+        )
+
+
+@router.get(
+    "/data-sources/{ds_id}/diff-summary",
+    status_code=status.HTTP_200_OK,
+    summary="Get commit diff summary for a data source",
+)
+async def get_diff_summary(
+    ds_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    diff_service: Annotated[
+        GitDiffSummaryService, Depends(get_git_diff_summary_service)
+    ],
+    max_files: int = Query(default=200, ge=1, le=2000),
+) -> DataSourceDiffSummaryResponse:
+    """Return baseline-vs-tracked diff summary for maintenance readiness cues."""
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        summary = await diff_service.build_summary(
+            data_source=ds,
+            max_files=max_files,
+        )
+        return DataSourceDiffSummaryResponse(
+            baseline_commit=summary.baseline_commit,
+            tracked_head_commit=summary.tracked_head_commit,
+            total_changed_files=summary.total_changed_files,
+            added_count=summary.added_count,
+            modified_count=summary.modified_count,
+            removed_count=summary.removed_count,
+            renamed_count=summary.renamed_count,
+            files_truncated=summary.files_truncated,
+            changed_files=[
+                DiffChangedFileResponse(
+                    path=file["path"],
+                    status=file["status"],
+                )
+                for file in summary.changed_files
+            ],
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to build diff summary",
+        )
 
 
 @router.get(
@@ -77,9 +284,11 @@ async def list_all_data_sources(
     status_code=status.HTTP_200_OK,
 )
 async def list_data_sources(
+    request: Request,
     kg_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    session: Annotated[AsyncSession, Depends(get_write_session)],
 ) -> list[DataSourceResponse]:
     """List all data sources for a knowledge graph.
 
@@ -89,6 +298,7 @@ async def list_data_sources(
         kg_id: Knowledge Graph ID to list data sources for
         current_user: Current authenticated user with tenant context
         service: Data source service for orchestration
+        session: Database session for JobPackage archive lookups
 
     Returns:
         List of DataSourceResponse objects for the knowledge graph
@@ -98,11 +308,32 @@ async def list_data_sources(
         HTTPException: 500 for unexpected errors
     """
     try:
+        await reconcile_data_source_extraction_run(
+            session=session,
+            knowledge_graph_id=kg_id,
+            session_factory=get_write_sessionmaker(request),
+        )
         data_sources = await service.list_for_knowledge_graph(
             user_id=current_user.user_id.value,
             kg_id=kg_id,
         )
-        return [DataSourceResponse.from_domain(ds) for ds in data_sources]
+        archive_reader = SqlJobPackageArchiveReader(
+            session=session,
+            job_package_work_dir=job_package_work_dir(),
+        )
+        work_dir = job_package_work_dir()
+        responses: list[DataSourceResponse] = []
+        for ds in data_sources:
+            response = DataSourceResponse.from_domain(ds)
+            package_id = await archive_reader.latest_job_package_id_for_data_source(
+                data_source_id=ds.id.value,
+            )
+            response.job_package_available = job_package_archive_exists(
+                work_dir=Path(work_dir),
+                job_package_id=package_id,
+            )
+            responses.append(response)
+        return responses
 
     except UnauthorizedError:
         raise HTTPException(
@@ -177,6 +408,11 @@ async def create_data_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+    except DuplicateDataSourceNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -192,6 +428,7 @@ async def trigger_sync(
     ds_id: str,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    body: TriggerSyncRequest | None = None,
 ) -> SyncRunResponse:
     """Trigger a synchronization for a data source.
 
@@ -202,6 +439,7 @@ async def trigger_sync(
         ds_id: Data Source ID to trigger sync for
         current_user: Current authenticated user with tenant context
         service: Data source service for orchestration
+        body: Optional pipeline mode (default full sync)
 
     Returns:
         SyncRunResponse with the created sync run details
@@ -211,10 +449,12 @@ async def trigger_sync(
         HTTPException: 404 if DS not found
         HTTPException: 500 for unexpected errors
     """
+    request = body or TriggerSyncRequest()
     try:
         sync_run = await service.trigger_sync(
             user_id=current_user.user_id.value,
             ds_id=ds_id,
+            pipeline_mode=request.mode,
         )
         return SyncRunResponse.from_domain(sync_run)
 
@@ -287,6 +527,55 @@ async def list_sync_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list sync runs",
+        )
+
+
+@router.post(
+    "/data-sources/{ds_id}/run-controls/{action}",
+    status_code=status.HTTP_200_OK,
+)
+async def control_sync_runs(
+    ds_id: str,
+    action: RunControlAction,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+) -> RunControlResponse:
+    """Apply run-control action to extraction sync runs for a data source."""
+    try:
+        result = await service.apply_run_control(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+            action=action,
+        )
+        return RunControlResponse(
+            action=action,
+            affected_count=result.affected_count,
+            updated_runs=[
+                SyncRunResponse.from_domain(run) for run in result.updated_runs
+            ],
+            started_run=(
+                SyncRunResponse.from_domain(result.started_run)
+                if result.started_run is not None
+                else None
+            ),
+        )
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    except ValueError as e:
+        detail = str(e)
+        status_code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "Unsupported run control action" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to apply run control action",
         )
 
 
@@ -502,4 +791,83 @@ async def get_sync_run_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch sync run logs",
+        )
+
+
+@router.get(
+    "/data-sources/{ds_id}/sync-runs/{run_id}/mutation-log-entries",
+    status_code=status.HTTP_200_OK,
+)
+async def list_mutation_log_entry_previews(
+    ds_id: str,
+    run_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[DataSourceService, Depends(get_data_source_service)],
+    sync_run_repo: Annotated[
+        IDataSourceSyncRunRepository, Depends(get_sync_run_repository)
+    ],
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MutationLogEntryPreviewPageResponse:
+    """List paginated mutation-log entry previews for a sync run.
+
+    Entry previews are derived from recorded per-run operation counts,
+    giving users line-by-line visibility beyond aggregate totals.
+    """
+    try:
+        ds = await service.get(
+            user_id=current_user.user_id.value,
+            ds_id=ds_id,
+        )
+
+        if ds is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Data source not found",
+            )
+
+        sync_run = await sync_run_repo.get_by_id(run_id)
+
+        if sync_run is None or sync_run.data_source_id != ds_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Sync run not found",
+            )
+
+        if sync_run.mutation_log_run is None:
+            return MutationLogEntryPreviewPageResponse(
+                entries=[],
+                total=0,
+                offset=offset,
+                limit=limit,
+                preview_available=False,
+            )
+
+        expanded_previews = _build_operation_count_entry_previews(
+            sync_run.mutation_log_run.operation_counts
+        )
+        total = len(expanded_previews)
+        page = expanded_previews[offset : offset + limit]
+
+        return MutationLogEntryPreviewPageResponse(
+            entries=[
+                MutationLogEntryPreviewResponse(
+                    line_number=line_number,
+                    operation_class=operation_class,
+                    summary=summary,
+                )
+                for line_number, operation_class, summary in page
+            ],
+            total=total,
+            offset=offset,
+            limit=limit,
+            preview_available=total > 0,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch mutation log entry previews",
         )

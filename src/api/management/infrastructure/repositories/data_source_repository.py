@@ -80,6 +80,15 @@ class DataSourceRepository(IDataSourceRepository):
                 model.schedule_type = data_source.schedule.schedule_type.value
                 model.schedule_value = data_source.schedule.value
                 model.last_sync_at = data_source.last_sync_at
+                model.clone_head_commit = data_source.clone_head_commit
+                model.last_extraction_baseline_commit = (
+                    data_source.last_extraction_baseline_commit
+                )
+                model.tracked_branch_head_commit = (
+                    data_source.tracked_branch_head_commit
+                )
+                model.last_prepared_commit = data_source.last_prepared_commit
+                model.last_prepared_file_count = data_source.last_prepared_file_count
                 model.updated_at = data_source.updated_at
                 model.ontology_json = ontology_json
             else:
@@ -94,6 +103,13 @@ class DataSourceRepository(IDataSourceRepository):
                     schedule_type=data_source.schedule.schedule_type.value,
                     schedule_value=data_source.schedule.value,
                     last_sync_at=data_source.last_sync_at,
+                    clone_head_commit=data_source.clone_head_commit,
+                    last_extraction_baseline_commit=(
+                        data_source.last_extraction_baseline_commit
+                    ),
+                    tracked_branch_head_commit=data_source.tracked_branch_head_commit,
+                    last_prepared_commit=data_source.last_prepared_commit,
+                    last_prepared_file_count=data_source.last_prepared_file_count,
                     ontology_json=ontology_json,
                     created_at=data_source.created_at,
                     updated_at=data_source.updated_at,
@@ -207,5 +223,10 @@ class DataSourceRepository(IDataSourceRepository):
             last_sync_at=model.last_sync_at,
             created_at=model.created_at,
             updated_at=model.updated_at,
+            clone_head_commit=model.clone_head_commit,
+            last_extraction_baseline_commit=model.last_extraction_baseline_commit,
+            tracked_branch_head_commit=model.tracked_branch_head_commit,
+            last_prepared_commit=model.last_prepared_commit,
+            last_prepared_file_count=model.last_prepared_file_count,
             ontology=ontology,
         )

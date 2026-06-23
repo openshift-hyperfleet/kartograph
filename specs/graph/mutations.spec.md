@@ -55,12 +55,12 @@ The system SHALL support declaring node and edge types with property schemas.
 - GIVEN a DEFINE operation with label "person", description, and required properties
 - WHEN the mutation is applied
 - THEN a type definition is stored with the label, description, required properties, and empty optional properties
-- AND system properties (`data_source_id`, `source_path`, `slug`) are automatically added to required properties
+- AND system properties (`data_source_id`, `slug`) are automatically added to required properties
 
 #### Scenario: Define an edge type
 - GIVEN a DEFINE operation with entity type "edge"
 - WHEN the mutation is applied
-- THEN system properties for edges (`data_source_id`, `source_path`) are automatically added
+- THEN system properties for edges (`data_source_id`) are automatically added
 
 ### Requirement: CREATE Operation
 The system SHALL support idempotent entity creation with property accumulation.
@@ -133,11 +133,13 @@ The system SHALL require specific system-managed properties on all CREATE operat
 
 #### Scenario: Node system properties
 - GIVEN a CREATE operation for a node
-- THEN `data_source_id`, `source_path`, `slug`, and `knowledge_graph_id` MUST be present in `set_properties`
+- THEN `data_source_id`, `slug`, and `knowledge_graph_id` MUST be present in `set_properties`
+- AND `source_path` MAY be present when the caller or type definition requires provenance
 
 #### Scenario: Edge system properties
 - GIVEN a CREATE operation for an edge
-- THEN `data_source_id`, `source_path`, and `knowledge_graph_id` MUST be present in `set_properties`
+- THEN `data_source_id` and `knowledge_graph_id` MUST be present in `set_properties`
+- AND `source_path` MAY be present when the caller or type definition requires provenance
 
 ### Requirement: Deterministic Entity IDs
 The system SHALL use deterministic IDs for idempotent mutation replay.
@@ -157,3 +159,18 @@ The system SHALL enforce correct ordering of operations to maintain referential 
 - AND DELETE operations run next (edges before nodes)
 - AND CREATE operations follow (nodes before edges)
 - AND UPDATE operations run last
+
+### Requirement: MutationLog Run Metadata
+The system SHALL persist run-level metadata for mutation logs.
+
+#### Scenario: Session and scope association
+- GIVEN mutations produced by an extraction or manual-edit session
+- WHEN the mutation log run is persisted
+- THEN the run is associated with session ID and knowledge graph ID
+- AND actor identity and run timestamps are recorded
+
+#### Scenario: Metrics capture
+- GIVEN a persisted mutation log run
+- WHEN run metrics are finalized
+- THEN token usage and cost totals are stored
+- AND operation counts are stored by operation class

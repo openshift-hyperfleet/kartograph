@@ -40,11 +40,14 @@ class ExtractionResult:
         new_checkpoint: Opaque adapter-specific state capturing the extraction
             position (e.g., the current commit SHA for GitHub). Must be
             persisted by the caller so the next incremental run starts here.
+        branch_file_count: Total blob files on the source branch at the
+            extraction HEAD commit, when the adapter can determine it.
     """
 
     changeset_entries: list[ChangesetEntry]
     content_blobs: dict[str, bytes]
     new_checkpoint: AdapterCheckpoint
+    branch_file_count: int | None = None
 
 
 @runtime_checkable

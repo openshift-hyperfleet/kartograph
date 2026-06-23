@@ -36,6 +36,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 
+# OpenShell CLI for extraction workload runtime (static binary from GitHub releases).
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS openshell
+
+ARG OPENSHELL_VERSION=0.0.62
+
+RUN microdnf install -y ca-certificates gzip tar \
+    && curl -fsSL -o /tmp/openshell.tgz \
+      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-x86_64-unknown-linux-musl.tar.gz" \
+    && tar xzf /tmp/openshell.tgz -C /usr/local/bin \
+    && chmod 755 /usr/local/bin/openshell \
+    && rm -f /tmp/openshell.tgz \
+    && microdnf clean all
+
 # Production stage - using Red Hat UBI9 Python image
 FROM registry.access.redhat.com/ubi9/python-312@sha256:d7b4607a07e0e831e7ea9a66d91dc39251ae3ce17bad540f2d19e44407073f9b
 # It is important to use the image that matches the builder, as the path to the
@@ -45,7 +58,11 @@ FROM registry.access.redhat.com/ubi9/python-312@sha256:d7b4607a07e0e831e7ea9a66d
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
 
 # Copy the application from the builder
+USER 0
 COPY --from=builder --chown=1001:0 /app /app
+COPY --from=openshell /usr/local/bin/openshell /usr/local/bin/openshell
+COPY scripts/api-entrypoint-openshift.sh /usr/local/bin/kartograph-api-entrypoint
+RUN chmod 755 /usr/local/bin/kartograph-api-entrypoint /usr/local/bin/openshell
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH" \
@@ -65,5 +82,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()" || exit 1
 
-# Run the application with uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default entrypoint waits for OpenShell when configured; override in compose/dev.
+CMD ["/usr/local/bin/kartograph-api-entrypoint"]

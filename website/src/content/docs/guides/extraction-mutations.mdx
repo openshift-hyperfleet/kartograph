@@ -189,7 +189,10 @@ CREATE is **idempotent** - you can run it multiple times safely. It uses `MERGE`
 - `label` - Graph label (PascalCase: `"Person"`, `"Repository"`)
 - `set_properties` must include:
   - `data_source_id` - Your data source identifier
-  - `source_path` - Which file this entity came from
+  - `slug` - For nodes only
+
+**Optional provenance:**
+- `source_path` - Which file this entity came from (add when you need traceability, or when your type definition requires it)
 
 **Additional required for edges:**
 - `start_id` - ID of source node

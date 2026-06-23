@@ -42,6 +42,15 @@ class DataSourceModel(Base, TimestampMixin):
     last_sync_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    clone_head_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_extraction_baseline_commit: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    tracked_branch_head_commit: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    last_prepared_commit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_prepared_file_count: Mapped[int | None] = mapped_column(nullable=True)
     ontology_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (

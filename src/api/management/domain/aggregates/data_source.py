@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from management.domain.events import (
     DataSourceCreated,
@@ -23,9 +23,11 @@ from management.domain.observability import (
 )
 from management.domain.value_objects import (
     DataSourceId,
+    DEFAULT_SYNC_PIPELINE_MODE,
     Ontology,
     Schedule,
     ScheduleType,
+    SyncPipelineMode,
 )
 from shared_kernel.datasource_types import DataSourceAdapterType
 
@@ -313,7 +315,7 @@ class DataSource:
         sync_run_id: str,
         *,
         requested_by: str | None = None,
-        pipeline_mode: str = "full",
+        pipeline_mode: SyncPipelineMode | str = DEFAULT_SYNC_PIPELINE_MODE,
     ) -> None:
         """Request a sync for this data source.
 
@@ -328,9 +330,16 @@ class DataSource:
 
         Raises:
             AggregateDeletedError: If the data source has been marked for deletion
+            ValueError: If pipeline_mode is not a supported value
         """
         if self._deleted:
             raise AggregateDeletedError("Cannot request sync on a deleted data source")
+        if pipeline_mode not in ("full", "ingest_only"):
+            raise ValueError(
+                f"Unsupported pipeline_mode {pipeline_mode!r}; "
+                "expected 'full' or 'ingest_only'"
+            )
+        resolved_mode = cast(SyncPipelineMode, pipeline_mode)
         self._pending_events.append(
             SyncStarted(
                 sync_run_id=sync_run_id,
@@ -342,7 +351,7 @@ class DataSource:
                 credentials_path=self.credentials_path,
                 occurred_at=datetime.now(UTC),
                 requested_by=requested_by,
-                pipeline_mode=pipeline_mode,
+                pipeline_mode=resolved_mode,
             )
         )
 
@@ -425,13 +434,8 @@ class DataSource:
         if prepared_commit:
             self.last_prepared_commit = prepared_commit
             self.clone_head_commit = prepared_commit
-        else:
-            self.last_prepared_commit = None
-            self.clone_head_commit = None
         if prepared_file_count is not None:
             self.last_prepared_file_count = prepared_file_count
-        else:
-            self.last_prepared_file_count = None
 
     def mark_for_deletion(
         self,

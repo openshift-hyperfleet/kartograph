@@ -38,6 +38,7 @@ _INTERNAL_TURN_ERROR_NDJSON = (
 def _log_turn_failure(session_id: str) -> None:
     logger.exception("agent_runtime_turn_failed session_id=%s", session_id)
 
+
 app = FastAPI(title="Kartograph Agent Runtime", version="0.1.0")
 settings = AgentRuntimeSettings()
 
@@ -51,6 +52,31 @@ class TurnRequest(BaseModel):
         default=None,
         description="Fresh scoped JWT for Kartograph schema/mutation tools (preferred over container env).",
     )
+
+
+async def _turn_event_stream(request: TurnRequest) -> AsyncIterator[str]:
+    """Stream NDJSON turn events without leaking exception details to clients."""
+    try:
+        async for event in stream_turn_events(
+            settings=settings,
+            message=request.message,
+            ui_mode=request.ui_mode,
+            agent_configuration=request.agent_configuration,
+            message_history=request.message_history,
+            turn_timeout_seconds=settings.turn_timeout_seconds,
+            workload_token=request.workload_token,
+        ):
+            if event.get("type") == "done":
+                logger.info(
+                    "agent_runtime_turn_finished session_id=%s ok=%s",
+                    settings.session_id,
+                    event.get("ok"),
+                )
+            yield json.dumps(event) + "\n"
+            await asyncio.sleep(0)
+    except Exception:
+        _log_turn_failure(settings.session_id)
+        yield _INTERNAL_TURN_ERROR_NDJSON
 
 
 def _workspace_ready() -> bool:
@@ -98,31 +124,8 @@ async def stream_turn(
         len(request.message),
     )
 
-    async def event_stream() -> AsyncIterator[str]:
-        try:
-            async for event in stream_turn_events(
-                settings=settings,
-                message=request.message,
-                ui_mode=request.ui_mode,
-                agent_configuration=request.agent_configuration,
-                message_history=request.message_history,
-                turn_timeout_seconds=settings.turn_timeout_seconds,
-                workload_token=request.workload_token,
-            ):
-                if event.get("type") == "done":
-                    logger.info(
-                        "agent_runtime_turn_finished session_id=%s ok=%s",
-                        settings.session_id,
-                        event.get("ok"),
-                    )
-                yield json.dumps(event) + "\n"
-                await asyncio.sleep(0)
-        except Exception:
-            _log_turn_failure(settings.session_id)
-            yield _INTERNAL_TURN_ERROR_NDJSON
-
     return StreamingResponse(
-        event_stream(),
+        _turn_event_stream(request),
         media_type="application/x-ndjson",
         headers={
             "Cache-Control": "no-cache",

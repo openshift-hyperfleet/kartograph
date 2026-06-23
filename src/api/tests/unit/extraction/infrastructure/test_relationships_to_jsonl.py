@@ -34,6 +34,7 @@ def test_relationships_to_jsonl_emits_edge_create_lines(tmp_path: Path) -> None:
             "depends_on",
             "service",
             "service",
+            "--input",
             str(input_path),
         ],
         check=True,

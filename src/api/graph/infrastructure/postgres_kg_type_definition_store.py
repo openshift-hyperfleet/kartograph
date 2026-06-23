@@ -61,6 +61,7 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
             "metadata_json": metadata,
         }
         stmt = insert(KnowledgeGraphTypeDefinitionModel).values(**values)
+        metadata_column = KnowledgeGraphTypeDefinitionModel.metadata_json.name
         stmt = stmt.on_conflict_do_update(
             index_elements=[
                 KnowledgeGraphTypeDefinitionModel.knowledge_graph_id,
@@ -71,7 +72,7 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
                 "description": values["description"],
                 "required_properties": values["required_properties"],
                 "optional_properties": values["optional_properties"],
-                "metadata_json": values["metadata_json"],
+                metadata_column: values["metadata_json"],
             },
         )
         await self._session.execute(stmt)

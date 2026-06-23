@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -57,3 +59,10 @@ class ExtractionSessionRunMetric:
     token_usage_total: int | None = None
     cost_total_usd: float | None = None
     operation_counts: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "operation_counts",
+            MappingProxyType(dict(self.operation_counts)),
+        )

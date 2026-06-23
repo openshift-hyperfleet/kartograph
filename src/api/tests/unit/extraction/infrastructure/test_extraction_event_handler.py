@@ -359,7 +359,7 @@ class TestExtractionEventHandlerCredentialInjection:
                 workload_credentials: ScopedWorkloadCredentials | None = None,
             ) -> str:
                 raise RuntimeError(
-                    "workload auth failed for token ghp_1234567890abcdef1234567890abcdef1234"
+                    "workload auth failed for token: supersecret-workload-leak-value"
                 )
 
         handler = ExtractionEventHandler(
@@ -378,9 +378,7 @@ class TestExtractionEventHandlerCredentialInjection:
 
         event = outbox.appended[0]
         assert event["event_type"] == "ExtractionFailed"
-        assert (
-            "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"]["error"]
-        )
+        assert "supersecret-workload-leak-value" not in event["payload"]["error"]
         assert "***REDACTED***" in event["payload"]["error"]
 
 

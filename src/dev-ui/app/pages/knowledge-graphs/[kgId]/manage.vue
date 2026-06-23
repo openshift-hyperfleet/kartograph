@@ -582,42 +582,41 @@ async function loadOverviewMetrics() {
       return ds.last_extraction_baseline_commit !== ds.tracked_branch_head_commit
     }).length
 
-    let prepared = 0
-    const rows: WorkspaceHubSourceRow[] = []
-    for (const ds of dataSources) {
-      let status = 'not prepared'
-      let statusVariant: WorkspaceHubSourceRow['statusVariant'] = 'secondary'
-      try {
-        const runs = await apiFetch<Array<{ status: string }>>(
-          `/management/data-sources/${ds.id}/sync-runs`,
-        )
-        const latest = latestSyncRun(runs)
-        if (latest) {
-          status = resolvePrepStatusLabel(latest.status).toLowerCase()
-          if (latest.status === 'ingested' || latest.status === 'completed') {
-            statusVariant = 'success'
+    const rows = await Promise.all(
+      dataSources.map(async (ds) => {
+        let status = 'not prepared'
+        let statusVariant: WorkspaceHubSourceRow['statusVariant'] = 'secondary'
+        try {
+          const runs = await apiFetch<Array<{ status: string }>>(
+            `/management/data-sources/${ds.id}/sync-runs`,
+          )
+          const latest = latestSyncRun(runs)
+          if (latest) {
+            status = resolvePrepStatusLabel(latest.status).toLowerCase()
+            if (latest.status === 'ingested' || latest.status === 'completed') {
+              statusVariant = 'success'
+            }
           }
+        } catch {
+          // keep default status
         }
-      } catch {
-        // keep default status
-      }
-      if (hasIngestionContextPrepared(ds)) {
-        prepared += 1
-        if (status === 'not prepared') {
+        const isPrepared = hasIngestionContextPrepared(ds)
+        if (isPrepared && status === 'not prepared') {
           status = 'prepared'
           statusVariant = 'success'
         }
-      }
-      rows.push({
-        id: ds.id,
-        name: ds.name,
-        url: resolveRepoUrl(ds.connection_config),
-        status,
-        statusVariant,
-      })
-    }
-    preparedSourceCount.value = prepared
-    overviewSourceRows.value = rows
+        return {
+          id: ds.id,
+          name: ds.name,
+          url: resolveRepoUrl(ds.connection_config),
+          status,
+          statusVariant,
+          isPrepared,
+        }
+      }),
+    )
+    preparedSourceCount.value = rows.filter((row) => row.isPrepared).length
+    overviewSourceRows.value = rows.map(({ isPrepared: _ignored, ...row }) => row)
 
     try {
       const ontology = await apiFetch<{
@@ -1258,6 +1257,29 @@ watch(tenantVersion, () => {
   loadArchivedWriteCount()
 })
 
+watch(kgId, () => {
+  kgIdentity.value = null
+  statusProjection.value = null
+  extractionSession.value = null
+  dataSourceCount.value = 0
+  preparedSourceCount.value = 0
+  maintenanceReadyCount.value = 0
+  overviewSourceRows.value = []
+  entityTypeLabels.value = []
+  relationshipTypeLabels.value = []
+  archivedWriteCount.value = 0
+  workspaceLoadError.value = null
+  workspaceForbidden.value = false
+  workspaceForbiddenReason.value = null
+  sessionLoadError.value = null
+  sessionForbidden.value = false
+  sessionForbiddenReason.value = null
+  loadKgIdentity()
+  loadWorkspaceStatus()
+  loadOverviewMetrics()
+  loadArchivedWriteCount()
+})
+
 watch(
   () => statusProjection.value?.workspace_mode,
   async () => {
@@ -1287,6 +1309,7 @@ watch(
       runtimeWarmupError.value = null
     }
   },
+  { immediate: true },
 )
 
 watch(selectedOpsDataSourceId, () => {

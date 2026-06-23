@@ -192,13 +192,21 @@ function isInstanceCountLoading(label: string, entityType: 'node' | 'edge'): boo
   return instanceCountLoadingKeys.has(`${entityType}:${label}`)
 }
 
+function escapeCypherLabel(label: string): string {
+  return label.replace(/`/g, '``')
+}
+
 async function fetchInstanceCount(label: string, entityType: 'node' | 'edge') {
   const cacheKey = `${entityType}:${label}`
+  if (instanceCountLoadingKeys.has(cacheKey)) {
+    return
+  }
   instanceCountLoadingKeys.add(cacheKey)
   try {
+    const safeLabel = escapeCypherLabel(label)
     const cypher = entityType === 'node'
-      ? `MATCH (n:\`${label}\`) RETURN count(n) AS instance_count`
-      : `MATCH ()-[r:\`${label}\`]->() RETURN count(r) AS instance_count`
+      ? `MATCH (n:\`${safeLabel}\`) RETURN count(n) AS instance_count`
+      : `MATCH ()-[r:\`${safeLabel}\`]->() RETURN count(r) AS instance_count`
     const result = await queryGraph(cypher, 10, 1)
     const value = result.rows[0]?.instance_count
     const parsed = typeof value === 'number'

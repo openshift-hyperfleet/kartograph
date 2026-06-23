@@ -179,6 +179,7 @@ const allSourcesPrepared = computed(
 )
 
 const pollInterval = ref<ReturnType<typeof setInterval> | null>(null)
+let pollInFlight = false
 
 function stopPolling() {
   if (pollInterval.value !== null) {
@@ -190,9 +191,15 @@ function stopPolling() {
 function startPolling() {
   if (pollInterval.value !== null) return
   pollInterval.value = setInterval(async () => {
-    await loadDataSources({ silent: true })
-    if (!hasAnyActiveSync(dataSources.value)) {
-      stopPolling()
+    if (pollInFlight) return
+    pollInFlight = true
+    try {
+      await loadDataSources({ silent: true })
+      if (!hasAnyActiveSync(dataSources.value)) {
+        stopPolling()
+      }
+    } finally {
+      pollInFlight = false
     }
   }, 3000)
 }
@@ -309,23 +316,27 @@ async function loadDataSources(options: { silent?: boolean } = {}) {
     const sources = await apiFetch<DataSourceItem[]>(
       `/management/knowledge-graphs/${kgId.value}/data-sources`,
     )
-    for (const ds of sources) {
-      try {
-        ds.sync_runs = await apiFetch<SyncRun[]>(
-          `/management/data-sources/${ds.id}/sync-runs`,
-        )
-      } catch {
-        ds.sync_runs = []
-      }
-      try {
-        ds.diff_summary = await apiFetch<DataSourceDiffSummary>(
-          `/management/data-sources/${ds.id}/diff-summary`,
-        )
-      } catch {
-        ds.diff_summary = null
-      }
-    }
-    dataSources.value = sources
+    const enriched = await Promise.all(
+      sources.map(async (ds) => {
+        const enrichedSource = { ...ds } as DataSourceItem
+        try {
+          enrichedSource.sync_runs = await apiFetch<SyncRun[]>(
+            `/management/data-sources/${ds.id}/sync-runs`,
+          )
+        } catch {
+          enrichedSource.sync_runs = []
+        }
+        try {
+          enrichedSource.diff_summary = await apiFetch<DataSourceDiffSummary>(
+            `/management/data-sources/${ds.id}/diff-summary`,
+          )
+        } catch {
+          enrichedSource.diff_summary = null
+        }
+        return enrichedSource
+      }),
+    )
+    dataSources.value = enriched
   } catch {
     if (!silent) {
       dataSources.value = []
@@ -547,6 +558,13 @@ onMounted(async () => {
 onUnmounted(() => stopPolling())
 
 watch(tenantVersion, async () => {
+  dataSources.value = []
+  await loadKnowledgeGraph()
+  await ensureEntryRoute()
+})
+
+watch(kgId, async () => {
+  stopPolling()
   dataSources.value = []
   await loadKnowledgeGraph()
   await ensureEntryRoute()

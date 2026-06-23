@@ -197,7 +197,7 @@ async def trigger_knowledge_graph_maintenance_run(
         )
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
     except Exception:

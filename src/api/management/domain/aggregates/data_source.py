@@ -425,8 +425,13 @@ class DataSource:
         if prepared_commit:
             self.last_prepared_commit = prepared_commit
             self.clone_head_commit = prepared_commit
+        else:
+            self.last_prepared_commit = None
+            self.clone_head_commit = None
         if prepared_file_count is not None:
             self.last_prepared_file_count = prepared_file_count
+        else:
+            self.last_prepared_file_count = None
 
     def mark_for_deletion(
         self,

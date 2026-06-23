@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from management.domain.value_objects import (
+    DEFAULT_SYNC_PIPELINE_MODE,
+    SyncPipelineMode,
+)
+
 
 @dataclass(frozen=True)
 class DataSourceCreated:
@@ -100,4 +105,4 @@ class SyncStarted:
     occurred_at: datetime
     credentials_path: str | None = None
     requested_by: str | None = None
-    pipeline_mode: str = "full"
+    pipeline_mode: SyncPipelineMode = DEFAULT_SYNC_PIPELINE_MODE

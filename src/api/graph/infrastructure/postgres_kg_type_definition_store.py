@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
@@ -49,36 +50,31 @@ class PostgresKnowledgeGraphTypeDefinitionStore:
     ) -> None:
         """Insert or replace a single type definition row."""
         entity_type = type_def.entity_type.value
-        stmt = select(KnowledgeGraphTypeDefinitionModel).where(
-            KnowledgeGraphTypeDefinitionModel.knowledge_graph_id == kg_id,
-            KnowledgeGraphTypeDefinitionModel.entity_type == entity_type,
-            KnowledgeGraphTypeDefinitionModel.label == type_def.label,
-        )
-        result = await self._session.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        payload: dict[str, Any] = {
+        values = {
+            "id": str(ULID()),
+            "knowledge_graph_id": kg_id,
+            "entity_type": entity_type,
+            "label": type_def.label,
             "description": type_def.description,
             "required_properties": sorted(type_def.required_properties),
             "optional_properties": sorted(type_def.optional_properties),
             "metadata_json": metadata,
         }
-
-        if existing is None:
-            model = KnowledgeGraphTypeDefinitionModel(
-                id=str(ULID()),
-                knowledge_graph_id=kg_id,
-                entity_type=entity_type,
-                label=type_def.label,
-                **payload,
-            )
-            self._session.add(model)
-        else:
-            existing.description = str(payload["description"])
-            existing.required_properties = list(payload["required_properties"])
-            existing.optional_properties = list(payload["optional_properties"])
-            existing.metadata_json = payload["metadata_json"]
-
+        stmt = insert(KnowledgeGraphTypeDefinitionModel).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[
+                KnowledgeGraphTypeDefinitionModel.knowledge_graph_id,
+                KnowledgeGraphTypeDefinitionModel.entity_type,
+                KnowledgeGraphTypeDefinitionModel.label,
+            ],
+            set_={
+                "description": values["description"],
+                "required_properties": values["required_properties"],
+                "optional_properties": values["optional_properties"],
+                "metadata_json": values["metadata_json"],
+            },
+        )
+        await self._session.execute(stmt)
         await self._session.flush()
 
     async def list_for_kg(self, kg_id: str) -> list[StoredKnowledgeGraphTypeDefinition]:

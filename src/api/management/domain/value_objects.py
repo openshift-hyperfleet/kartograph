@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from ulid import ULID
 
@@ -17,6 +17,27 @@ from management.domain.exceptions import InvalidScheduleError
 
 # Generic type variable for ID classes
 T = TypeVar("T", bound="BaseId")
+
+SyncPipelineMode = Literal["full", "ingest_only"]
+DEFAULT_SYNC_PIPELINE_MODE: SyncPipelineMode = "full"
+
+
+def _coerce_bool(value: object, *, default: bool = False) -> bool:
+    """Parse booleans strictly; reject truthy non-boolean strings."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no", ""}:
+            return False
+        raise ValueError(f"invalid boolean value: {value!r}")
+    raise ValueError(f"invalid boolean value: {value!r}")
 
 
 @dataclass(frozen=True)
@@ -487,7 +508,7 @@ class NodeTypeDefinition:
             description=data.get("description", ""),
             required_properties=tuple(data.get("required_properties", [])),
             optional_properties=tuple(data.get("optional_properties", [])),
-            prepopulated=bool(data.get("prepopulated", False)),
+            prepopulated=_coerce_bool(data.get("prepopulated"), default=False),
             prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
             instance_generator=instance_generator or None,
         )
@@ -576,7 +597,7 @@ class EdgeTypeDefinition:
             source_labels=tuple(data.get("source_labels", [])),
             target_labels=tuple(data.get("target_labels", [])),
             properties=tuple(data.get("properties", [])),
-            prepopulated=bool(data.get("prepopulated", False)),
+            prepopulated=_coerce_bool(data.get("prepopulated"), default=False),
             prepopulated_instance_count=int(data.get("prepopulated_instance_count", 0)),
             instance_generator=instance_generator or None,
             bidirectional=bool(data.get("bidirectional", False)),

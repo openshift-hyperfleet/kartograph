@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
@@ -38,7 +38,7 @@ class StickySessionRuntimeBootstrap:
 class ScopedWorkloadCredentials:
     """Short-lived credentials issued for one extraction workload scope."""
 
-    token: str
+    token: str = field(repr=False)
     expires_at: datetime
     scopes: tuple[str, ...]
 

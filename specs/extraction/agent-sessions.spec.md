@@ -51,11 +51,18 @@ The system SHALL provide an explicit "Clear chat" action that resets runtime con
 - AND a new clean session is started for that user/knowledge-graph/mode scope
 
 ### Requirement: Session Archival and Retention
-The system SHALL retain completed session and run records indefinitely.
+
+The system SHALL retain completed session and run records according to tenant retention policy until explicitly purged.
 
 #### Scenario: Historical session visibility
-- GIVEN prior sessions and mutation runs
+- GIVEN prior sessions and mutation runs within the active retention window
 - WHEN users or administrators query session history
 - THEN archived sessions and associated run records remain available
 - AND each record includes last-updated timestamps and run-level metrics
+
+#### Scenario: Retention purge
+- GIVEN a tenant retention policy defines a maximum age for session history
+- WHEN retention enforcement runs
+- THEN conversational message content and run records older than the policy are erased or anonymized
+- AND mutation audit metadata required for compliance may be retained per tenant configuration
 

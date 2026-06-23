@@ -57,7 +57,15 @@ class CliContainerRuntime:
             command.extend(spec.command)
 
         stdout = self._execute(command)
-        container_id = stdout.splitlines()[0].strip()
+        if spec.detach:
+            container_id = stdout.splitlines()[0].strip()
+        elif spec.name is not None:
+            container_id = self._inspect_container_id(spec.name) or ""
+        else:
+            raise ContainerRuntimeError(
+                f"{self._binary} run requires detach=True or a container name when "
+                "obtaining a container id"
+            )
         return ContainerRunResult(container_id=container_id, name=spec.name)
 
     def stop(self, container_id: str, *, timeout_seconds: int = 10) -> None:
@@ -124,6 +132,21 @@ class CliContainerRuntime:
         container_id = result.stdout.strip()
         return container_id or None
 
+    def _redact_command_for_error(self, command: list[str]) -> str:
+        redacted: list[str] = []
+        skip_next = False
+        for arg in command[1:]:
+            if skip_next:
+                redacted.append("<redacted>")
+                skip_next = False
+                continue
+            if arg in {"--env", "-e"}:
+                redacted.append(arg)
+                skip_next = True
+            else:
+                redacted.append(arg)
+        return " ".join(redacted)
+
     def _execute(self, command: list[str]) -> str:
         result = subprocess.run(
             command,
@@ -134,6 +157,6 @@ class CliContainerRuntime:
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
             raise ContainerRuntimeError(
-                f"{self._binary} {' '.join(command[1:])} failed: {detail}"
+                f"{self._binary} {self._redact_command_for_error(command)} failed: {detail}"
             )
         return result.stdout

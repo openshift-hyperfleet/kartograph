@@ -335,7 +335,7 @@ class TestIngestionEventHandlerFailure:
                 pipeline_mode: str = "full",
             ) -> JobPackageId:
                 raise RuntimeError(
-                    "github auth failed for token ghp_1234567890abcdef1234567890abcdef1234"
+                    "github auth failed for token: supersecret-github-leak-value"
                 )
 
         handler = IngestionEventHandler(
@@ -346,14 +346,12 @@ class TestIngestionEventHandlerFailure:
         await handler.handle(
             "SyncStarted",
             payload,
-            runtime_credentials={"token": "ghp_1234567890abcdef1234567890abcdef1234"},
+            runtime_credentials={"token": "supersecret-github-leak-value"},
         )
 
         event = outbox.appended[0]
         assert event["event_type"] == "IngestionFailed"
-        assert (
-            "ghp_1234567890abcdef1234567890abcdef1234" not in event["payload"]["error"]
-        )
+        assert "supersecret-github-leak-value" not in event["payload"]["error"]
         assert "***REDACTED***" in event["payload"]["error"]
 
     async def test_ingestion_failed_aggregate_type(

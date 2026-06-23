@@ -273,6 +273,10 @@ class KnowledgeGraph:
 
     def transition_to_extraction_operations(self) -> str:
         """Transition workspace mode from bootstrap to extraction operations."""
+        if self._deleted:
+            raise AggregateDeletedError(
+                "Cannot transition workspace mode on a deleted knowledge graph"
+            )
         if self.workspace_mode == WorkspaceMode.EXTRACTION_OPERATIONS:
             raise InvalidWorkspaceModeTransitionError(
                 "Workspace mode is already extraction_operations"

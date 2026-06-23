@@ -10,6 +10,7 @@ from the raw data packaged by the Ingestion context.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,8 @@ from extraction.ports.runtime import (
     ScopedWorkloadCredentials,
 )
 from extraction.ports.services import IExtractionService
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from shared_kernel.outbox.ports import IOutboxRepository
@@ -192,7 +195,13 @@ class ExtractionEventHandler:
             return
         finally:
             if worker_id is not None and self._worker_launcher is not None:
-                self._worker_launcher.complete_worker(worker_id)
+                try:
+                    self._worker_launcher.complete_worker(worker_id)
+                except Exception:
+                    logger.exception(
+                        "Failed to complete extraction worker cleanup",
+                        extra={"worker_id": worker_id, "sync_run_id": sync_run_id},
+                    )
 
         # Extraction succeeded — append success event outside the try block so
         # that an outbox write failure here is not mistaken for an extraction

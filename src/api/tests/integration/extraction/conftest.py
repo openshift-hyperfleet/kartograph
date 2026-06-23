@@ -9,7 +9,16 @@ import pytest
 
 from shared_kernel.container_runtime.factory import create_container_runtime
 
-pytest_plugins = ["tests.integration.management.conftest"]
+# Re-export Management integration fixtures for extraction integration tests.
+from tests.integration.management.conftest import (  # noqa: F401
+    async_session,
+    clean_management_data,
+    data_source_repository,
+    data_source_sync_run_repository,
+    knowledge_graph_repository,
+    test_tenant,
+    test_workspace,
+)
 
 
 def _engine_available(engine: str) -> bool:

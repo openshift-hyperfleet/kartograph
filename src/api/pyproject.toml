@@ -67,6 +67,7 @@ disable_error_code = [
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.pytest_env]
 # Database settings for integration tests

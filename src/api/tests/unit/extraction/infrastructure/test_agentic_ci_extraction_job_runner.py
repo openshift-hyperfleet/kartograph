@@ -67,7 +67,8 @@ def test_patch_job_context_api_base_rewrites_host_reachable_url(tmp_path: Path) 
     assert updated["workload_token"] == "tok"
 
 
-def test_build_binds_mounts_full_gcloud_config_for_vertex() -> None:
+def test_build_binds_mounts_full_gcloud_config_for_vertex(monkeypatch) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_USE_VERTEX", "1")
     runner = AgenticCiExtractionJobRunner(
         settings=ExtractionWorkloadRuntimeSettings(
             gcloud_config_mount="/host/.config/gcloud",

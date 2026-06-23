@@ -90,6 +90,7 @@ def parse_desired_instances(payload: Any) -> dict[str, dict[str, Any]]:
                     f"Desired entry at index {index} properties must be an object"
                 )
             desired[slug] = {"properties": dict(properties)}
+        return desired
     raise ValueError("Desired snapshot must be a JSON array")
 
 

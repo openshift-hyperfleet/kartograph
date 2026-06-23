@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import text
 
+from infrastructure.canonical_schema.graph_canonical_schema_repository import (
+    GraphCanonicalSchemaRepository,
+)
 from management.application.services.data_source_service import DataSourceService
 from management.application.services.knowledge_graph_service import (
     KnowledgeGraphService,
@@ -62,6 +65,7 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
 
     user_id = "user-integration-001"
     authz = InMemoryAuthorizationProvider()
+    canonical_repo = GraphCanonicalSchemaRepository(async_session)
 
     kg_service = KnowledgeGraphService(
         session=async_session,
@@ -71,6 +75,7 @@ async def test_workspace_transition_then_extraction_run_metadata_visibility(
         secret_store=None,
         authz=authz,
         scope_to_tenant=test_tenant,
+        canonical_schema_repository=canonical_repo,
     )
     ds_service = DataSourceService(
         session=async_session,

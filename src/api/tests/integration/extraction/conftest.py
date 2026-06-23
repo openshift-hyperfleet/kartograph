@@ -16,6 +16,8 @@ from tests.integration.management.conftest import (  # noqa: F401
     data_source_repository,
     data_source_sync_run_repository,
     knowledge_graph_repository,
+    management_db_settings,
+    session_factory,
     test_tenant,
     test_workspace,
 )

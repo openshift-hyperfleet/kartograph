@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.0...v3.38.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **ci:** wire hp-fleet-gitops auth for Konflux deploy-tag ([#778](https://github.com/openshift-hyperfleet/kartograph/issues/778)) ([96a3ac8](https://github.com/openshift-hyperfleet/kartograph/commit/96a3ac8366f84d58f1cc75ee69bc651c5281cd52))
+
 ## [3.38.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.37.1...v3.38.0) (2026-06-23)
 
 

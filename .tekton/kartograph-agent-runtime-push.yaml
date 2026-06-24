@@ -615,9 +615,9 @@ spec:
             value: $(params.git-url)
         workspaces:
           - name: basic-auth
-            workspace: git-auth
+            workspace: hp-fleet-gitops-auth
           - name: netrc
-            workspace: netrc
+            workspace: hp-fleet-gitops-auth
         taskSpec:
           params:
             - name: COMMIT_SHA
@@ -657,6 +657,12 @@ spec:
                 export HOME=/tekton/home
                 mkdir -p "$HOME"
 
+                if [ ! -f "${WORKSPACE_BASIC_AUTH_PATH}/.git-credentials" ] && [ ! -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
+                  echo "ERROR: Secret kartograph-hp-fleet-gitops-auth is missing or empty."
+                  echo "Apply .tekton/kartograph-hp-fleet-gitops-auth.secret.example.yaml in kartograph-tenant."
+                  exit 1
+                fi
+
                 if [ -f "${WORKSPACE_NETRC_PATH}/.netrc" ]; then
                   cp "${WORKSPACE_NETRC_PATH}/.netrc" "$HOME/.netrc"
                   chmod 600 "$HOME/.netrc"
@@ -685,7 +691,7 @@ spec:
 
                 PATCH_FILE="apps/kartograph/overlays/stage/configmap-patch.yaml"
                 if [ -f "$PATCH_FILE" ]; then
-                  sed -i 's|\(KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE:.*kartograph-agent-runtime:\)[^"]*|\1'"${COMMIT_SHA}"'"|' "$PATCH_FILE"
+                  sed -i 's|\(KARTOGRAPH_EXTRACTION_RUNTIME_STICKY_IMAGE:.*kartograph-agent-runtime:\)[^"]*|\1'"${COMMIT_SHA}"'|' "$PATCH_FILE"
                 fi
 
                 git config user.email "konflux@kartograph.openshift.com"
@@ -777,4 +783,7 @@ spec:
     - name: git-auth
       secret:
         secretName: "{{ git_auth_secret }}"
+    - name: hp-fleet-gitops-auth
+      secret:
+        secretName: kartograph-hp-fleet-gitops-auth
 status: {}

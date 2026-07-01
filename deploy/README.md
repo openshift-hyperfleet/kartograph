@@ -2,7 +2,10 @@
 
 > [!Important]
 >
-> `deploy/apps/kartograph` is deprecated, replaced by https://github.com/openshift-online/hp-fleet-gitops
+> `deploy/apps/kartograph` in this repo is **deprecated**. Stage/prod manifests live in
+> [fleet-apps (GitLab)](https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps/-/tree/main/apps/kartograph)
+> (what ArgoCD deploys) and [hp-fleet-gitops (GitHub)](https://github.com/openshift-online/hp-fleet-gitops/tree/main/apps/kartograph)
+> (where Konflux opens deploy-tag PRs). Keep these in sync — see `scripts/verify-fleet-apps-kartograph.sh`.
 
 ## Release Flow
 
@@ -40,14 +43,15 @@ sequenceDiagram
 The push pipeline includes a `finally` task (`update-deploy-tag`) that runs after a successful image build. It:
 
 1. Shallow-clones the repo
-2. Updates `newTag` in `deploy/apps/kartograph/overlays/stage/kustomization.yaml` with the build's commit SHA
-3. Commits and pushes directly to `main`
+2. Updates `newTag` in `apps/kartograph/overlays/stage/kustomization.yaml` on **hp-fleet-gitops** (opens a PR)
+3. After merge, **fleet-apps** must carry the same change for ArgoCD to pick it up
 
 Because PaC path filtering is configured on the Tekton pipelines, this commit (which only touches `deploy/`) does **not** trigger a rebuild of any component.
 
 ## Files Updated Automatically
 
-- `deploy/apps/kartograph/overlays/stage/kustomization.yaml` — `finally` task updates `newTag` with commit SHA after each build
+- `apps/kartograph/overlays/stage/kustomization.yaml` on **hp-fleet-gitops** — Konflux `finally` task opens PR with new image SHAs
+- **fleet-apps** (GitLab) — must mirror hp-fleet-gitops `apps/kartograph/` for ArgoCD stage sync
 - `CHANGELOG.md` — Release-please generates changelog
 - `src/api/pyproject.toml` — Release-please bumps version
 - Git tag (e.g., `1.0.0`) — Release-please creates on merge

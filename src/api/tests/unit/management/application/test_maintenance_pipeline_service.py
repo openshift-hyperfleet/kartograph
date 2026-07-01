@@ -879,7 +879,7 @@ async def test_regenerate_maintenance_jobs_replaces_pending_from_current_diff(
 
 
 @pytest.mark.asyncio
-async def test_regenerate_maintenance_jobs_requires_prepared_sources(
+async def test_regenerate_maintenance_jobs_prepares_unprepared_sources(
     mock_session, session_factory, kg_repo, ds_repo, sync_run_repo, authz
 ):
     kg = _make_kg()
@@ -888,22 +888,44 @@ async def test_regenerate_maintenance_jobs_requires_prepared_sources(
     ds_repo.seed(ds)
     await _grant_kg_manage(authz, kg.id.value, "user-1")
 
-    svc = _service(
-        mock_session=mock_session,
+    job_repo = MagicMock()
+    job_repo.sync_maintenance_pending_jobs = AsyncMock(return_value=2)
+    svc = MaintenancePipelineService(
+        session=mock_session,
         session_factory=session_factory,
-        kg_repo=kg_repo,
-        ds_repo=ds_repo,
-        sync_run_repo=sync_run_repo,
-        authz=authz,
+        knowledge_graph_repository=kg_repo,
+        data_source_repository=ds_repo,
+        sync_run_repository=sync_run_repo,
+        extraction_job_repository=job_repo,
+        authorization=authz,
         tenant_id=kg.tenant_id,
+        diff_summary_service_factory=lambda _tenant: MagicMock(),
     )
 
-    with pytest.raises(ValueError, match="ingest prepare"):
-        await svc.regenerate_maintenance_jobs(
+    with (
+        patch.object(
+            svc,
+            "_prepare_changed_sources_for_maintenance",
+            AsyncMock(),
+        ) as prepare,
+        patch.object(
+            svc,
+            "_build_maintenance_jobs",
+            AsyncMock(
+                return_value=([MagicMock(), MagicMock()], [MagicMock(), MagicMock()])
+            ),
+        ),
+    ):
+        result = await svc.regenerate_maintenance_jobs(
             user_id="user-1",
             kg_id=kg.id.value,
             files_per_job=2,
         )
+
+    prepare.assert_awaited_once()
+    job_repo.sync_maintenance_pending_jobs.assert_awaited_once()
+    assert result["generated_jobs"] == 2
+    assert "Prepared 1 source(s), then regenerated" in str(result["message"])
 
 
 @pytest.mark.asyncio

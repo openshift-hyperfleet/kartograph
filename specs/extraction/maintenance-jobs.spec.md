@@ -86,6 +86,13 @@ ingest completion → materialize maintenance jobs → start extraction workers.
 - WHEN ingest syncs finish successfully
 - THEN maintenance jobs are materialized and extraction workers start without a separate manual step
 
+#### Scenario: Regenerate prepares sources when needed
+- GIVEN changed sources have commit deltas but JobPackages are not yet prepared
+- WHEN the operator regenerates maintenance jobs
+- THEN the system runs `ingest_only` syncs for those sources
+- AND waits for ingest completion
+- AND replaces pending maintenance jobs from the refreshed JobPackages
+
 #### Scenario: Ingest failure
 - GIVEN any maintenance ingest sync fails
 - WHEN the pipeline advances

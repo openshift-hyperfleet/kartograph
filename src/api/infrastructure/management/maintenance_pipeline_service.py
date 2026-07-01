@@ -206,10 +206,12 @@ class MaintenancePipelineService:
             ds for ds in changed_sources if self._source_needs_maintenance_ingest(ds)
         ]
         if needs_ingest:
-            raise ValueError(
-                f"{len(needs_ingest)} changed source(s) still need ingest prepare. "
-                "Queue maintenance jobs to refresh JobPackages first."
+            await self._prepare_changed_sources_for_maintenance(
+                changed_sources=needs_ingest,
+                requested_by=user_id,
             )
+            data_sources = await self._ds_repo.find_by_knowledge_graph(kg_id)
+            changed_sources = self._changed_sources(data_sources)
 
         jobs, changed_files = await self._build_maintenance_jobs(
             kg_id=kg_id,
@@ -230,14 +232,48 @@ class MaintenancePipelineService:
             job_set_name=MAINTENANCE_JOB_SET_NAME,
         )
         await self._session.commit()
+        prepared_count = len(needs_ingest)
+        message = (
+            f"Regenerated {len(jobs)} pending maintenance job(s) from "
+            f"{len(changed_files)} changed file(s)"
+        )
+        if prepared_count:
+            message = (
+                f"Prepared {prepared_count} source(s), then regenerated "
+                f"{len(jobs)} pending maintenance job(s) from "
+                f"{len(changed_files)} changed file(s)"
+            )
         return {
             "success": True,
             "generated_jobs": len(jobs),
-            "message": (
-                f"Regenerated {len(jobs)} pending maintenance job(s) from "
-                f"{len(changed_files)} changed file(s)"
-            ),
+            "message": message,
         }
+
+    async def _prepare_changed_sources_for_maintenance(
+        self,
+        *,
+        changed_sources: list[DataSource],
+        requested_by: str,
+    ) -> None:
+        """Run ingest_only syncs and wait until JobPackages are ready."""
+        now = datetime.now(UTC)
+        sync_run_ids = await self._launch_ingest_only_syncs(
+            changed_sources=changed_sources,
+            requested_by=requested_by,
+            now=now,
+        )
+        await self._session.commit()
+        try:
+            statuses = await self._wait_for_sync_runs(sync_run_ids)
+        except TimeoutError as exc:
+            raise ValueError(
+                "Maintenance ingest did not complete within "
+                f"{int(_MAINTENANCE_INGEST_WAIT_TIMEOUT_SECONDS)} seconds"
+            ) from exc
+        if any(status == "failed" for status in statuses):
+            raise ValueError("One or more maintenance ingest syncs failed")
+        if not all(status == "ingested" for status in statuses):
+            raise ValueError("Maintenance ingest finished in an unexpected state")
 
     async def _trigger_for_kg(
         self,

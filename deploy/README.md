@@ -3,9 +3,16 @@
 > [!Important]
 >
 > `deploy/apps/kartograph` in this repo is **deprecated**. Stage/prod manifests live in
-> [fleet-apps (GitLab)](https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps/-/tree/main/apps/kartograph)
-> (what ArgoCD deploys) and [hp-fleet-gitops (GitHub)](https://github.com/openshift-online/hp-fleet-gitops/tree/main/apps/kartograph)
-> (where Konflux opens deploy-tag PRs). Keep these in sync — see `scripts/verify-fleet-apps-kartograph.sh`.
+> [hp-fleet-gitops (GitHub)](https://github.com/openshift-online/hp-fleet-gitops/tree/main/apps/kartograph),
+> which is both what ArgoCD deploys and where Konflux opens deploy-tag PRs.
+>
+> Until 2026-07-01, ArgoCD read [fleet-apps (GitLab)](https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps/-/tree/main/apps/kartograph)
+> instead, and hp-fleet-gitops was a separate mirror that only received automated
+> image-tag-bump PRs. [hp-gitops-tenants PR #9](https://github.com/openshift-online/hp-gitops-tenants/pull/9)
+> repointed the `hp-fleet` ApplicationSet at hp-fleet-gitops directly, so there is now a
+> single source of truth again. `fleet-apps` is no longer read by ArgoCD for kartograph and
+> should be treated as historical; `scripts/verify-fleet-apps-kartograph.sh` is kept only to
+> spot future drift if that ever changes back.
 
 ## Release Flow
 
@@ -44,14 +51,13 @@ The push pipeline includes a `finally` task (`update-deploy-tag`) that runs afte
 
 1. Shallow-clones the repo
 2. Updates `newTag` in `apps/kartograph/overlays/stage/kustomization.yaml` on **hp-fleet-gitops** (opens a PR)
-3. After merge, **fleet-apps** must carry the same change for ArgoCD to pick it up
+3. Merging that PR is picked up directly by ArgoCD — no second repo to sync
 
 Because PaC path filtering is configured on the Tekton pipelines, this commit (which only touches `deploy/`) does **not** trigger a rebuild of any component.
 
 ## Files Updated Automatically
 
-- `apps/kartograph/overlays/stage/kustomization.yaml` on **hp-fleet-gitops** — Konflux `finally` task opens PR with new image SHAs
-- **fleet-apps** (GitLab) — must mirror hp-fleet-gitops `apps/kartograph/` for ArgoCD stage sync
+- `apps/kartograph/overlays/stage/kustomization.yaml` on **hp-fleet-gitops** — Konflux `finally` task opens PR with new image SHAs; ArgoCD deploys from the same repo once merged
 - `CHANGELOG.md` — Release-please generates changelog
 - `src/api/pyproject.toml` — Release-please bumps version
 - Git tag (e.g., `1.0.0`) — Release-please creates on merge

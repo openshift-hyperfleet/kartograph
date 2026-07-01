@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Compare kartograph manifests in GitLab fleet-apps vs GitHub hp-fleet-gitops.
-# Run on a machine with VPN access to gitlab.cee.redhat.com.
+# Validate kartograph manifests in hp-fleet-gitops (canonical: what ArgoCD
+# deploys, per hp-gitops-tenants PR #9, 2026-07-01) and flag drift against the
+# now-historical GitLab fleet-apps mirror, in case ArgoCD's source ever moves
+# back. Run on a machine with VPN access to gitlab.cee.redhat.com.
 set -euo pipefail
 
-FLEET_APPS_REPO="${FLEET_APPS_REPO:-https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps.git}"
 HP_FLEET_REPO="${HP_FLEET_REPO:-https://github.com/openshift-online/hp-fleet-gitops.git}"
+FLEET_APPS_REPO="${FLEET_APPS_REPO:-https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps.git}"
 WORKDIR="${WORKDIR:-/tmp/kartograph-gitops-verify}"
 
 mkdir -p "$WORKDIR"
@@ -22,33 +24,33 @@ clone_or_pull() {
 }
 
 echo "==> Cloning/updating repos..."
-clone_or_pull "$FLEET_APPS_REPO" fleet-apps
 clone_or_pull "$HP_FLEET_REPO" hp-fleet-gitops
+clone_or_pull "$FLEET_APPS_REPO" fleet-apps
 
 KARTOGRAPH_PATH="apps/kartograph"
 echo
-echo "==> Diff: fleet-apps vs hp-fleet-gitops ($KARTOGRAPH_PATH)"
+echo "==> Diff: hp-fleet-gitops (canonical) vs fleet-apps (historical mirror, $KARTOGRAPH_PATH)"
 if diff -ruN "hp-fleet-gitops/$KARTOGRAPH_PATH" "fleet-apps/$KARTOGRAPH_PATH" > "$WORKDIR/kartograph.diff"; then
-  echo "OK: No differences — fleet-apps matches hp-fleet-gitops."
+  echo "OK: No differences — fleet-apps still matches hp-fleet-gitops."
   rm -f "$WORKDIR/kartograph.diff"
 else
-  echo "DIFF FOUND — review $WORKDIR/kartograph.diff"
+  echo "DIFF FOUND (informational only — fleet-apps is not read by ArgoCD)."
+  echo "Review $WORKDIR/kartograph.diff if you need fleet-apps kept current for historical reasons."
   echo
   diff --stat "hp-fleet-gitops/$KARTOGRAPH_PATH" "fleet-apps/$KARTOGRAPH_PATH" || true
 fi
 
 echo
-echo "==> Required OpenShell / stage files in fleet-apps:"
+echo "==> Required OpenShell / stage files in hp-fleet-gitops:"
 REQUIRED=(
   "base/openshell-gateway-configmap.yaml"
   "base/openshell-policies-configmap.yaml"
   "base/openshell-rbac.yaml"
-  "base/networkpolicy-sticky-runtime.yaml"
   "overlays/stage/api-openshell-sidecar-patch.yaml"
 )
 missing=0
 for rel in "${REQUIRED[@]}"; do
-  if [[ -f "fleet-apps/$KARTOGRAPH_PATH/$rel" ]]; then
+  if [[ -f "hp-fleet-gitops/$KARTOGRAPH_PATH/$rel" ]]; then
     echo "  OK  $rel"
   else
     echo "  MISSING  $rel"
@@ -56,31 +58,39 @@ for rel in "${REQUIRED[@]}"; do
   fi
 done
 
+# networkpolicy-sticky-runtime.yaml is intentionally absent: its podSelector is
+# only used by the container-backend runtime, which this deployment (openshell-
+# only) never applies. Flag it as a problem if it ever comes back.
+if [[ -f "hp-fleet-gitops/$KARTOGRAPH_PATH/base/networkpolicy-sticky-runtime.yaml" ]]; then
+  echo "  UNEXPECTED  base/networkpolicy-sticky-runtime.yaml (dead code for openshell-only stage)"
+  missing=$((missing + 1))
+fi
+
 echo
 echo "==> kustomization.yaml must list OpenShell base resources:"
-rg -n "openshell|networkpolicy-sticky" "fleet-apps/$KARTOGRAPH_PATH/base/kustomization.yaml" || {
+rg -n "openshell" "hp-fleet-gitops/$KARTOGRAPH_PATH/base/kustomization.yaml" || {
   echo "  MISSING openshell entries in base/kustomization.yaml"
   missing=$((missing + 1))
 }
+echo "    (openshell-rbac.yaml is expected to be commented out until the Agent Sandbox"
+echo "     CRD/controller and ArgoCD SA RBAC escalation are both granted by platform)"
 
 echo
-echo "==> Validate fleet-apps stage overlay renders:"
+echo "==> Validate hp-fleet-gitops stage overlay renders:"
 if command -v kubectl >/dev/null 2>&1; then
-  kubectl kustomize "fleet-apps/$KARTOGRAPH_PATH/overlays/stage" >/dev/null
+  kubectl kustomize "hp-fleet-gitops/$KARTOGRAPH_PATH/overlays/stage" >/dev/null
   echo "  OK  kubectl kustomize succeeded"
-  kubectl kustomize "fleet-apps/$KARTOGRAPH_PATH/overlays/stage" | rg -c "kartograph-openshell-gateway|kartograph-openshell-policies|kartograph-openshell-sandbox" || true
+  kubectl kustomize "hp-fleet-gitops/$KARTOGRAPH_PATH/overlays/stage" | rg -c "kartograph-openshell-gateway|kartograph-openshell-policies|kartograph-openshell-sandbox" || true
 else
   echo "  SKIP kubectl not installed"
 fi
 
 if [[ "$missing" -gt 0 ]]; then
-  echo
-  echo "ACTION: Open an MR on fleet-apps to sync apps/kartograph from hp-fleet-gitops."
-  echo "  cp -a hp-fleet-gitops/apps/kartograph/. fleet-apps/apps/kartograph/"
   exit 1
 fi
 
 echo
-echo "If manifests match but ArgoCD still fails, escalate to platform:"
+echo "If manifests are correct but ArgoCD still fails, escalate to platform:"
 echo "  - SecretStore vault-backend in kartograph-stage"
-echo "  - ArgoCD project RBAC for Role/RoleBinding in tenant namespace"
+echo "  - ArgoCD project RBAC for Role/RoleBinding in tenant namespace (Blocker B)"
+echo "  - Agent Sandbox CRD + controller installed cluster-wide (Blocker A)"

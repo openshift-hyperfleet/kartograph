@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.3...v3.38.4) (2026-07-02)
+
+
+### Reverts
+
+* retarget Konflux deploy-tag back to hp-fleet-gitops ([#784](https://github.com/openshift-hyperfleet/kartograph/issues/784)) ([9d793be](https://github.com/openshift-hyperfleet/kartograph/commit/9d793beacf69530fe788be259290e7a35dc42e0d))
+
 ## [3.38.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.2...v3.38.3) (2026-07-02)
 
 

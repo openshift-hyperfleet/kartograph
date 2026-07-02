@@ -108,8 +108,10 @@ def _validate_adc(value: str) -> list[str]:
         return errors
     cred_type = str(data.get("type", ""))
     if cred_type not in VALID_ADC_TYPES:
+        # Don't echo the actual (secret-derived) type value — just the
+        # allowed set, which is a hardcoded constant, not secret content.
         errors.append(
-            f"{ADC_KEY}: unexpected type {cred_type!r} "
+            f"{ADC_KEY}: unexpected credential type "
             f"(expected one of {sorted(VALID_ADC_TYPES)})"
         )
     project_id = str(data.get("project_id", "")).strip()
@@ -118,9 +120,11 @@ def _validate_adc(value: str) -> list[str]:
             if not str(data.get(field, "")).strip():
                 errors.append(f"{ADC_KEY}: service_account missing {field}")
     if project_id and project_id != EXPECTED_VERTEX_PROJECT:
+        # Same here: report the mismatch without echoing the actual
+        # (secret-derived) project_id value.
         errors.append(
-            f"{ADC_KEY}: project_id is {project_id!r}, "
-            f"expected {EXPECTED_VERTEX_PROJECT!r} for stage"
+            f"{ADC_KEY}: project_id does not match expected value "
+            f"{EXPECTED_VERTEX_PROJECT!r} for stage"
         )
     return errors
 
@@ -131,7 +135,11 @@ def _report_read(label: str, mount: str, relative_key: str, status: int, payload
     print(f"    API: GET /v1/{api_path}")
     if status == 200:
         data = _secret_data(payload)
-        print(f"    HTTP 200 — {len(data)} key(s): {', '.join(sorted(data)) or '(empty)'}")
+        # Deliberately don't log key names (or any other content) derived from
+        # the secret payload — only a count. Flagged by CodeQL otherwise
+        # (py/clear-text-logging-sensitive-data), since it can't distinguish
+        # "just the key names" from the values.
+        print(f"    HTTP 200 — {len(data)} key(s) present")
         return data
     if status == 404:
         print("    HTTP 404 — secret not found OR token lacks read policy (KV hides denial as 404)")
@@ -159,7 +167,7 @@ def main() -> int:
         return 2
 
     control_status, control_payload, control_err = _read_kv_v2(ESO_VAULT_MOUNT, CONTROL_RELATIVE_KEY)
-    control_data = _report_read(
+    _report_read(
         f"Control on ESO mount ({ESO_VAULT_MOUNT}): postgres",
         ESO_VAULT_MOUNT,
         CONTROL_RELATIVE_KEY,
@@ -184,7 +192,7 @@ def main() -> int:
             HP_FLEET_MOUNT, ESO_RELATIVE_KEY
         )
         _report_read(
-            f"Same key on hp-fleet mount (Vault UI path; not used by ESO today)",
+            "Same key on hp-fleet mount (Vault UI path; not used by ESO today)",
             HP_FLEET_MOUNT,
             ESO_RELATIVE_KEY,
             hp_fleet_ext_status,
@@ -221,7 +229,7 @@ def main() -> int:
     errors.extend(_validate_adc(ext_data.get(ADC_KEY, "")))
     extra_keys = set(ext_data) - {SIGNING_KEY, ADC_KEY}
     if extra_keys:
-        print(f"    Note: extra keys present (ignored): {', '.join(sorted(extra_keys))}")
+        print(f"    Note: {len(extra_keys)} extra key(s) present (ignored)")
 
     print("\n==> Field validation")
     if errors:
@@ -232,10 +240,16 @@ def main() -> int:
 
     signing_len = len(ext_data[SIGNING_KEY].strip().encode("utf-8"))
     adc = json.loads(ext_data[ADC_KEY])
+    # Report booleans, never the actual (secret-derived) type/project_id
+    # values — flagged by CodeQL otherwise (py/clear-text-logging-sensitive-data).
+    valid_type = str(adc.get("type", "")) in VALID_ADC_TYPES
+    matches_expected_project = (
+        str(adc.get("project_id", "")).strip() == EXPECTED_VERTEX_PROJECT
+    )
     print(f"    OK  {SIGNING_KEY} ({signing_len} bytes, redacted)")
     print(
-        f"    OK  {ADC_KEY} (type={adc.get('type')}, "
-        f"project_id={adc.get('project_id', '(none)')})"
+        f"    OK  {ADC_KEY} (valid_type={valid_type}, "
+        f"matches_expected_project={matches_expected_project}, values redacted)"
     )
     print("\nRESULT: Secret is reachable on the ESO mount and structurally valid.")
     if CHECK_HP_FLEET_MOUNT and hp_fleet_ext_status == 200 and ext_status == 200:

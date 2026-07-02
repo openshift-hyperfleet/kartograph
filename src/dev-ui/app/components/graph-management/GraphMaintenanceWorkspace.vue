@@ -346,10 +346,10 @@ function resolveRegenerateFailureMessage(description: string): { title: string; 
       hint: 'Wait for running jobs to finish, cancel them, or reset running jobs — then regenerate again.',
     }
   }
-  if (lower.includes('ingest prepare')) {
+  if (lower.includes('maintenance ingest')) {
     return {
-      title: 'Sources need ingest prepare first',
-      hint: 'Queue maintenance jobs to refresh JobPackages, then regenerate pending jobs.',
+      title: 'Maintenance ingest failed',
+      hint: 'Check data source sync status and retry regenerate jobs.',
     }
   }
   return { title: 'Regenerate failed', hint: description }

@@ -1,14 +1,25 @@
+# Reference Application spec — live kartograph-stage is managed by app-interface /
+# hp-gitops-tenants (label: managed-by=hp-gitops-tenants), not applied from this repo.
+#
+# ArgoCD reads GitHub hp-fleet-gitops (canonical tenant GitOps as of
+# hp-gitops-tenants PR #9, 2026-07-01), not kartograph.git/deploy/. Before that
+# PR, ArgoCD read GitLab fleet-apps and hp-fleet-gitops was a passive mirror
+# that only received Konflux's automated image-tag-bump PRs.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: kartograph-stage
   namespace: argocd
+  labels:
+    app.kubernetes.io/name: kartograph-stage
+    managed-by: hp-gitops-tenants
+    tenant: hp-fleet
 spec:
-  project: tenants-hcm-ai-catalyst
+  project: tenant-hp-fleet
   source:
-    repoURL: https://github.com/openshift-hyperfleet/kartograph.git
+    repoURL: https://github.com/openshift-online/hp-fleet-gitops.git
     targetRevision: main
-    path: deploy/apps/kartograph/overlays/stage
+    path: apps/kartograph/overlays/stage
   destination:
     server: https://kubernetes.default.svc
     namespace: kartograph-stage

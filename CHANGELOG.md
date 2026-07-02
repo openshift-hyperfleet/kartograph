@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.3](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.2...v3.38.3) (2026-07-02)
+
+
+### Bug Fixes
+
+* **deploy:** register openshell gateway CLI and sync GitOps docs to hp-fleet-gitops ([#782](https://github.com/openshift-hyperfleet/kartograph/issues/782)) ([c5d8800](https://github.com/openshift-hyperfleet/kartograph/commit/c5d8800f35fd16cce4b761e5b565e8c86a8cdbac))
+
 ## [3.38.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.1...v3.38.2) (2026-06-30)
 
 

@@ -7,7 +7,11 @@ set -euo pipefail
 
 HP_FLEET_REPO="${HP_FLEET_REPO:-https://github.com/openshift-online/hp-fleet-gitops.git}"
 FLEET_APPS_REPO="${FLEET_APPS_REPO:-https://gitlab.cee.redhat.com/hybrid-platforms-gitops/tenant-apps/fleet-apps.git}"
-WORKDIR="${WORKDIR:-/tmp/kartograph-gitops-verify}"
+# Default to a freshly created, unpredictable temp dir (mktemp) rather than a
+# fixed shared /tmp path, which would let another local user/process pre-plant
+# a symlink there and redirect our git clone/reset writes (CWE-377). Callers
+# that explicitly set WORKDIR are opting into that path themselves.
+WORKDIR="${WORKDIR:-$(mktemp -d -t kartograph-gitops-verify.XXXXXX)}"
 
 mkdir -p "$WORKDIR"
 cd "$WORKDIR"

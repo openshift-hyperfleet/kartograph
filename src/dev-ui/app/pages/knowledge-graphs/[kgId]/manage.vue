@@ -852,7 +852,7 @@ function syncRuntimeReadyFromSession() {
 }
 
 async function loadExtractionSession() {
-  if (!kgId.value || activeStep.value !== 'graph-management') return
+  if (!hasTenant.value || !kgId.value || activeStep.value !== 'graph-management') return
   sessionLoading.value = true
   sessionLoadError.value = null
   try {

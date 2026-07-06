@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Literal
@@ -24,20 +25,32 @@ def _adc_path(*, gcloud_config_mount: str | None) -> Path:
 
 @contextmanager
 def _home_for_adc(*, gcloud_config_mount: str | None) -> Iterator[None]:
-    """Point HOME at the mounted gcloud directory so ``--from-gcloud-adc`` resolves ADC."""
+    """Point HOME at a scratch dir whose ``.config/gcloud`` resolves the mounted ADC.
+
+    ``--from-gcloud-adc`` resolves credentials via the gcloud SDK convention of
+    ``$HOME/.config/gcloud/application_default_credentials.json``. The mount
+    itself is not guaranteed to already sit two directories below a usable
+    HOME (dev compose mounts ``$HOME/.config/gcloud`` directly, but prod
+    mounts a flat Vault-sourced secret at e.g. ``/var/secrets/gcloud``), so
+    build the nested layout explicitly instead of assuming one.
+    """
     if not gcloud_config_mount:
         yield
         return
-    home = str(Path(gcloud_config_mount).expanduser().resolve().parent.parent)
-    previous = os.environ.get("HOME")
-    os.environ["HOME"] = home
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop("HOME", None)
-        else:
-            os.environ["HOME"] = previous
+    adc_source = _adc_path(gcloud_config_mount=gcloud_config_mount)
+    with tempfile.TemporaryDirectory(prefix="kartograph-adc-home-") as scratch_home:
+        gcloud_dir = Path(scratch_home) / ".config" / "gcloud"
+        gcloud_dir.mkdir(parents=True, exist_ok=True)
+        (gcloud_dir / "application_default_credentials.json").symlink_to(adc_source)
+        previous = os.environ.get("HOME")
+        os.environ["HOME"] = scratch_home
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = previous
 
 
 def provider_exists(*, provider_name: str) -> bool:

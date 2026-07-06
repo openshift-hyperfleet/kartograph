@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from extraction.infrastructure.openshell.cli import OpenShellCliError
-from extraction.infrastructure.openshell.vertex_provider import ensure_vertex_provider
+from extraction.infrastructure.openshell.vertex_provider import (
+    _home_for_adc,
+    ensure_vertex_provider,
+)
 
 
 def test_ensure_vertex_provider_skips_when_provider_exists() -> None:
@@ -75,6 +80,64 @@ def test_ensure_vertex_provider_creates_google_vertex_ai_from_adc(tmp_path) -> N
         provider_name="kartograph-gma",
         model="claude-opus-4-6",
     )
+
+
+def _adc_lookup_path_from_home() -> Path:
+    """Where gcloud/OpenShell's ``--from-gcloud-adc`` looks, given the active HOME."""
+    return (
+        Path(os.environ["HOME"])
+        / ".config"
+        / "gcloud"
+        / "application_default_credentials.json"
+    )
+
+
+def test_home_for_adc_resolves_nested_dev_style_mount(tmp_path) -> None:
+    """Dev compose mounts the host's real ``$HOME/.config/gcloud`` directly."""
+    fake_home = tmp_path / "home" / "dev"
+    gcloud_dir = fake_home / ".config" / "gcloud"
+    gcloud_dir.mkdir(parents=True)
+    adc_file = gcloud_dir / "application_default_credentials.json"
+    adc_file.write_text('{"type":"authorized_user"}', encoding="utf-8")
+
+    with _home_for_adc(gcloud_config_mount=str(gcloud_dir)):
+        assert _adc_lookup_path_from_home().read_text(encoding="utf-8") == (
+            adc_file.read_text(encoding="utf-8")
+        )
+
+
+def test_home_for_adc_resolves_flat_prod_style_mount(tmp_path) -> None:
+    """Prod mounts a Vault-sourced secret flatly (not nested under a home dir).
+
+    Regression test: OpenShift mounts the ``kartograph-extraction-runtime``
+    ExternalSecret at ``/var/secrets/gcloud`` (see hp-fleet-gitops
+    apps/kartograph/base/api-deployment.yaml), so the mount is *not* two
+    directories below a usable HOME. ``_home_for_adc`` must still produce a
+    HOME whose ``.config/gcloud/application_default_credentials.json``
+    resolves to the actual mounted ADC file.
+    """
+    flat_mount = tmp_path / "var" / "secrets" / "gcloud"
+    flat_mount.mkdir(parents=True)
+    adc_file = flat_mount / "application_default_credentials.json"
+    adc_file.write_text('{"type":"service_account"}', encoding="utf-8")
+
+    with _home_for_adc(gcloud_config_mount=str(flat_mount)):
+        assert _adc_lookup_path_from_home().read_text(encoding="utf-8") == (
+            adc_file.read_text(encoding="utf-8")
+        )
+
+
+def test_home_for_adc_restores_previous_home(tmp_path) -> None:
+    flat_mount = tmp_path / "secrets" / "gcloud"
+    flat_mount.mkdir(parents=True)
+    (flat_mount / "application_default_credentials.json").write_text(
+        "{}", encoding="utf-8"
+    )
+
+    previous = os.environ.get("HOME")
+    with _home_for_adc(gcloud_config_mount=str(flat_mount)):
+        assert os.environ.get("HOME") != previous
+    assert os.environ.get("HOME") == previous
 
 
 def test_ensure_vertex_provider_raises_when_adc_missing(tmp_path) -> None:

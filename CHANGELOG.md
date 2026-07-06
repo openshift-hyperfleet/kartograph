@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.4...v3.38.5) (2026-07-06)
+
+
+### Bug Fixes
+
+* **extraction:** resolve gcloud ADC HOME for non-nested mounts ([#786](https://github.com/openshift-hyperfleet/kartograph/issues/786)) ([bb594ae](https://github.com/openshift-hyperfleet/kartograph/commit/bb594ae4cb6672f93493609bf76d4ab615cf3b49))
+
 ## [3.38.4](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.3...v3.38.4) (2026-07-02)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.38.6](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.5...v3.38.6) (2026-07-06)
+
+
+### Bug Fixes
+
+* **dev-ui:** guard extraction session load on tenant readiness ([#788](https://github.com/openshift-hyperfleet/kartograph/issues/788)) ([69fa29d](https://github.com/openshift-hyperfleet/kartograph/commit/69fa29d1ade20f197293f09ab8af038865586acc))
+
 ## [3.38.5](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.4...v3.38.5) (2026-07-06)
 
 

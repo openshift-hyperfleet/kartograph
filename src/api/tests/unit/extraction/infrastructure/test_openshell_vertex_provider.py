@@ -84,7 +84,12 @@ def test_ensure_vertex_provider_creates_google_vertex_ai_from_adc(tmp_path) -> N
 
 def _adc_lookup_path_from_home() -> Path:
     """Where gcloud/OpenShell's ``--from-gcloud-adc`` looks, given the active HOME."""
-    return Path(os.environ["HOME"]) / ".config" / "gcloud" / "application_default_credentials.json"
+    return (
+        Path(os.environ["HOME"])
+        / ".config"
+        / "gcloud"
+        / "application_default_credentials.json"
+    )
 
 
 def test_home_for_adc_resolves_nested_dev_style_mount(tmp_path) -> None:

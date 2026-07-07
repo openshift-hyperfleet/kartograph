@@ -9,6 +9,10 @@ from typing import Any
 
 from extraction.application.agent_session_service import ExtractionAgentSessionService
 from extraction.application.job_package_gate import resolve_job_package_gate
+from extraction.application.observability import (
+    DefaultStickySessionRuntimeProbe,
+    StickySessionRuntimeProbe,
+)
 from extraction.application.sticky_session_materialization import (
     should_materialize_job_packages,
 )
@@ -53,6 +57,7 @@ class StickySessionRuntimeService:
         health_checker: IStickyRuntimeHealthChecker,
         runtime_backend: str,
         sticky_health_timeout_seconds: float,
+        probe: StickySessionRuntimeProbe | None = None,
     ) -> None:
         self._session_service = session_service
         self._skill_resolution_service = skill_resolution_service
@@ -62,6 +67,7 @@ class StickySessionRuntimeService:
         self._health_checker = health_checker
         self._runtime_backend = runtime_backend
         self._sticky_health_timeout_seconds = sticky_health_timeout_seconds
+        self._probe = probe or DefaultStickySessionRuntimeProbe()
 
     async def stream_runtime_warmup(
         self,
@@ -295,6 +301,12 @@ class StickySessionRuntimeService:
                 bootstrap=bootstrap,
             )
         except (ContainerRuntimeError, RuntimeError) as exc:
+            self._probe.runtime_start_failed(
+                session_id=session.id,
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode.value,
+                error=str(exc),
+            )
             session.runtime_context["sticky_runtime"] = {
                 "phase": "failed",
                 "status": "failed",
@@ -330,6 +342,12 @@ class StickySessionRuntimeService:
                 recent, event = thinking_event(recent, line)
                 yield event
         except TimeoutError as exc:
+            self._probe.runtime_unhealthy(
+                session_id=session.id,
+                knowledge_graph_id=knowledge_graph_id,
+                mode=mode.value,
+                error=str(exc),
+            )
             session.runtime_context["sticky_runtime"]["phase"] = "unhealthy"
             session.runtime_context["sticky_runtime"]["status"] = "unhealthy"
             if persist_session:

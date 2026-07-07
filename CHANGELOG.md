@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.39.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.39.0...v3.39.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **extraction:** surface live vertex-ai profile on gcloud-adc create failure ([#792](https://github.com/openshift-hyperfleet/kartograph/issues/792)) ([afcb4f1](https://github.com/openshift-hyperfleet/kartograph/commit/afcb4f10b274d371d243645a5e95c1f758f0ba64))
+
 ## [3.39.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.6...v3.39.0) (2026-07-07)
 
 

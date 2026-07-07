@@ -157,6 +157,36 @@ class _FailingStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
         raise ContainerRuntimeError("docker run failed: image not found")
 
 
+class _RecordingRuntimeProbe:
+    def __init__(self) -> None:
+        self.start_failed_calls: list[dict[str, str]] = []
+        self.unhealthy_calls: list[dict[str, str]] = []
+
+    def runtime_start_failed(
+        self, *, session_id: str, knowledge_graph_id: str, mode: str, error: str
+    ) -> None:
+        self.start_failed_calls.append(
+            {
+                "session_id": session_id,
+                "knowledge_graph_id": knowledge_graph_id,
+                "mode": mode,
+                "error": error,
+            }
+        )
+
+    def runtime_unhealthy(
+        self, *, session_id: str, knowledge_graph_id: str, mode: str, error: str
+    ) -> None:
+        self.unhealthy_calls.append(
+            {
+                "session_id": session_id,
+                "knowledge_graph_id": knowledge_graph_id,
+                "mode": mode,
+                "error": error,
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_stream_runtime_warmup_surfaces_container_start_failure() -> None:
     repo = _InMemoryAgentSessionRepository()
@@ -166,6 +196,7 @@ async def test_stream_runtime_warmup_surfaces_container_start_failure() -> None:
         knowledge_graph_id="kg-1",
         ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
     )
+    probe = _RecordingRuntimeProbe()
     service = StickySessionRuntimeService(
         session_service=session_service,
         skill_resolution_service=_StaticSkillResolutionService(),
@@ -175,6 +206,7 @@ async def test_stream_runtime_warmup_surfaces_container_start_failure() -> None:
         health_checker=_InstantHealthChecker(),
         runtime_backend="container",
         sticky_health_timeout_seconds=5.0,
+        probe=probe,
     )
 
     events = [
@@ -193,6 +225,12 @@ async def test_stream_runtime_warmup_surfaces_container_start_failure() -> None:
     assert done["ok"] is False
     assert done["error"]["code"] == "RUNTIME_START_FAILED"
     assert "image not found" in done["error"]["message"]
+
+    assert len(probe.start_failed_calls) == 1
+    call = probe.start_failed_calls[0]
+    assert call["knowledge_graph_id"] == "kg-1"
+    assert call["mode"] == ExtractionSessionMode.SCHEMA_BOOTSTRAP.value
+    assert "image not found" in call["error"]
 
 
 class _OnceInactiveStickyRuntimeManager(InMemoryStickySessionRuntimeManager):

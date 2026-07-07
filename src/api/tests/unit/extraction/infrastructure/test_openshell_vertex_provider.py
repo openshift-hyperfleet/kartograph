@@ -140,6 +140,69 @@ def test_home_for_adc_restores_previous_home(tmp_path) -> None:
     assert os.environ.get("HOME") == previous
 
 
+def test_ensure_vertex_provider_enriches_create_failure_with_profile_diagnostic(
+    tmp_path,
+) -> None:
+    """On create failure, append a live `provider profile export` dump.
+
+    OpenShell's generic "no credentials resolved" error for google-vertex-ai
+    hides whether the gateway's served profile actually allows empty-credential
+    bootstrap (see openshell-cli run.rs `missing_credentials_error`). Since
+    that can only be observed against the real gateway at failure time,
+    surface it inline so it lands in the sticky-runtime probe's error field.
+    """
+    adc_dir = tmp_path / "gcloud"
+    adc_dir.mkdir()
+    (adc_dir / "application_default_credentials.json").write_text(
+        '{"type":"authorized_user"}', encoding="utf-8"
+    )
+
+    import subprocess
+
+    diagnostic_result = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout='{"id": "google-vertex-ai", "credentials": []}',
+        stderr="",
+    )
+
+    with (
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.provider_exists",
+            return_value=False,
+        ),
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.run_openshell",
+            side_effect=[
+                OpenShellCliError(
+                    "openshell provider create ... failed: no credentials resolved"
+                ),
+                diagnostic_result,
+            ],
+        ) as run,
+    ):
+        with pytest.raises(OpenShellCliError) as exc_info:
+            ensure_vertex_provider(
+                provider_name="kartograph-gma",
+                project_id="my-project",
+                region="us-east5",
+                gcloud_config_mount=str(adc_dir),
+            )
+
+    assert "no credentials resolved" in str(exc_info.value)
+    assert '"id": "google-vertex-ai"' in str(exc_info.value)
+    assert run.call_count == 2
+    diagnostic_args = run.call_args_list[1].args[0]
+    assert diagnostic_args == [
+        "provider",
+        "profile",
+        "export",
+        "google-vertex-ai",
+        "--output",
+        "json",
+    ]
+
+
 def test_ensure_vertex_provider_raises_when_adc_missing(tmp_path) -> None:
     with patch(
         "extraction.infrastructure.openshell.vertex_provider.provider_exists",

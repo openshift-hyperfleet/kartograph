@@ -136,9 +136,37 @@ def ensure_vertex_provider(
         args.extend(["--config", f"VERTEX_AI_REGION={region.strip()}"])
 
     with _home_for_adc(gcloud_config_mount=gcloud_config_mount):
-        run_openshell(args, timeout=60.0)
+        try:
+            run_openshell(args, timeout=60.0)
+        except OpenShellCliError as exc:
+            diagnostic = _diagnose_vertex_profile()
+            raise OpenShellCliError(
+                f"{exc} | google-vertex-ai profile diagnostic: {diagnostic}"
+            ) from exc
     if auth_mode == "vertex":
         ensure_inference_routing(provider_name=provider_name, model=model)
+
+
+def _diagnose_vertex_profile() -> str:
+    """Dump the gateway's live google-vertex-ai profile for failure diagnostics.
+
+    OpenShell's ``--from-gcloud-adc`` emits an identical generic "no
+    credentials resolved" error whether the ADC file is fine or the gateway's
+    served provider profile doesn't allow empty-credential bootstrap (see
+    OpenShell CLI ``missing_credentials_error`` / ``allows_empty_provider_credentials``).
+    The two cases are indistinguishable from the CLI's own stderr, so capture
+    the actual served profile at failure time instead of guessing.
+    """
+    try:
+        result = run_openshell(
+            ["provider", "profile", "export", "google-vertex-ai", "--output", "json"],
+            check=False,
+            timeout=15.0,
+        )
+    except OpenShellCliError as exc:
+        return f"profile diagnostic call failed: {exc}"
+    output = (result.stdout or result.stderr or "").strip()
+    return output or "profile diagnostic returned no output"
 
 
 def ensure_inference_routing(*, provider_name: str, model: str) -> None:

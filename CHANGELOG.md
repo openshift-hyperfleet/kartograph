@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.39.0](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.6...v3.39.0) (2026-07-07)
+
+
+### Features
+
+* **extraction:** log sticky runtime start failures via domain probe ([#790](https://github.com/openshift-hyperfleet/kartograph/issues/790)) ([cb9f4a7](https://github.com/openshift-hyperfleet/kartograph/commit/cb9f4a7aa3fb835f1949afe7f2cced29419ac80a))
+
 ## [3.38.6](https://github.com/openshift-hyperfleet/kartograph/compare/v3.38.5...v3.38.6) (2026-07-06)
 
 

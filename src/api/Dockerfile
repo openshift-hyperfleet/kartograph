@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # OpenShell CLI for extraction workload runtime (static binary from GitHub releases).
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS openshell
 
-ARG OPENSHELL_VERSION=0.0.62
+ARG OPENSHELL_VERSION=0.0.83
 
 RUN microdnf install -y ca-certificates gzip tar \
     && curl -fsSL -o /tmp/openshell.tgz \

@@ -42,11 +42,14 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS openshell
 ARG OPENSHELL_VERSION=0.0.83
 
 RUN microdnf install -y ca-certificates gzip tar \
-    && curl -fsSL -o /tmp/openshell.tgz \
+    && curl -fsSL -o /tmp/openshell-x86_64-unknown-linux-musl.tar.gz \
       "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-x86_64-unknown-linux-musl.tar.gz" \
-    && tar xzf /tmp/openshell.tgz -C /usr/local/bin \
+    && curl -fsSL -o /tmp/openshell-checksums-sha256.txt \
+      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-checksums-sha256.txt" \
+    && (cd /tmp && grep " openshell-x86_64-unknown-linux-musl.tar.gz$" openshell-checksums-sha256.txt | sha256sum -c -) \
+    && tar xzf /tmp/openshell-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin \
     && chmod 755 /usr/local/bin/openshell \
-    && rm -f /tmp/openshell.tgz \
+    && rm -f /tmp/openshell-x86_64-unknown-linux-musl.tar.gz /tmp/openshell-checksums-sha256.txt \
     && microdnf clean all
 
 # Production stage - using Red Hat UBI9 Python image

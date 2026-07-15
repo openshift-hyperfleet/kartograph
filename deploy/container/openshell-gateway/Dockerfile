@@ -14,11 +14,14 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 ARG OPENSHELL_VERSION=0.0.83
 
 RUN microdnf install -y ca-certificates gzip tar \
-    && curl -fsSL -o /tmp/openshell-gateway.tgz \
+    && curl -fsSL -o /tmp/openshell-gateway-x86_64-unknown-linux-gnu.tar.gz \
       "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-gateway-x86_64-unknown-linux-gnu.tar.gz" \
-    && tar xzf /tmp/openshell-gateway.tgz -C /usr/local/bin \
+    && curl -fsSL -o /tmp/openshell-gateway-checksums-sha256.txt \
+      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-gateway-checksums-sha256.txt" \
+    && (cd /tmp && grep " openshell-gateway-x86_64-unknown-linux-gnu.tar.gz$" openshell-gateway-checksums-sha256.txt | sha256sum -c -) \
+    && tar xzf /tmp/openshell-gateway-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin \
     && chmod 755 /usr/local/bin/openshell-gateway \
-    && rm -f /tmp/openshell-gateway.tgz \
+    && rm -f /tmp/openshell-gateway-x86_64-unknown-linux-gnu.tar.gz /tmp/openshell-gateway-checksums-sha256.txt \
     && microdnf clean all
 
 RUN mkdir -p /var/openshell \

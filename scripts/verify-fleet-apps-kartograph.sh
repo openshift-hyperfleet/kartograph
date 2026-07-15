@@ -76,8 +76,11 @@ rg -n "openshell" "hp-fleet-gitops/$KARTOGRAPH_PATH/base/kustomization.yaml" || 
   echo "  MISSING openshell entries in base/kustomization.yaml"
   missing=$((missing + 1))
 }
-echo "    (openshell-rbac.yaml is expected to be commented out until the Agent Sandbox"
-echo "     CRD/controller and ArgoCD SA RBAC escalation are both granted by platform)"
+echo "    (openshell-rbac.yaml was re-enabled 2026-07-15 after"
+echo "     hybrid-platforms-gitops/infrastructure!76 granted the ArgoCD SA the RBAC"
+echo "     it needed to sync it; this is a historical note, not a live check — if"
+echo "     ArgoCD sync is failing, verify current RBAC/CRD state directly instead"
+echo "     of trusting this comment)"
 
 echo
 echo "==> Validate hp-fleet-gitops stage overlay renders:"

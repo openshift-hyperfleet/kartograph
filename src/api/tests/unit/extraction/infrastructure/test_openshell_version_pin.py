@@ -26,7 +26,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[6]
 API_DOCKERFILE = REPO_ROOT / "src" / "api" / "Dockerfile"
-GATEWAY_DOCKERFILE = REPO_ROOT / "deploy" / "container" / "openshell-gateway" / "Dockerfile"
+GATEWAY_DOCKERFILE = (
+    REPO_ROOT / "deploy" / "container" / "openshell-gateway" / "Dockerfile"
+)
 
 # First release with Kubernetes Sandbox API version auto-detection
 # (v1beta1 with fallback to v1alpha1); see NVIDIA/OpenShell#2009.

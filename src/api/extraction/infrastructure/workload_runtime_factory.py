@@ -123,6 +123,7 @@ def create_sticky_session_runtime_manager(
 
     if resolved.backend == "local":
         return LocalStickySessionRuntimeManager(
+            sticky_image=resolved.sticky_image,
             session_ttl=timedelta(minutes=resolved.session_ttl_minutes),
             dispatch_timeout_seconds=resolved.local_dispatch_timeout_seconds,
             poll_interval_seconds=resolved.local_poll_interval_seconds,

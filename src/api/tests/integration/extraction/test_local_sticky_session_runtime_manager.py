@@ -24,6 +24,11 @@ from extraction.infrastructure.local_runtime.sticky_session_runtime_manager impo
 from extraction.infrastructure.repositories.local_runtime_repository import (
     LocalRuntimeRepository,
 )
+from extraction.ports.runtime import (
+    ScopedWorkloadCredentials,
+    StickySessionRuntimeBootstrap,
+)
+from datetime import UTC, datetime, timedelta
 
 pytestmark = pytest.mark.integration
 
@@ -123,6 +128,68 @@ async def test_dispatches_sandbox_start_and_returns_lease_once_agent_completes(
     assert len(rows) == 1
     assert rows[0][0] == LocalRuntimeWorkKind.SANDBOX_START.value
     assert rows[0][1] == LocalRuntimeWorkStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_sandbox_start_payload_carries_bootstrap_fields_for_the_local_agent(
+    async_session, clean_local_runtime_data
+) -> None:
+    """A local agent has no host-mounted access to the API's own filesystem,
+    so the sandbox_start work request payload must carry everything it needs
+    to reconstruct the same runtime env hosted execution would have built
+    (sticky image, hard Landlock enforcement, tenant, and the workload
+    credential) -- not just the bare session mode.
+    """
+    repo = LocalRuntimeRepository(async_session)
+    await repo.record_presence(user_id="user-6", tenant_id="tenant-1")
+    await async_session.commit()
+
+    manager = _manager(sticky_image="kartograph-agent-runtime:test")
+    bootstrap = StickySessionRuntimeBootstrap(
+        tenant_id="tenant-1",
+        credentials=ScopedWorkloadCredentials(
+            token="workload-jwt-abc",
+            expires_at=datetime.now(UTC) + timedelta(minutes=30),
+            scopes=("tenant:tenant-1", "knowledge_graph:kg-1"),
+        ),
+        host_session_work_dir="/tmp/should-not-matter",
+        api_base_url="http://api:8000",
+        ui_mode="schema_bootstrap",
+    )
+    agent_task = asyncio.create_task(
+        _fake_agent_completes(
+            async_session,
+            user_id="user-6",
+            delay_seconds=0.5,
+            result={"container_id": "sandbox-bootstrap"},
+        )
+    )
+    await asyncio.to_thread(
+        manager.get_or_start_runtime,
+        session_id="sess-6",
+        user_id="user-6",
+        knowledge_graph_id="kg-1",
+        mode="schema_bootstrap",
+        bootstrap=bootstrap,
+    )
+    await agent_task
+
+    row = await async_session.execute(
+        text(
+            "SELECT payload, tenant_id FROM local_runtime_work_requests "
+            "WHERE session_id = :sid"
+        ),
+        {"sid": "sess-6"},
+    )
+    payload, tenant_id = row.one()
+    assert tenant_id == "tenant-1"
+    assert payload["sticky_image"] == "kartograph-agent-runtime:test"
+    assert payload["policy_enforcement"] == "hard_requirement"
+    assert payload["tenant_id"] == "tenant-1"
+    assert payload["ui_mode"] == "schema_bootstrap"
+    assert payload["api_base_url"] == "http://api:8000"
+    assert payload["workload_token"] == "workload-jwt-abc"
+    assert "knowledge_graph:kg-1" in payload["workload_token_scopes"]
 
 
 @pytest.mark.asyncio

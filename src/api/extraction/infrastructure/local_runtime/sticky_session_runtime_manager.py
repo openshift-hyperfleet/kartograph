@@ -65,6 +65,13 @@ def _run_best_effort(coro: Any, *, background_tasks: set[asyncio.Task]) -> None:
     task.add_done_callback(background_tasks.discard)
 
 
+#: Local execution always requests hard Landlock enforcement, regardless of
+#: the soft/hard_requirement setting used for hosted OpenShell execution
+#: (specs/extraction/local-sandbox-execution.spec.md, "Local Execution Always
+#: Requests Hard Landlock Enforcement").
+_LOCAL_POLICY_ENFORCEMENT = "hard_requirement"
+
+
 class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
     """Sticky runtime manager backed by a user's local agent, not a local container.
 
@@ -77,11 +84,13 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
     def __init__(
         self,
         *,
+        sticky_image: str = "kartograph-agent-runtime:dev",
         session_ttl: timedelta = timedelta(minutes=60),
         dispatch_timeout_seconds: float = 120.0,
         poll_interval_seconds: float = 1.5,
         presence_timeout_seconds: float = 45.0,
     ) -> None:
+        self._sticky_image = sticky_image
         self._session_ttl = session_ttl
         self._dispatch_timeout_seconds = dispatch_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
@@ -110,15 +119,14 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
             self._leases[session_id] = refreshed
             return refreshed
 
-        tenant_id = bootstrap.tenant_id if bootstrap is not None else ""
         lease = asyncio.run(
             self._dispatch_sandbox_start(
                 session_id=session_id,
                 user_id=user_id,
-                tenant_id=tenant_id,
                 knowledge_graph_id=knowledge_graph_id,
                 mode=mode,
                 now=now,
+                bootstrap=bootstrap,
             )
         )
         self._leases[session_id] = lease
@@ -278,16 +286,50 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
 
         return await run_with_local_runtime_repository(_do)
 
+    def _build_sandbox_start_payload(
+        self,
+        *,
+        mode: str,
+        bootstrap: StickySessionRuntimeBootstrap | None,
+    ) -> dict[str, Any]:
+        """Everything a local agent needs to start the same Sandbox hosted
+        execution would have started, short of the JobPackage contents
+        themselves (those live at ``host_session_work_dir`` on the API's own
+        host and are not meaningful on a remote machine; materializing them
+        locally is the local agent's own responsibility -- see
+        specs/extraction/local-sandbox-execution.spec.md, "Unchanged Sandbox
+        Lifecycle Semantics").
+        """
+        payload: dict[str, Any] = {
+            "mode": mode,
+            "sticky_image": self._sticky_image,
+            "policy_enforcement": _LOCAL_POLICY_ENFORCEMENT,
+        }
+        if bootstrap is not None:
+            payload.update(
+                {
+                    "tenant_id": bootstrap.tenant_id,
+                    "ui_mode": bootstrap.ui_mode,
+                    "api_base_url": bootstrap.api_base_url,
+                    "workload_token": bootstrap.credentials.token,
+                    "workload_token_expires_at": bootstrap.credentials.expires_at.isoformat(),
+                    "workload_token_scopes": list(bootstrap.credentials.scopes),
+                }
+            )
+        return payload
+
     async def _dispatch_sandbox_start(
         self,
         *,
         session_id: str,
         user_id: str,
-        tenant_id: str,
         knowledge_graph_id: str,
         mode: str,
         now: datetime,
+        bootstrap: StickySessionRuntimeBootstrap | None,
     ) -> StickySessionRuntimeLease:
+        tenant_id = bootstrap.tenant_id if bootstrap is not None else ""
+
         async def _run(  # type: ignore[no-untyped-def]
             repo: LocalRuntimeRepository, session: AsyncSession
         ) -> LocalRuntimeWorkRequest:
@@ -306,7 +348,9 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
                 knowledge_graph_id=knowledge_graph_id,
                 kind=LocalRuntimeWorkKind.SANDBOX_START,
                 session_id=session_id,
-                payload={"mode": mode},
+                payload=self._build_sandbox_start_payload(
+                    mode=mode, bootstrap=bootstrap
+                ),
             )
             # Commit so the pending row is visible to the local agent's own
             # poll connection. Postgres READ COMMITTED gives each subsequent

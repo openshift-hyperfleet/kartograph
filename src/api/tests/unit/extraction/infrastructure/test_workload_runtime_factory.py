@@ -73,6 +73,7 @@ class TestWorkloadRuntimeFactory:
     def test_local_backend_honors_dispatch_settings(self) -> None:
         settings = ExtractionWorkloadRuntimeSettings(
             backend="local",
+            sticky_image="kartograph-agent-runtime:custom",
             local_dispatch_timeout_seconds=30.0,
             local_poll_interval_seconds=2.0,
             local_presence_timeout_seconds=10.0,
@@ -81,6 +82,7 @@ class TestWorkloadRuntimeFactory:
         sticky = create_sticky_session_runtime_manager(settings)
 
         assert isinstance(sticky, LocalStickySessionRuntimeManager)
+        assert sticky._sticky_image == "kartograph-agent-runtime:custom"
         assert sticky._dispatch_timeout_seconds == 30.0
         assert sticky._poll_interval_seconds == 2.0
         assert sticky._presence_timeout_seconds == 10.0

@@ -1,7 +1,9 @@
 # Local Sandbox Execution
 
 ## Purpose
-A temporary execution mode for environments where the in-cluster OpenShell Sandbox provider is unavailable (for example, stage before the Agent Sandbox CRD/controller is installed). When enabled, GMA sticky sessions and extraction jobs dispatch Sandbox execution to a local agent running on the requesting user's own machine instead of an in-cluster provider. Sandbox creation, policy application, and teardown are identical to hosted execution — only physical placement differs. "Sandbox" here refers to the same construct existing specs call a sticky container (`extraction/sticky-session-runtime.spec.md`) or extraction job worker container — the OpenShell CLI and this spec use "Sandbox" because that is the literal `openshell sandbox` resource; no new execution substrate is introduced. This mode is meant to be disabled, without code changes to Sandbox lifecycle logic, once hosted execution becomes available.
+A temporary execution mode for environments where the in-cluster OpenShell Sandbox provider is unavailable (for example, stage before the Agent Sandbox CRD/controller is installed). When enabled, GMA sticky sessions dispatch Sandbox execution to a local agent running on the requesting user's own machine instead of an in-cluster provider. Sandbox creation, policy application, and teardown are identical to hosted execution — only physical placement differs. "Sandbox" here refers to the same construct existing specs call a sticky container (`extraction/sticky-session-runtime.spec.md`) — the OpenShell CLI and this spec use "Sandbox" because that is the literal `openshell sandbox` resource; no new execution substrate is introduced. This mode is meant to be disabled, without code changes to Sandbox lifecycle logic, once hosted execution becomes available.
+
+**Out of scope: batch extraction jobs.** Batch extraction jobs (`ExtractionJobRecord`, dispatched by `ExtractionEventHandler` off the sync-run outbox pipeline) are triggered asynchronously by data source syncs and are scoped to `tenant_id`/`knowledge_graph_id` only — there is no `user_id` anywhere in that pipeline to route a local dispatch to. Attributing a background job to a specific user's laptop (KG owner, most recent GMA actor, or otherwise) is a real design decision this spec does not make; batch extraction jobs remain blocked in stage under this mode until either the Agent Sandbox CRD is installed or that attribution is designed separately. See Known Limitations.
 
 ## Requirements
 
@@ -10,12 +12,12 @@ The system SHALL support a runtime configuration selecting between hosted (in-cl
 
 #### Scenario: Environment configured for local execution
 - GIVEN an environment configured for local Sandbox execution
-- WHEN a GMA sticky session or extraction job requires a Sandbox
+- WHEN a GMA sticky session requires a Sandbox
 - THEN the system dispatches a local runtime work request instead of creating an in-cluster Sandbox
 
 #### Scenario: Environment configured for hosted execution
 - GIVEN an environment configured for hosted Sandbox execution (the default)
-- WHEN a GMA sticky session or extraction job requires a Sandbox
+- WHEN a GMA sticky session requires a Sandbox
 - THEN the system creates the Sandbox in-cluster as it does today
 - AND no local runtime work request is created
 
@@ -35,7 +37,7 @@ The system SHALL authenticate local agents using the existing Identity-context A
 
 #### Scenario: No local agent has ever polled
 - GIVEN a user has no local agent currently polling for work
-- WHEN a GMA sticky session or extraction job for that user would require local dispatch
+- WHEN a GMA sticky session for that user would require local dispatch
 - THEN the system surfaces an actionable error instructing the user to run and authenticate a local agent
 - AND no local runtime work request is created
 
@@ -62,7 +64,7 @@ The system SHALL NOT require inbound network connectivity to a user's machine fo
 - AND the hosted API never initiates a connection to the local agent or to any port on the local agent's host
 
 ### Requirement: Local Runtime Work Request Lifecycle
-The system SHALL track local runtime work requests through `pending`, `claimed`, `completed`, and `failed` states, scoped to exactly one user, knowledge graph, and session or extraction job. Work requests carry one of three kinds: `sandbox_start`, `chat_turn`, or `sandbox_stop`.
+The system SHALL track local runtime work requests through `pending`, `claimed`, `completed`, and `failed` states, scoped to exactly one user, knowledge graph, and GMA session. Work requests carry one of three kinds: `sandbox_start`, `chat_turn`, or `sandbox_stop`.
 
 #### Scenario: Claim by polling agent
 - GIVEN a pending local runtime work request for a user
@@ -80,13 +82,13 @@ The system SHALL track local runtime work requests through `pending`, `claimed`,
 - GIVEN a pending local runtime work request
 - WHEN no registered agent for that user claims it within the claim timeout
 - THEN the request transitions to `failed`
-- AND the originating session or job surfaces an actionable timeout error
+- AND the originating session surfaces an actionable timeout error
 
 #### Scenario: Heartbeat loss fails the claim
 - GIVEN a claimed local runtime work request
 - WHEN the claiming agent stops sending heartbeats past the heartbeat timeout
 - THEN the request transitions to `failed`
-- AND the originating session or job is notified so its caller can create a new work request or surface the failure to the user
+- AND the originating session is notified so its caller can create a new work request or surface the failure to the user
 
 ### Requirement: Unchanged Sandbox Lifecycle Semantics
 The system SHALL create, apply policy to, and tear down local Sandboxes using the same operations used for hosted execution (`sandbox.py`, `policy.py`), differing only in which OpenShell gateway/provider they target. This requirement governs sandbox lifecycle only; chat turn delivery is governed separately below, since it uses a different transport for local execution.
@@ -94,7 +96,7 @@ The system SHALL create, apply policy to, and tear down local Sandboxes using th
 #### Scenario: Same sandbox image and policy
 - GIVEN a local runtime work request of kind `sandbox_start` is claimed
 - WHEN the local agent starts the Sandbox
-- THEN it uses the same sandbox image, OpenShell policy file, and enforcement mode that hosted execution would have used for the same session mode or job type
+- THEN it uses the same sandbox image, OpenShell policy file, and enforcement mode that hosted execution would have used for the same session mode
 
 ### Requirement: Chat Turn Relay Through the Local Agent
 For local sticky sessions, the system SHALL deliver chat turns to the Sandbox by dispatching a `chat_turn` work request to the local agent already running that session's Sandbox, rather than the hosted API calling the Sandbox's forwarded port directly. The local agent SHALL perform the direct call to its own local Sandbox (both are on the same machine) and return the complete response as the work request's result.
@@ -141,23 +143,17 @@ For local execution, the system SHALL mint a Google Cloud access token scoped by
 - THEN the calls fail authentication
 - AND no refresh capability is available to the local Sandbox
 
-### Requirement: Session and Job Waiting Visibility
-The system SHALL surface a distinct waiting state while local runtime work is pending or claimed. For sessions, this is recorded directly on the session. For extraction jobs, this is derived by joining to the associated work request without changing the job's own status enum.
+### Requirement: Session Waiting Visibility
+The system SHALL surface a distinct waiting state on a GMA session while its local runtime work is pending or claimed, recorded directly on the session.
 
 #### Scenario: Waiting state shown for a session
 - GIVEN a GMA session has dispatched a local runtime work request
 - WHEN the user views session status before the local agent claims it
 - THEN the session's `runtime_context.local_runtime` reports a `waiting_for_local_runner` phase
 
-#### Scenario: Waiting state shown for a job
-- GIVEN an extraction job has dispatched a local runtime work request
-- WHEN the user views job status before the local agent claims it
-- THEN the job's own status remains `pending`
-- AND the job status read path additionally reports `waiting_for_local_runner` derived from the associated work request
-
 #### Scenario: Claim timeout surfaced
 - GIVEN a local runtime work request times out unclaimed
-- WHEN the user views session or job status
+- WHEN the user views session status
 - THEN the status reflects the failure with an actionable message referencing local agent connectivity
 
 ### Requirement: Reversible Without Sandbox Code Changes
@@ -165,27 +161,26 @@ Disabling local execution mode SHALL require only a runtime configuration change
 
 #### Scenario: Revert to hosted mode
 - GIVEN local execution mode is disabled after having been enabled
-- WHEN a GMA sticky session or extraction job next requires a Sandbox
+- WHEN a GMA sticky session next requires a Sandbox
 - THEN it is created in-cluster using the existing hosted adapter
 - AND the local-runtime adapter module is not invoked (verified by an architectural boundary test, in the style of the existing `pytest-archon` bounded-context tests)
 
 ## Data Model
 
 - `local_runtime_agent_presence`: `user_id` (String(255), primary key), `tenant_id` (String(26)), `last_seen_at` (timestamptz). Upserted on every poll. Liveness bookkeeping only — not a credential; owned by Extraction.
-- `local_runtime_work_requests`: `id` (String(26), ULID, primary key), `tenant_id` (String(26)), `user_id` (String(255)), `knowledge_graph_id` (String(26)), `session_id` (String(26), nullable), `job_id` (String(26), nullable), `kind` (String(32), `CHECK kind IN ('sandbox_start','chat_turn','sandbox_stop')`), `status` (String(16), `CHECK status IN ('pending','claimed','completed','failed')`), `payload` (JSONB, not null, default `'{}'`), `result` (JSONB, nullable), `failure_reason` (String, nullable), `claimed_by_user_id` (String(255), nullable — the claiming agent is always the same user the request is scoped to; recorded for audit), `claimed_at` (timestamptz, nullable), `heartbeat_at` (timestamptz, nullable), `completed_at` (timestamptz, nullable), `credential_expires_at` (timestamptz, nullable), `created_at`, `updated_at` (timestamptz, not null).
+- `local_runtime_work_requests`: `id` (String(26), ULID, primary key), `tenant_id` (String(26)), `user_id` (String(255)), `knowledge_graph_id` (String(26)), `session_id` (String(26), nullable), `job_id` (String(26), nullable — reserved for a future batch-extraction-job design; unused while jobs are out of scope, see Purpose), `kind` (String(32), `CHECK kind IN ('sandbox_start','chat_turn','sandbox_stop')`), `status` (String(16), `CHECK status IN ('pending','claimed','completed','failed')`), `payload` (JSONB, not null, default `'{}'`), `result` (JSONB, nullable), `failure_reason` (String, nullable), `claimed_by_user_id` (String(255), nullable — the claiming agent is always the same user the request is scoped to; recorded for audit), `claimed_at` (timestamptz, nullable), `heartbeat_at` (timestamptz, nullable), `completed_at` (timestamptz, nullable), `credential_expires_at` (timestamptz, nullable), `created_at`, `updated_at` (timestamptz, not null).
 
 Indexes: composite `(user_id, status)` for the long-poll query; `(session_id, status)` and `(job_id, status)` for read-path status derivation.
 
 ## Write Paths
-- `ExtractionAgentSessionService` and extraction job dispatch write a `local_runtime_work_requests` row of kind `sandbox_start` (via a new local-execution implementation of the existing `IStickySessionRuntimeManager` / `IExtractionJobRunner` ports — see Traceability) instead of calling the in-cluster OpenShell provider, when local execution mode is configured.
-- `RemoteStickyContainerChatAgent`'s local-execution counterpart writes a `chat_turn` work request per user message instead of calling `runtime_base_url` directly.
+- `ExtractionAgentSessionService` writes a `local_runtime_work_requests` row of kind `sandbox_start` (via a new local-execution implementation of the existing `IStickySessionRuntimeManager` port — see Traceability) instead of calling the in-cluster OpenShell provider, when local execution mode is configured. Batch extraction job dispatch (`IEphemeralExtractionWorkerLauncher`) is unchanged and does not write to this table (see Purpose, "Out of scope: batch extraction jobs").
+- `RemoteStickyContainerChatAgent`'s local-execution counterpart (`LocalStickyChatAgent`) writes a `chat_turn` work request per user message instead of calling `runtime_base_url` directly.
 - The local agent's poll endpoint upserts `local_runtime_agent_presence` on every call, and updates `local_runtime_work_requests` on claim, heartbeat, and completion/failure.
 - A new Vertex token-minting endpoint, structurally analogous to `workload_credential_issuer.py` but minting Google Cloud access tokens via Credential Access Boundary rather than Kartograph-signed JWTs, is called when a `sandbox_start` request is claimed.
 - `ExtractionAgentSession.runtime_context` gains a `local_runtime` key (parallel to the existing `sticky_runtime` key) recording phase and work request id.
 
 ## Read Paths
 - Session status reads surface `waiting_for_local_runner` and failure/timeout states from `ExtractionAgentSession.runtime_context.local_runtime`.
-- Extraction job status reads join to `local_runtime_work_requests` by `job_id` to derive `waiting_for_local_runner` without altering `ExtractionJobRecord.status`.
 - The local agent's long-poll endpoint reads `local_runtime_work_requests` filtered to `status = 'pending' AND user_id = <authenticated user>`.
 
 ## Authorization (SpiceDB)
@@ -193,8 +188,8 @@ Local agents authenticate via existing API keys (`iam/api-keys.spec.md`), which 
 
 ## Migration Plan
 - New tables only (`local_runtime_agent_presence`, `local_runtime_work_requests`); no new columns on `extraction_agent_sessions` beyond the additive `runtime_context.local_runtime` key, which existing readers already treat as an open dict.
-- `ExtractionJobRecord`'s `status` enum is unchanged; the waiting-for-local-runner signal is derived by joining to `local_runtime_work_requests`, not by adding a new job status value.
-- Existing consumers (`ExtractionAgentSessionService`, extraction job dispatch, `RemoteStickyContainerChatAgent`) select the local adapter via the existing `ExtractionWorkloadRuntimeSettings` pattern (a new backend value), so hosted-mode consumers are unaffected when local execution mode is not configured.
+- `ExtractionJobRecord` and `IEphemeralExtractionWorkerLauncher` are untouched by this spec; batch extraction jobs remain hosted-only (see Purpose).
+- Existing consumers (`ExtractionAgentSessionService`, `RemoteStickyContainerChatAgent`) select the local adapter via the existing `ExtractionWorkloadRuntimeSettings` pattern (a new backend value), so hosted-mode consumers are unaffected when local execution mode is not configured.
 - No changes required to `sandbox.py`, `policy.py`, or `gateway.py` — the local agent invokes them unchanged, pointed at a locally-registered gateway.
 - No changes required to `iam/api-keys.spec.md` or its implementation — local agents are ordinary API key holders.
 
@@ -203,6 +198,7 @@ Local agents authenticate via existing API keys (`iam/api-keys.spec.md`), which 
 - **The local agent process itself is unsandboxed** and observes plaintext Vertex tokens before injecting them into the Sandbox. Short TTLs and Credential Access Boundary scoping bound the damage of exfiltration but do not prevent a malicious local agent from re-requesting tokens for the life of a claimed work request. Mitigated by per-mint audit logging and the existing claim/heartbeat lifecycle bounding how long a request stays claimable.
 - **Chat turns are delivered as complete, buffered responses, not streamed token-by-token,** since the outbound long-poll transport does not carry a live stream. This degrades perceived responsiveness relative to hosted execution but does not change correctness.
 - **No per-purpose scoping exists for API keys used by local agents** — a local agent authenticates with the same permission scope as any other use of that user's API key. Blast radius is bounded by the per-request SpiceDB knowledge-graph permission check, not by the key itself. A dedicated key purpose/scope is a possible future improvement to `iam/api-keys.spec.md`, out of scope here.
+- **Batch extraction jobs are not covered by this mode at all** (see Purpose). `ExtractionJobRecord`/`ExtractionEventHandler` have no `user_id` to route a local dispatch to — jobs are triggered asynchronously per data source sync, not by an interactively-connected user. Extraction jobs that require a Sandbox remain blocked in environments without hosted OpenShell execution until either the Agent Sandbox CRD is installed there or a separate spec defines how to attribute a background job to a specific user's local agent (candidates considered and deferred: knowledge graph owner/creator lookup via Management context, or most-recent GMA session actor).
 
 ## Traceability
 - `src/api/extraction/ports/runtime.py`

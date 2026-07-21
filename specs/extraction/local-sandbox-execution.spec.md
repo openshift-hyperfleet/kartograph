@@ -129,13 +129,13 @@ The system SHALL request `hard_requirement` Landlock enforcement for every local
 - THEN policy apply succeeds and the Sandbox starts normally
 
 ### Requirement: Downscoped, Short-Lived Vertex Credential Injection
-For local execution, the system SHALL mint a Google Cloud access token scoped by both a short lifetime (matched to expected run duration) and a Credential Access Boundary restricting usable permissions to Vertex AI inference calls only, instead of transmitting the long-lived Vault-backed service account credential material. The system SHALL inject the minted token into the local Sandbox via the OpenShell `google-vertex-ai` provider's `service_account_token` credential (verified to accept a bearer token directly, with no private key or refresh material, via `openshell provider profile export google-vertex-ai`).
+For local execution, the system SHALL mint a Google Cloud access token restricted to Vertex AI inference permissions with a short lifetime (matched to expected run duration), instead of transmitting the long-lived Vault-backed service account credential material. Restriction to Vertex-AI-only permissions is achieved by impersonating a dedicated, minimally-privileged service account (granted only Vertex AI roles, provisioned out of band) via the Google Cloud IAM Credentials API — not Credential Access Boundaries, which Google Cloud only supports for Cloud Storage resources and cannot restrict to Vertex AI. The system SHALL inject the minted token into the local Sandbox via the OpenShell `google-vertex-ai` provider's `service_account_token` credential (verified to accept a static bearer token directly via `openshell provider create --credential VERTEX_AI_SERVICE_ACCOUNT_TOKEN=<token>`, with no private key or refresh material required).
 
 #### Scenario: Token minted per dispatch
 - GIVEN a local runtime work request of kind `sandbox_start` is claimed
 - WHEN the local agent requests Vertex credentials for the Sandbox
-- THEN the hosted API mints an access token restricted by a Credential Access Boundary to Vertex AI inference permissions, with a lifetime matched to expected run duration
-- AND the underlying service-account private key material never leaves the cluster
+- THEN the hosted API impersonates a dedicated Vertex-AI-only service account via the IAM Credentials API and mints an access token restricted to that service account's permissions, with a lifetime matched to expected run duration
+- AND the underlying service-account private key material never leaves Google's systems (impersonation via the IAM Credentials API never generates or transmits key material)
 
 #### Scenario: Token expiry ends access
 - GIVEN a minted Vertex access token has reached its expiry
@@ -176,7 +176,7 @@ Indexes: composite `(user_id, status)` for the long-poll query; `(session_id, st
 - `ExtractionAgentSessionService` writes a `local_runtime_work_requests` row of kind `sandbox_start` (via a new local-execution implementation of the existing `IStickySessionRuntimeManager` port — see Traceability) instead of calling the in-cluster OpenShell provider, when local execution mode is configured. Batch extraction job dispatch (`IEphemeralExtractionWorkerLauncher`) is unchanged and does not write to this table (see Purpose, "Out of scope: batch extraction jobs").
 - `RemoteStickyContainerChatAgent`'s local-execution counterpart (`LocalStickyChatAgent`) writes a `chat_turn` work request per user message instead of calling `runtime_base_url` directly.
 - The local agent's poll endpoint upserts `local_runtime_agent_presence` on every call, and updates `local_runtime_work_requests` on claim, heartbeat, and completion/failure.
-- A new Vertex token-minting endpoint, structurally analogous to `workload_credential_issuer.py` but minting Google Cloud access tokens via Credential Access Boundary rather than Kartograph-signed JWTs, is called when a `sandbox_start` request is claimed.
+- A new Vertex token-minting endpoint, structurally analogous to `workload_credential_issuer.py` but minting Google Cloud access tokens via IAM Credentials API service-account impersonation rather than Kartograph-signed JWTs, is called when a `sandbox_start` request is claimed.
 - `ExtractionAgentSession.runtime_context` gains a `local_runtime` key (parallel to the existing `sticky_runtime` key) recording phase and work request id.
 
 ## Read Paths
@@ -195,7 +195,7 @@ Local agents authenticate via existing API keys (`iam/api-keys.spec.md`), which 
 
 ## Known Limitations (accepted for this temporary mode)
 - **Landlock enforcement is enforced by OpenShell's own policy-apply failure, not independently attested.** The hosted API has no way to cryptographically verify a local agent's host capability beyond observing whether `openshell policy update` succeeded. A compromised or modified local agent binary could misreport success. Accepted for a temporary bridge; not acceptable for a permanent design.
-- **The local agent process itself is unsandboxed** and observes plaintext Vertex tokens before injecting them into the Sandbox. Short TTLs and Credential Access Boundary scoping bound the damage of exfiltration but do not prevent a malicious local agent from re-requesting tokens for the life of a claimed work request. Mitigated by per-mint audit logging and the existing claim/heartbeat lifecycle bounding how long a request stays claimable.
+- **The local agent process itself is unsandboxed** and observes plaintext Vertex tokens before injecting them into the Sandbox. Short TTLs and impersonation-scoping to a Vertex-AI-only service account bound the damage of exfiltration but do not prevent a malicious local agent from re-requesting tokens for the life of a claimed work request. Mitigated by per-mint audit logging and the existing claim/heartbeat lifecycle bounding how long a request stays claimable.
 - **Chat turns are delivered as complete, buffered responses, not streamed token-by-token,** since the outbound long-poll transport does not carry a live stream. This degrades perceived responsiveness relative to hosted execution but does not change correctness.
 - **No per-purpose scoping exists for API keys used by local agents** — a local agent authenticates with the same permission scope as any other use of that user's API key. Blast radius is bounded by the per-request SpiceDB knowledge-graph permission check, not by the key itself. A dedicated key purpose/scope is a possible future improvement to `iam/api-keys.spec.md`, out of scope here.
 - **Batch extraction jobs are not covered by this mode at all** (see Purpose). `ExtractionJobRecord`/`ExtractionEventHandler` have no `user_id` to route a local dispatch to — jobs are triggered asynchronously per data source sync, not by an interactively-connected user. Extraction jobs that require a Sandbox remain blocked in environments without hosted OpenShell execution until either the Agent Sandbox CRD is installed there or a separate spec defines how to attribute a background job to a specific user's local agent (candidates considered and deferred: knowledge graph owner/creator lookup via Management context, or most-recent GMA session actor).
@@ -208,5 +208,10 @@ Local agents authenticate via existing API keys (`iam/api-keys.spec.md`), which 
 - `src/api/extraction/infrastructure/openshell/vertex_provider.py`
 - `src/api/extraction/infrastructure/remote_sticky_container_chat_agent.py`
 - `src/api/extraction/infrastructure/workload_credential_issuer.py` (pattern reference for the new Vertex token issuer — this file itself only mints Kartograph-internal JWTs today and does not gain GCP responsibilities)
+- `src/api/extraction/ports/vertex_credentials.py`
+- `src/api/extraction/infrastructure/vertex_inference_token_issuer.py`
+- `src/api/extraction/presentation/local_runtime_routes.py` (`/local-runtime/{request_id}/vertex-token`)
 - `src/api/extraction/application/agent_session_service.py`
+- `src/api/extraction/infrastructure/local_runtime/agent_cli.py` (local agent poll loop, sandbox lifecycle dispatch, hard Landlock enforcement, heartbeats)
+- `src/api/tests/unit/extraction/test_local_sandbox_execution_reversibility.py` (`pytest-archon` boundary test verifying the local-runtime adapter module is never imported by the hosted execution path)
 - `specs/iam/api-keys.spec.md` (reused as-is for local agent authentication)

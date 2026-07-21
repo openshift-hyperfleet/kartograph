@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from extraction.domain.local_runtime import LocalRuntimeWorkRequest
+from extraction.domain.local_runtime import (
+    LocalRuntimeWorkRequest,
+    LocalRuntimeWorkStatus,
+)
 from extraction.ports.repositories import ILocalRuntimeRepository
 
 
@@ -77,6 +80,23 @@ class LocalRuntimeAgentService:
                 f"No claimed local runtime work request {request_id!r} owned by "
                 f"the caller was found to complete."
             )
+
+    async def get_claimed_request(
+        self, *, request_id: str, user_id: str
+    ) -> LocalRuntimeWorkRequest | None:
+        """Look up a request only if it is owned by the caller and `claimed`.
+
+        Used by the vertex-token endpoint (specs "Downscoped, Short-Lived
+        Vertex Credential Injection") to scope token minting to a work
+        request the caller has actually claimed, rather than trusting
+        client-supplied tenant/knowledge-graph identifiers directly.
+        """
+        request = await self._repository.get_by_id(
+            request_id=request_id, user_id=user_id
+        )
+        if request is None or request.status != LocalRuntimeWorkStatus.CLAIMED:
+            return None
+        return request
 
     async def fail(self, *, request_id: str, user_id: str, failure_reason: str) -> None:
         ok = await self._repository.mark_failed(

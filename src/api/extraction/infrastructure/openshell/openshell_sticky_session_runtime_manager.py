@@ -35,8 +35,7 @@ def _sanitize_sandbox_name(session_id: str) -> str:
 
 
 def _forward_port(*, session_id: str, base: int) -> int:
-    digest = sum(ord(char) for char in session_id)
-    return base + (digest % 900)
+    return openshell_sandbox.forward_port_for_session(session_id=session_id, base=base)
 
 
 def _api_host_from_base_url(api_base_url: str) -> str:

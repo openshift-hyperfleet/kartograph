@@ -90,12 +90,18 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
         dispatch_timeout_seconds: float = 120.0,
         poll_interval_seconds: float = 1.5,
         presence_timeout_seconds: float = 45.0,
+        vertex_project_id: str = "",
+        vertex_region: str = "us-east5",
+        vertex_enabled: bool = False,
     ) -> None:
         self._sticky_image = sticky_image
         self._session_ttl = session_ttl
         self._dispatch_timeout_seconds = dispatch_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
         self._presence_timeout_seconds = presence_timeout_seconds
+        self._vertex_project_id = vertex_project_id
+        self._vertex_region = vertex_region
+        self._vertex_enabled = vertex_enabled
         self._leases: dict[str, StickySessionRuntimeLease] = {}
         self._background_tasks: set[asyncio.Task] = set()
 
@@ -301,10 +307,18 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
         specs/extraction/local-sandbox-execution.spec.md, "Unchanged Sandbox
         Lifecycle Semantics").
         """
+        # The Vertex access token itself is not embedded here: the local agent
+        # requests it from the hosted API's vertex-token endpoint after
+        # claiming this request (specs "Downscoped, Short-Lived Vertex
+        # Credential Injection"), keeping the token's minted-to-used window as
+        # short as possible rather than letting it sit at rest in this row.
         payload: dict[str, Any] = {
             "mode": mode,
             "sticky_image": self._sticky_image,
             "policy_enforcement": _LOCAL_POLICY_ENFORCEMENT,
+            "vertex_enabled": self._vertex_enabled,
+            "vertex_project_id": self._vertex_project_id,
+            "vertex_region": self._vertex_region,
         }
         if bootstrap is not None:
             payload.update(

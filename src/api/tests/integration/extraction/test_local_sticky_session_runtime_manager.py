@@ -146,7 +146,12 @@ async def test_sandbox_start_payload_carries_bootstrap_fields_for_the_local_agen
     await repo.record_presence(user_id="user-6", tenant_id="tenant-1")
     await async_session.commit()
 
-    manager = _manager(sticky_image="kartograph-agent-runtime:test")
+    manager = _manager(
+        sticky_image="kartograph-agent-runtime:test",
+        vertex_project_id="proj-123",
+        vertex_region="us-east5",
+        vertex_enabled=True,
+    )
     bootstrap = StickySessionRuntimeBootstrap(
         tenant_id="tenant-1",
         credentials=ScopedWorkloadCredentials(
@@ -192,6 +197,9 @@ async def test_sandbox_start_payload_carries_bootstrap_fields_for_the_local_agen
     assert payload["api_base_url"] == "http://api:8000"
     assert payload["workload_token"] == "workload-jwt-abc"
     assert "knowledge_graph:kg-1" in payload["workload_token_scopes"]
+    assert payload["vertex_enabled"] is True
+    assert payload["vertex_project_id"] == "proj-123"
+    assert payload["vertex_region"] == "us-east5"
 
 
 @pytest.mark.asyncio

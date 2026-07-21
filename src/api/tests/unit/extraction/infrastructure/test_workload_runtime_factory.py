@@ -19,13 +19,18 @@ from extraction.infrastructure.workload_runtime import (
     InMemoryEphemeralExtractionWorkerLauncher,
     InMemoryStickySessionRuntimeManager,
 )
+from extraction.infrastructure.vertex_inference_token_issuer import (
+    ImpersonatedVertexInferenceTokenIssuer,
+)
 from extraction.infrastructure.workload_runtime_factory import (
     create_ephemeral_extraction_worker_launcher,
     create_extraction_chat_agent,
     create_sticky_session_runtime_manager,
+    get_vertex_inference_token_issuer,
 )
 from extraction.infrastructure.workload_runtime_settings import (
     ExtractionWorkloadRuntimeSettings,
+    get_extraction_workload_runtime_settings,
 )
 
 
@@ -76,6 +81,8 @@ class TestWorkloadRuntimeFactory:
             local_dispatch_timeout_seconds=30.0,
             local_poll_interval_seconds=2.0,
             local_presence_timeout_seconds=10.0,
+            vertex_project_id="proj-xyz",
+            vertex_region="us-central1",
         )
 
         sticky = create_sticky_session_runtime_manager(settings)
@@ -85,6 +92,8 @@ class TestWorkloadRuntimeFactory:
         assert sticky._dispatch_timeout_seconds == 30.0
         assert sticky._poll_interval_seconds == 2.0
         assert sticky._presence_timeout_seconds == 10.0
+        assert sticky._vertex_project_id == "proj-xyz"
+        assert sticky._vertex_region == "us-central1"
 
     def test_local_backend_returns_local_chat_agent_honoring_dispatch_settings(
         self,
@@ -109,3 +118,48 @@ class TestWorkloadRuntimeFactory:
 
         assert "create_ephemeral_extraction_worker_launcher" in content
         assert "InMemoryEphemeralExtractionWorkerLauncher" not in content
+
+
+class TestGetVertexInferenceTokenIssuer:
+    def teardown_method(self) -> None:
+        get_vertex_inference_token_issuer.cache_clear()
+        get_extraction_workload_runtime_settings.cache_clear()
+
+    def test_builds_issuer_from_settings(self, monkeypatch) -> None:
+        get_vertex_inference_token_issuer.cache_clear()
+        get_extraction_workload_runtime_settings.cache_clear()
+        monkeypatch.setenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_VERTEX_LOCAL_AGENT_SERVICE_ACCOUNT_EMAIL",
+            "vertex-inference@proj.iam.gserviceaccount.com",
+        )
+        monkeypatch.setenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_VERTEX_LOCAL_AGENT_TOKEN_LIFETIME_SECONDS",
+            "900",
+        )
+        monkeypatch.setenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_GCLOUD_CONFIG_MOUNT", "/gcloud/config"
+        )
+
+        issuer = get_vertex_inference_token_issuer()
+
+        assert isinstance(issuer, ImpersonatedVertexInferenceTokenIssuer)
+        assert (
+            issuer._service_account_email
+            == "vertex-inference@proj.iam.gserviceaccount.com"
+        )
+        assert issuer._lifetime_seconds == 900
+        assert issuer._source_credentials_path == (
+            "/gcloud/config/application_default_credentials.json"
+        )
+
+    def test_no_source_credentials_path_when_mount_unset(self, monkeypatch) -> None:
+        get_vertex_inference_token_issuer.cache_clear()
+        get_extraction_workload_runtime_settings.cache_clear()
+        monkeypatch.delenv(
+            "KARTOGRAPH_EXTRACTION_RUNTIME_GCLOUD_CONFIG_MOUNT", raising=False
+        )
+        monkeypatch.delenv("KARTOGRAPH_GCLOUD_CONFIG_MOUNT", raising=False)
+
+        issuer = get_vertex_inference_token_issuer()
+
+        assert issuer._source_credentials_path is None

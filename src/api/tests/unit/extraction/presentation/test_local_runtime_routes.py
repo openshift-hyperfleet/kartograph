@@ -16,6 +16,10 @@ from extraction.domain.local_runtime import (
     LocalRuntimeWorkRequest,
     LocalRuntimeWorkStatus,
 )
+from extraction.ports.vertex_credentials import (
+    VertexInferenceToken,
+    VertexInferenceTokenUnavailableError,
+)
 from iam.application.value_objects import CurrentUser
 from iam.domain.value_objects import TenantId, UserId
 
@@ -37,8 +41,14 @@ def _work_request(**overrides) -> LocalRuntimeWorkRequest:
 
 
 class _FakeLocalRuntimeAgentService:
-    def __init__(self, *, claim_queue: list[LocalRuntimeWorkRequest] | None = None):
+    def __init__(
+        self,
+        *,
+        claim_queue: list[LocalRuntimeWorkRequest] | None = None,
+        claimed_by_id: dict[str, LocalRuntimeWorkRequest] | None = None,
+    ):
         self._claim_queue = list(claim_queue or [])
+        self._claimed_by_id = dict(claimed_by_id or {})
         self.presence_polls: list[tuple[str, str]] = []
         self.rejected: list[tuple[str, str, str]] = []
         self.heartbeats: list[tuple[str, str]] = []
@@ -74,6 +84,33 @@ class _FakeLocalRuntimeAgentService:
         if request_id in self.not_claimable_ids:
             raise LocalRuntimeWorkRequestNotClaimableError("not claimable")
 
+    async def get_claimed_request(
+        self, *, request_id: str, user_id: str
+    ) -> LocalRuntimeWorkRequest | None:
+        return self._claimed_by_id.get(request_id)
+
+
+class _FakeVertexInferenceTokenIssuer:
+    def __init__(
+        self,
+        *,
+        token: VertexInferenceToken | None = None,
+        error: Exception | None = None,
+    ):
+        self.token = token or VertexInferenceToken(
+            access_token="minted-token", expires_at=datetime.now(UTC)
+        )
+        self.error = error
+        self.calls: list[tuple[str, str, str]] = []
+
+    def mint_token(
+        self, *, tenant_id: str, knowledge_graph_id: str, session_id: str
+    ) -> VertexInferenceToken:
+        self.calls.append((tenant_id, knowledge_graph_id, session_id))
+        if self.error is not None:
+            raise self.error
+        return self.token
+
 
 class _StubAuthz:
     def __init__(self, *, allowed: bool = True):
@@ -89,13 +126,19 @@ class _StubAuthz:
 
 @pytest.fixture
 def _client_factory():
-    from extraction.dependencies import get_local_runtime_agent_service
+    from extraction.dependencies import (
+        get_local_runtime_agent_service,
+        get_vertex_inference_token_issuer,
+    )
     from extraction.presentation import router
     from iam.dependencies.user import get_current_user
     from infrastructure.authorization_dependencies import get_spicedb_client
 
     def _build(
-        *, service: _FakeLocalRuntimeAgentService, authz: _StubAuthz
+        *,
+        service: _FakeLocalRuntimeAgentService,
+        authz: _StubAuthz,
+        vertex_issuer: _FakeVertexInferenceTokenIssuer | None = None,
     ) -> TestClient:
         app = FastAPI()
         app.dependency_overrides[get_local_runtime_agent_service] = lambda: service
@@ -105,6 +148,9 @@ def _client_factory():
             tenant_id=TenantId(value="tenant-1"),
         )
         app.dependency_overrides[get_spicedb_client] = lambda: authz
+        app.dependency_overrides[get_vertex_inference_token_issuer] = (
+            lambda: vertex_issuer or _FakeVertexInferenceTokenIssuer()
+        )
         app.include_router(router)
         return TestClient(app)
 
@@ -239,3 +285,67 @@ class TestFail:
         )
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class TestVertexToken:
+    def test_returns_minted_token_for_claimed_sandbox_start(
+        self, _client_factory
+    ) -> None:
+        claimed = _work_request(kind=LocalRuntimeWorkKind.SANDBOX_START)
+        service = _FakeLocalRuntimeAgentService(claimed_by_id={"req-1": claimed})
+        expires_at = datetime(2026, 1, 1, tzinfo=UTC)
+        issuer = _FakeVertexInferenceTokenIssuer(
+            token=VertexInferenceToken(access_token="minted-abc", expires_at=expires_at)
+        )
+        client = _client_factory(
+            service=service, authz=_StubAuthz(allowed=True), vertex_issuer=issuer
+        )
+
+        response = client.post("/extraction/local-runtime/req-1/vertex-token")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["access_token"] == "minted-abc"
+        assert issuer.calls == [("tenant-1", "kg-1", "sess-1")]
+
+    def test_returns_404_when_not_claimed_by_caller(self, _client_factory) -> None:
+        service = _FakeLocalRuntimeAgentService(claimed_by_id={})
+        client = _client_factory(service=service, authz=_StubAuthz(allowed=True))
+
+        response = client.post("/extraction/local-runtime/req-missing/vertex-token")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_returns_400_for_non_sandbox_start_kind(self, _client_factory) -> None:
+        claimed = _work_request(kind=LocalRuntimeWorkKind.CHAT_TURN)
+        service = _FakeLocalRuntimeAgentService(claimed_by_id={"req-1": claimed})
+        client = _client_factory(service=service, authz=_StubAuthz(allowed=True))
+
+        response = client.post("/extraction/local-runtime/req-1/vertex-token")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_returns_403_when_edit_permission_revoked(self, _client_factory) -> None:
+        claimed = _work_request(
+            kind=LocalRuntimeWorkKind.SANDBOX_START, knowledge_graph_id="kg-revoked"
+        )
+        service = _FakeLocalRuntimeAgentService(claimed_by_id={"req-1": claimed})
+        client = _client_factory(service=service, authz=_StubAuthz(allowed=False))
+
+        response = client.post("/extraction/local-runtime/req-1/vertex-token")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_returns_503_when_issuer_unavailable(self, _client_factory) -> None:
+        claimed = _work_request(kind=LocalRuntimeWorkKind.SANDBOX_START)
+        service = _FakeLocalRuntimeAgentService(claimed_by_id={"req-1": claimed})
+        issuer = _FakeVertexInferenceTokenIssuer(
+            error=VertexInferenceTokenUnavailableError("not configured")
+        )
+        client = _client_factory(
+            service=service, authz=_StubAuthz(allowed=True), vertex_issuer=issuer
+        )
+
+        response = client.post("/extraction/local-runtime/req-1/vertex-token")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

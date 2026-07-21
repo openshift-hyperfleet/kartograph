@@ -25,6 +25,7 @@ dependencies = [
     "python-ulid>=3.1.0",
     "sqlalchemy[asyncio]>=2.0.45",
     "structlog>=25.5.0",
+    "google-auth>=2.56.0",
 ]
 
 [dependency-groups]

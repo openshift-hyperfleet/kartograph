@@ -169,6 +169,68 @@ def _diagnose_vertex_profile() -> str:
     return output or "profile diagnostic returned no output"
 
 
+def ensure_vertex_provider_from_static_token(
+    *,
+    provider_name: str,
+    project_id: str,
+    region: str,
+    access_token: str,
+    expires_at: str,
+    model: str = "",
+) -> None:
+    """Create or refresh an OpenShell google-vertex-ai provider from a static token.
+
+    See specs/extraction/local-sandbox-execution.spec.md, "Downscoped,
+    Short-Lived Vertex Credential Injection". Unlike `ensure_vertex_provider`
+    (which resolves ADC files on this host), the local agent has no Kartograph
+    Vault-backed service account material at all -- only a short-lived,
+    already-minted access token from the hosted API's vertex-token endpoint.
+    OpenShell's `google-vertex-ai` provider accepts a static bearer token via
+    the `VERTEX_AI_SERVICE_ACCOUNT_TOKEN` credential with no private key or
+    refresh material (verified via `openshell provider create --credential
+    VERTEX_AI_SERVICE_ACCOUNT_TOKEN=<token>`), so each dispatch simply refreshes
+    that credential in place rather than re-deriving it from ADC.
+    """
+    config_args = []
+    if project_id.strip():
+        config_args.extend(["--config", f"VERTEX_AI_PROJECT_ID={project_id.strip()}"])
+    if region.strip():
+        config_args.extend(["--config", f"VERTEX_AI_REGION={region.strip()}"])
+    credential_arg = f"VERTEX_AI_SERVICE_ACCOUNT_TOKEN={access_token}"
+    expiry_arg = f"VERTEX_AI_SERVICE_ACCOUNT_TOKEN={expires_at}"
+
+    if provider_exists(provider_name=provider_name):
+        run_openshell(
+            [
+                "provider",
+                "update",
+                provider_name,
+                "--credential",
+                credential_arg,
+                "--credential-expires-at",
+                expiry_arg,
+                *config_args,
+            ],
+            timeout=60.0,
+        )
+    else:
+        run_openshell(
+            [
+                "provider",
+                "create",
+                "--name",
+                provider_name,
+                "--type",
+                "google-vertex-ai",
+                "--credential",
+                credential_arg,
+                *config_args,
+            ],
+            timeout=60.0,
+        )
+    ensure_inference_routing(provider_name=provider_name, model=model)
+
+
 def ensure_inference_routing(*, provider_name: str, model: str) -> None:
     """Point sandbox inference.local at the configured Vertex provider."""
     resolved_model = model.strip() or "claude-opus-4-6"

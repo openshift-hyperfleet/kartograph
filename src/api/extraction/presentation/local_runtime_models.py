@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from extraction.domain.local_runtime import LocalRuntimeWorkRequest
+from extraction.ports.vertex_credentials import VertexInferenceToken
 
 
 class LocalRuntimeWorkRequestResponse(BaseModel):
@@ -46,3 +47,14 @@ class LocalRuntimeFailRequest(BaseModel):
     """Body for reporting a work request as failed."""
 
     failure_reason: str = Field(min_length=1, max_length=2000)
+
+
+class VertexTokenResponse(BaseModel):
+    """A short-lived, impersonation-restricted Vertex AI access token."""
+
+    access_token: str
+    expires_at: datetime
+
+    @classmethod
+    def from_token(cls, token: VertexInferenceToken) -> "VertexTokenResponse":
+        return cls(access_token=token.access_token, expires_at=token.expires_at)

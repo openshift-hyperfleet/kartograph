@@ -204,12 +204,49 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             "just as long as a hosted one)."
         ),
     )
+    vertex_local_agent_service_account_email: str = Field(
+        default="",
+        description=(
+            "Dedicated, minimally-privileged service account (Vertex AI roles "
+            "only, e.g. roles/aiplatform.user; provisioned out of band) that "
+            "the hosted API impersonates via the IAM Credentials API to mint "
+            "short-lived tokens for local agents (backend=local). Empty "
+            "disables local-agent Vertex token minting entirely."
+        ),
+    )
+    vertex_local_agent_token_lifetime_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=3600,
+        description=(
+            "Lifetime for impersonated Vertex tokens minted for local agents. "
+            "Capped at 3600s, the IAM Credentials API default maximum without "
+            "an org-level extended-lifetime policy."
+        ),
+    )
+    local_agent_sandbox_api_base_url: str = Field(
+        default="",
+        description=(
+            "Public, internet-reachable Kartograph API base URL embedded in "
+            "sandbox_start work requests for backend=local, so the Sandbox "
+            "process running on a user's own machine can reach this hosted "
+            "API for workload callbacks. Unlike api_base_url/"
+            "openshell_api_base_url (in-cluster/compose-network addresses "
+            "unreachable from an arbitrary user's machine), this must be the "
+            "same externally-reachable URL the user's browser uses. Empty "
+            "falls back to api_base_url."
+        ),
+    )
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()
 
     def sandbox_reachable_api_base_url(self) -> str:
         """API URL workload sandboxes use for Kartograph workload endpoints."""
+        if self.backend == "local":
+            return (self.local_agent_sandbox_api_base_url or self.api_base_url).rstrip(
+                "/"
+            )
         if self.backend == "openshell" or self.job_runner == "openshell":
             return self.openshell_api_base_url.rstrip("/")
         return self.api_base_url.rstrip("/")

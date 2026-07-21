@@ -40,6 +40,17 @@ def sanitize_sandbox_name(prefix: str, identifier: str) -> str:
     return name[:63].rstrip("-_.") or f"{prefix}runtime"
 
 
+def forward_port_for_session(*, session_id: str, base: int) -> int:
+    """Deterministically derive a local forward port from a session id.
+
+    Shared by hosted OpenShell execution and the local agent so both derive
+    the same port for the same session id given the same base, even though
+    only one of them ever runs against a given session at a time.
+    """
+    digest = sum(ord(char) for char in session_id)
+    return base + (digest % 900)
+
+
 def sandbox_exists(name: str) -> bool:
     result = run_openshell(["sandbox", "get", name], check=False)
     return result.returncode == 0

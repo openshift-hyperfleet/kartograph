@@ -12,6 +12,7 @@ from extraction.infrastructure.openshell.cli import OpenShellCliError
 from extraction.infrastructure.openshell.vertex_provider import (
     _home_for_adc,
     ensure_vertex_provider,
+    ensure_vertex_provider_from_static_token,
 )
 
 
@@ -215,3 +216,69 @@ def test_ensure_vertex_provider_raises_when_adc_missing(tmp_path) -> None:
                 region="us-east5",
                 gcloud_config_mount=str(tmp_path / "missing"),
             )
+
+
+def test_ensure_vertex_provider_from_static_token_creates_when_absent() -> None:
+    with (
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.provider_exists",
+            return_value=False,
+        ),
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
+        ) as inference,
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.run_openshell",
+        ) as run,
+    ):
+        ensure_vertex_provider_from_static_token(
+            provider_name="kartograph-local",
+            project_id="proj-1",
+            region="us-east5",
+            access_token="minted-token-abc",
+            expires_at="2026-01-01T00:00:00Z",
+            model="claude-opus-4-6",
+        )
+
+    run.assert_called_once()
+    args = run.call_args.args[0]
+    assert args[:4] == ["provider", "create", "--name", "kartograph-local"]
+    assert "google-vertex-ai" in args
+    assert "VERTEX_AI_SERVICE_ACCOUNT_TOKEN=minted-token-abc" in args
+    assert "VERTEX_AI_PROJECT_ID=proj-1" in args
+    assert "VERTEX_AI_REGION=us-east5" in args
+    inference.assert_called_once_with(
+        provider_name="kartograph-local", model="claude-opus-4-6"
+    )
+
+
+def test_ensure_vertex_provider_from_static_token_updates_when_present() -> None:
+    with (
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.provider_exists",
+            return_value=True,
+        ),
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.ensure_inference_routing",
+        ),
+        patch(
+            "extraction.infrastructure.openshell.vertex_provider.run_openshell",
+        ) as run,
+    ):
+        ensure_vertex_provider_from_static_token(
+            provider_name="kartograph-local",
+            project_id="proj-1",
+            region="us-east5",
+            access_token="refreshed-token-xyz",
+            expires_at="2026-01-01T01:00:00Z",
+        )
+
+    run.assert_called_once()
+    args = run.call_args.args[0]
+    assert args[:3] == ["provider", "update", "kartograph-local"]
+    assert "VERTEX_AI_SERVICE_ACCOUNT_TOKEN=refreshed-token-xyz" in args
+    assert "--credential-expires-at" in args
+    expiry_index = args.index("--credential-expires-at")
+    assert args[expiry_index + 1] == (
+        "VERTEX_AI_SERVICE_ACCOUNT_TOKEN=2026-01-01T01:00:00Z"
+    )

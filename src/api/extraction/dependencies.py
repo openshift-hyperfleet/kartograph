@@ -50,6 +50,7 @@ from extraction.infrastructure.workload_runtime_factory import (
     create_ephemeral_extraction_worker_launcher,
     create_extraction_chat_agent,
     create_sticky_session_runtime_manager,
+    get_vertex_inference_token_issuer,  # noqa: F401 - re-exported for presentation routes
     get_workload_credential_issuer,
 )
 from datetime import timedelta

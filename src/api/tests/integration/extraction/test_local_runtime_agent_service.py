@@ -199,6 +199,74 @@ async def test_fail_marks_request_failed_with_reason(
 
 
 @pytest.mark.asyncio
+async def test_get_claimed_request_returns_claimed_request_for_owner(
+    async_session, clean_local_runtime_data
+) -> None:
+    repo = LocalRuntimeRepository(async_session)
+    request = await repo.enqueue_work_request(
+        tenant_id="tenant-1",
+        user_id="user-10",
+        knowledge_graph_id="kg-1",
+        kind=LocalRuntimeWorkKind.SANDBOX_START,
+        session_id="sess-h",
+    )
+    await async_session.commit()
+
+    service = _service(async_session)
+    await service.poll_and_claim(user_id="user-10", tenant_id="tenant-1")
+
+    found = await service.get_claimed_request(request_id=request.id, user_id="user-10")
+
+    assert found is not None
+    assert found.id == request.id
+    assert found.status == LocalRuntimeWorkStatus.CLAIMED
+
+
+@pytest.mark.asyncio
+async def test_get_claimed_request_returns_none_for_still_pending_request(
+    async_session, clean_local_runtime_data
+) -> None:
+    repo = LocalRuntimeRepository(async_session)
+    request = await repo.enqueue_work_request(
+        tenant_id="tenant-1",
+        user_id="user-11",
+        knowledge_graph_id="kg-1",
+        kind=LocalRuntimeWorkKind.SANDBOX_START,
+        session_id="sess-i",
+    )
+    await async_session.commit()
+
+    service = _service(async_session)
+    found = await service.get_claimed_request(request_id=request.id, user_id="user-11")
+
+    assert found is None
+
+
+@pytest.mark.asyncio
+async def test_get_claimed_request_returns_none_for_another_user(
+    async_session, clean_local_runtime_data
+) -> None:
+    repo = LocalRuntimeRepository(async_session)
+    request = await repo.enqueue_work_request(
+        tenant_id="tenant-1",
+        user_id="user-12",
+        knowledge_graph_id="kg-1",
+        kind=LocalRuntimeWorkKind.SANDBOX_START,
+        session_id="sess-j",
+    )
+    await async_session.commit()
+
+    service = _service(async_session)
+    await service.poll_and_claim(user_id="user-12", tenant_id="tenant-1")
+
+    found = await service.get_claimed_request(
+        request_id=request.id, user_id="someone-else"
+    )
+
+    assert found is None
+
+
+@pytest.mark.asyncio
 async def test_fail_raises_for_another_users_request(
     async_session, clean_local_runtime_data
 ) -> None:

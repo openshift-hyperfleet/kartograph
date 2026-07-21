@@ -6,6 +6,7 @@ import logging
 import os
 from datetime import timedelta
 from functools import lru_cache
+from pathlib import Path
 
 from extraction.infrastructure.container_workload_runtime import (
     ContainerEphemeralExtractionWorkerLauncher,
@@ -23,6 +24,9 @@ from extraction.infrastructure.deterministic_chat_agent import (
 )
 from extraction.infrastructure.remote_sticky_container_chat_agent import (
     RemoteStickyContainerChatAgent,
+)
+from extraction.infrastructure.vertex_inference_token_issuer import (
+    ImpersonatedVertexInferenceTokenIssuer,
 )
 from extraction.infrastructure.workload_credential_issuer import (
     DEFAULT_DEV_WORKLOAD_TOKEN_SIGNING_KEY,
@@ -43,6 +47,7 @@ from extraction.ports.runtime import (
     IEphemeralExtractionWorkerLauncher,
     IStickySessionRuntimeManager,
 )
+from extraction.ports.vertex_credentials import IVertexInferenceTokenIssuer
 from shared_kernel.container_runtime.factory import create_container_runtime
 
 logger = logging.getLogger(__name__)
@@ -92,6 +97,27 @@ def get_workload_credential_issuer() -> ScopedWorkloadCredentialIssuer:
     )
 
 
+@lru_cache
+def get_vertex_inference_token_issuer() -> IVertexInferenceTokenIssuer:
+    """Return shared issuer minting impersonated Vertex tokens for local agents.
+
+    See specs/extraction/local-sandbox-execution.spec.md, "Downscoped,
+    Short-Lived Vertex Credential Injection".
+    """
+    settings = get_extraction_workload_runtime_settings()
+    source_credentials_path = None
+    if settings.gcloud_config_mount:
+        source_credentials_path = str(
+            Path(settings.gcloud_config_mount).expanduser()
+            / "application_default_credentials.json"
+        )
+    return ImpersonatedVertexInferenceTokenIssuer(
+        service_account_email=settings.vertex_local_agent_service_account_email,
+        lifetime_seconds=settings.vertex_local_agent_token_lifetime_seconds,
+        source_credentials_path=source_credentials_path,
+    )
+
+
 def create_extraction_chat_agent(
     settings: ExtractionWorkloadRuntimeSettings | None = None,
 ) -> IExtractionChatAgent:
@@ -129,6 +155,9 @@ def create_sticky_session_runtime_manager(
             dispatch_timeout_seconds=resolved.local_dispatch_timeout_seconds,
             poll_interval_seconds=resolved.local_poll_interval_seconds,
             presence_timeout_seconds=resolved.local_presence_timeout_seconds,
+            vertex_project_id=resolved.vertex_project_id,
+            vertex_region=resolved.vertex_region,
+            vertex_enabled=resolved.vertex_enabled(),
         )
 
     if resolved.backend == "openshell":

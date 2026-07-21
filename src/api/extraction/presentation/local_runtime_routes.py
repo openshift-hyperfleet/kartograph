@@ -18,11 +18,20 @@ from extraction.application.local_runtime_agent_service import (
     LocalRuntimeAgentService,
     LocalRuntimeWorkRequestNotClaimableError,
 )
-from extraction.dependencies import get_local_runtime_agent_service
+from extraction.dependencies import (
+    get_local_runtime_agent_service,
+    get_vertex_inference_token_issuer,
+)
+from extraction.domain.local_runtime import LocalRuntimeWorkKind
 from extraction.presentation.local_runtime_models import (
     LocalRuntimeCompleteRequest,
     LocalRuntimeFailRequest,
     LocalRuntimeWorkRequestResponse,
+    VertexTokenResponse,
+)
+from extraction.ports.vertex_credentials import (
+    IVertexInferenceTokenIssuer,
+    VertexInferenceTokenUnavailableError,
 )
 from iam.application.value_objects import CurrentUser
 from iam.dependencies.user import get_current_user
@@ -149,3 +158,68 @@ async def fail_work_request(
         )
     except LocalRuntimeWorkRequestNotClaimableError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post("/{request_id}/vertex-token", status_code=status.HTTP_200_OK)
+async def mint_vertex_token(
+    request_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    service: Annotated[
+        LocalRuntimeAgentService, Depends(get_local_runtime_agent_service)
+    ],
+    authz: Annotated[AuthorizationProvider, Depends(get_spicedb_client)],
+    issuer: Annotated[
+        IVertexInferenceTokenIssuer, Depends(get_vertex_inference_token_issuer)
+    ],
+) -> JSONResponse:
+    """Mint a Vertex AI token for a Sandbox the caller has already claimed.
+
+    specs "Downscoped, Short-Lived Vertex Credential Injection": scoped to a
+    `sandbox_start` request the caller holds a `claimed` claim on (not to
+    client-supplied tenant/knowledge-graph identifiers directly), and
+    re-checks edit permission the same way claiming does, since minting a
+    Vertex credential is itself a sensitive operation.
+    """
+    claimed = await service.get_claimed_request(
+        request_id=request_id, user_id=current_user.user_id.value
+    )
+    if claimed is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No claimed local runtime work request {request_id!r} owned "
+                "by the caller was found."
+            ),
+        )
+    if claimed.kind != LocalRuntimeWorkKind.SANDBOX_START:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vertex tokens may only be minted for sandbox_start work requests.",
+        )
+
+    allowed = await _has_kg_edit_permission(
+        authz=authz,
+        current_user=current_user,
+        knowledge_graph_id=claimed.knowledge_graph_id,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Caller no longer has edit permission on knowledge graph "
+                f"{claimed.knowledge_graph_id!r}."
+            ),
+        )
+
+    try:
+        token = issuer.mint_token(
+            tenant_id=claimed.tenant_id,
+            knowledge_graph_id=claimed.knowledge_graph_id,
+            session_id=claimed.session_id or "",
+        )
+    except VertexInferenceTokenUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+        ) from e
+
+    return JSONResponse(content=jsonable_encoder(VertexTokenResponse.from_token(token)))

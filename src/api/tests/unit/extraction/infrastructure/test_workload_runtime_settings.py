@@ -39,6 +39,27 @@ class TestExtractionWorkloadRuntimeSettings:
         assert settings.backend == "local"
         assert settings.job_runner == "stub"
 
+    def test_local_backend_sandbox_reachable_url_uses_dedicated_setting(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(
+            backend="local",
+            api_base_url="http://api:8000",
+            local_agent_sandbox_api_base_url="https://kartograph-stage.example.com/",
+        )
+
+        assert (
+            settings.sandbox_reachable_api_base_url()
+            == "https://kartograph-stage.example.com"
+        )
+
+    def test_local_backend_sandbox_reachable_url_falls_back_to_api_base_url(
+        self,
+    ) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(
+            backend="local", api_base_url="http://api:8000"
+        )
+
+        assert settings.sandbox_reachable_api_base_url() == "http://api:8000"
+
     def test_local_dispatch_settings_have_sane_defaults(self) -> None:
         settings = ExtractionWorkloadRuntimeSettings(backend="local")
 

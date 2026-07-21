@@ -22,7 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from extraction.domain.local_runtime import (
     LocalRuntimeWorkKind,
     LocalRuntimeWorkRequest,
-    LocalRuntimeWorkStatus,
+)
+from extraction.infrastructure.local_runtime.dispatch import (
+    LocalAgentUnavailableError,
+    dispatch_and_await_completion,
 )
 from extraction.infrastructure.local_runtime.session_bridge import (
     run_with_local_runtime_repository,
@@ -38,9 +41,7 @@ from extraction.ports.runtime import (
 
 logger = logging.getLogger(__name__)
 
-
-class LocalAgentUnavailableError(RuntimeError):
-    """No local agent has polled for this user recently enough to dispatch to."""
+__all__ = ["LocalAgentUnavailableError", "LocalStickySessionRuntimeManager"]
 
 
 def _run_best_effort(coro: Any, *, background_tasks: set[asyncio.Task]) -> None:
@@ -330,54 +331,22 @@ class LocalStickySessionRuntimeManager(IStickySessionRuntimeManager):
     ) -> StickySessionRuntimeLease:
         tenant_id = bootstrap.tenant_id if bootstrap is not None else ""
 
-        async def _run(  # type: ignore[no-untyped-def]
-            repo: LocalRuntimeRepository, session: AsyncSession
-        ) -> LocalRuntimeWorkRequest:
-            presence = await repo.get_presence(user_id=user_id)
-            if presence is None or (
-                now - presence.last_seen_at
-            ).total_seconds() > self._presence_timeout_seconds:
-                raise LocalAgentUnavailableError(
-                    "No local agent is currently connected for this user. "
-                    "Start your local agent and try again."
-                )
-
-            request = await repo.enqueue_work_request(
-                tenant_id=tenant_id,
-                user_id=user_id,
-                knowledge_graph_id=knowledge_graph_id,
-                kind=LocalRuntimeWorkKind.SANDBOX_START,
-                session_id=session_id,
-                payload=self._build_sandbox_start_payload(
-                    mode=mode, bootstrap=bootstrap
-                ),
-            )
-            # Commit so the pending row is visible to the local agent's own
-            # poll connection. Postgres READ COMMITTED gives each subsequent
-            # statement in this same (still-open) transaction a fresh
-            # snapshot, so no further commits are needed for the poll reads
-            # below to observe the agent's claim/completion.
-            await session.commit()
-
-            deadline = asyncio.get_event_loop().time() + self._dispatch_timeout_seconds
-            while asyncio.get_event_loop().time() < deadline:
-                await asyncio.sleep(self._poll_interval_seconds)
-                current = await repo.get_by_id(request_id=request.id, user_id=user_id)
-                if current is None:
-                    continue
-                if current.status == LocalRuntimeWorkStatus.COMPLETED:
-                    return current
-                if current.status == LocalRuntimeWorkStatus.FAILED:
-                    raise RuntimeError(
-                        current.failure_reason
-                        or "Local agent failed to start the Sandbox."
-                    )
-            raise TimeoutError(
+        completed = await dispatch_and_await_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            knowledge_graph_id=knowledge_graph_id,
+            kind=LocalRuntimeWorkKind.SANDBOX_START,
+            session_id=session_id,
+            payload=self._build_sandbox_start_payload(mode=mode, bootstrap=bootstrap),
+            dispatch_timeout_seconds=self._dispatch_timeout_seconds,
+            poll_interval_seconds=self._poll_interval_seconds,
+            presence_timeout_seconds=self._presence_timeout_seconds,
+            timeout_message=(
                 "Timed out waiting for the local agent to claim and start the "
                 "Sandbox. Ensure your local agent is running and connected."
-            )
-
-        completed = await run_with_local_runtime_repository(_run)
+            ),
+            default_failure_message="Local agent failed to start the Sandbox.",
+        )
         result = completed.result or {}
         container_id = str(result.get("container_id") or completed.id)
         return StickySessionRuntimeLease(

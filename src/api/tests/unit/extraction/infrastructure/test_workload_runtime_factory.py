@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from extraction.infrastructure.container_workload_runtime import (
     ContainerEphemeralExtractionWorkerLauncher,
     ContainerStickySessionRuntimeManager,
 )
+from extraction.infrastructure.local_runtime.chat_agent import LocalStickyChatAgent
 from extraction.infrastructure.local_runtime.sticky_session_runtime_manager import (
     LocalStickySessionRuntimeManager,
 )
@@ -87,11 +86,22 @@ class TestWorkloadRuntimeFactory:
         assert sticky._poll_interval_seconds == 2.0
         assert sticky._presence_timeout_seconds == 10.0
 
-    def test_local_backend_chat_agent_not_yet_implemented(self) -> None:
-        settings = ExtractionWorkloadRuntimeSettings(backend="local")
+    def test_local_backend_returns_local_chat_agent_honoring_dispatch_settings(
+        self,
+    ) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(
+            backend="local",
+            local_chat_turn_timeout_seconds=45.0,
+            local_poll_interval_seconds=2.0,
+            local_presence_timeout_seconds=10.0,
+        )
 
-        with pytest.raises(NotImplementedError):
-            create_extraction_chat_agent(settings)
+        agent = create_extraction_chat_agent(settings)
+
+        assert isinstance(agent, LocalStickyChatAgent)
+        assert agent._dispatch_timeout_seconds == 45.0
+        assert agent._poll_interval_seconds == 2.0
+        assert agent._presence_timeout_seconds == 10.0
 
     def test_outbox_extraction_handler_uses_runtime_factory_wiring(self) -> None:
         main_source = Path(__file__).resolve().parents[4] / "main.py"

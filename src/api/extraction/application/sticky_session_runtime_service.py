@@ -291,6 +291,13 @@ class StickySessionRuntimeService:
             recent, "Starting isolated Claude Agent SDK container"
         )
         yield event
+        if self._runtime_backend == "local":
+            session.runtime_context["local_runtime"] = {
+                "phase": "waiting_for_local_runner",
+                "status": "waiting",
+            }
+            if persist_session:
+                await self._session_service.save_session(session)
         try:
             lease = await asyncio.to_thread(
                 self._sticky_runtime_manager.get_or_start_runtime,
@@ -300,7 +307,7 @@ class StickySessionRuntimeService:
                 mode=mode.value,
                 bootstrap=bootstrap,
             )
-        except (ContainerRuntimeError, RuntimeError) as exc:
+        except (ContainerRuntimeError, RuntimeError, TimeoutError) as exc:
             self._probe.runtime_start_failed(
                 session_id=session.id,
                 knowledge_graph_id=knowledge_graph_id,
@@ -311,6 +318,12 @@ class StickySessionRuntimeService:
                 "phase": "failed",
                 "status": "failed",
             }
+            if self._runtime_backend == "local":
+                session.runtime_context["local_runtime"] = {
+                    "phase": "failed",
+                    "status": "failed",
+                    "error": str(exc),
+                }
             if persist_session:
                 await self._session_service.save_session(session)
             yield {
@@ -324,6 +337,8 @@ class StickySessionRuntimeService:
             }
             return
 
+        if self._runtime_backend == "local":
+            session.runtime_context["local_runtime"] = {"phase": "ready"}
         session.runtime_context["sticky_runtime"] = self._lease_context(
             lease, phase="starting"
         )

@@ -35,6 +35,7 @@ class RemoteStickyContainerChatAgent:
         user_message: str,
         ui_mode: GraphManagementUiMode,
         workload_token: str | None = None,
+        tenant_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         sticky_runtime = session.runtime_context.get("sticky_runtime", {})
         runtime_base_url = sticky_runtime.get("runtime_base_url")

@@ -322,6 +322,63 @@ async def test_stream_chat_turn_passes_fresh_workload_token_to_agent() -> None:
     assert chat_agent.last_workload_token
 
 
+class _TenantCapturingChatAgent(DeterministicExtractionChatAgent):
+    def __init__(self) -> None:
+        self.last_tenant_id: str | None = None
+
+    async def stream_turn(self, **kwargs):
+        self.last_tenant_id = kwargs.get("tenant_id")
+        async for event in super().stream_turn(**kwargs):
+            yield event
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_turn_passes_tenant_id_to_agent() -> None:
+    """Threaded through so the local-execution relay adapter can scope its
+    dispatched work request (specs/extraction/local-sandbox-execution.spec.md,
+    "Chat Turn Relay Through the Local Agent").
+    """
+    repo = _InMemoryAgentSessionRepository()
+    sticky = InMemoryStickySessionRuntimeManager()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    runtime_service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(
+            IngestionReadinessSnapshot(1, 1)
+        ),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="memory",
+        sticky_health_timeout_seconds=5.0,
+    )
+    chat_agent = _TenantCapturingChatAgent()
+    service = ExtractionChatTurnService(
+        session_service=session_service,
+        runtime_service=runtime_service,
+        chat_agent=chat_agent,
+    )
+    await _start_session(
+        session_service, ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN
+    )
+
+    events = [
+        event
+        async for event in service.stream_chat_turn(
+            tenant_id="tenant-42",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+            message="Design entity types",
+        )
+    ]
+
+    assert events[-1]["ok"] is True
+    assert chat_agent.last_tenant_id == "tenant-42"
+
+
 @pytest.mark.asyncio
 async def test_stream_chat_turn_wait_when_job_package_unprepared() -> None:
     service, repo = _build_chat_turn_service(readiness=IngestionReadinessSnapshot(2, 0))

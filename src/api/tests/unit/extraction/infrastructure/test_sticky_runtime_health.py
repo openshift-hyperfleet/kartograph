@@ -12,9 +12,7 @@ class TestStickyRuntimeHealthChecker:
     async def test_local_agent_url_is_always_healthy(self) -> None:
         checker = StickyRuntimeHealthChecker()
 
-        assert await checker.is_healthy(
-            runtime_base_url="local-agent://req-123"
-        )
+        assert await checker.is_healthy(runtime_base_url="local-agent://req-123")
 
     @pytest.mark.asyncio
     async def test_memory_url_is_always_healthy(self) -> None:

@@ -158,6 +158,7 @@ class ExtractionChatTurnService:
             user_message=trimmed,
             ui_mode=ui_mode,
             workload_token=workload_token,
+            tenant_id=tenant_id,
         ):
             if event.get("type") == "thinking":
                 recent = event.get("recent")

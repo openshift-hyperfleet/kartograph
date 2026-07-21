@@ -62,7 +62,9 @@ async def _fake_agent_fails(
     repo = LocalRuntimeRepository(async_session)
     claimed = await repo.claim_next_pending(user_id=user_id)
     assert claimed is not None
-    await repo.mark_failed(request_id=claimed.id, user_id=user_id, failure_reason=reason)
+    await repo.mark_failed(
+        request_id=claimed.id, user_id=user_id, failure_reason=reason
+    )
     await async_session.commit()
 
 
@@ -320,8 +322,7 @@ async def test_terminate_runtime_enqueues_sandbox_stop_and_drops_cached_lease(
     await asyncio.sleep(0.2)
 
     assert (
-        manager.try_resolve_active_lease(session_id="sess-5", user_id="user-5")
-        is None
+        manager.try_resolve_active_lease(session_id="sess-5", user_id="user-5") is None
     )
     stop_requests = await async_session.execute(
         text(

@@ -25,9 +25,7 @@ class LocalRuntimeAgentPresenceModel(Base):
         nullable=False,
     )
 
-    __table_args__ = (
-        sa.Index("idx_local_runtime_presence_tenant", "tenant_id"),
-    )
+    __table_args__ = (sa.Index("idx_local_runtime_presence_tenant", "tenant_id"),)
 
 
 class LocalRuntimeWorkRequestModel(Base, TimestampMixin):
@@ -71,15 +69,11 @@ class LocalRuntimeWorkRequestModel(Base, TimestampMixin):
             "status IN ('pending', 'claimed', 'completed', 'failed')",
             name="ck_local_runtime_work_requests_status",
         ),
-        sa.Index(
-            "idx_local_runtime_work_requests_user_status", "user_id", "status"
-        ),
+        sa.Index("idx_local_runtime_work_requests_user_status", "user_id", "status"),
         sa.Index(
             "idx_local_runtime_work_requests_session_status",
             "session_id",
             "status",
         ),
-        sa.Index(
-            "idx_local_runtime_work_requests_job_status", "job_id", "status"
-        ),
+        sa.Index("idx_local_runtime_work_requests_job_status", "job_id", "status"),
     )

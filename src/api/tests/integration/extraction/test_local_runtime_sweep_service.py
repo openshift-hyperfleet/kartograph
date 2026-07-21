@@ -33,7 +33,9 @@ def _sweep_service(async_session, **overrides) -> LocalRuntimeSweepService:
     )
 
 
-async def _backdate(async_session, *, request_id: str, column: str, when: datetime) -> None:
+async def _backdate(
+    async_session, *, request_id: str, column: str, when: datetime
+) -> None:
     await async_session.execute(
         text(f"UPDATE local_runtime_work_requests SET {column} = :when WHERE id = :id"),  # noqa: S608
         {"when": when, "id": request_id},

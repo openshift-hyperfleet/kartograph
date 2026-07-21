@@ -110,9 +110,7 @@ async def send_heartbeat(
             request_id=request_id, user_id=current_user.user_id.value
         )
     except LocalRuntimeWorkRequestNotClaimableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/{request_id}/complete", status_code=status.HTTP_204_NO_CONTENT)
@@ -131,9 +129,7 @@ async def complete_work_request(
             result=request.result,
         )
     except LocalRuntimeWorkRequestNotClaimableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/{request_id}/fail", status_code=status.HTTP_204_NO_CONTENT)
@@ -152,6 +148,4 @@ async def fail_work_request(
             failure_reason=request.failure_reason,
         )
     except LocalRuntimeWorkRequestNotClaimableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        ) from e
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

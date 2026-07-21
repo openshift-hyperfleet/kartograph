@@ -42,9 +42,7 @@ async def run_with_local_runtime_repository(
     from sqlalchemy.ext.asyncio import create_async_engine
 
     resolved_settings = db_settings or get_database_settings()
-    engine = create_async_engine(
-        build_async_url(resolved_settings), poolclass=NullPool
-    )
+    engine = create_async_engine(build_async_url(resolved_settings), poolclass=NullPool)
     try:
         sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
         async with sessionmaker() as session:

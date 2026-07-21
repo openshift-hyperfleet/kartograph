@@ -47,6 +47,7 @@ class TestExtractionWorkloadRuntimeSettings:
         assert settings.local_presence_timeout_seconds == 45.0
         assert settings.local_claim_timeout_seconds == 60.0
         assert settings.local_heartbeat_timeout_seconds == 30.0
+        assert settings.local_chat_turn_timeout_seconds == 1000.0
 
     def test_local_dispatch_timeout_rejects_out_of_range(self) -> None:
         with pytest.raises(ValueError):

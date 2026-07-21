@@ -14,6 +14,7 @@ from extraction.infrastructure.container_workload_runtime import (
 from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager import (
     OpenShellStickySessionRuntimeManager,
 )
+from extraction.infrastructure.local_runtime.chat_agent import LocalStickyChatAgent
 from extraction.infrastructure.local_runtime.sticky_session_runtime_manager import (
     LocalStickySessionRuntimeManager,
 )
@@ -99,12 +100,12 @@ def create_extraction_chat_agent(
     if resolved.backend == "local":
         # Local sessions have no hosted-reachable runtime_base_url to call
         # directly (specs/extraction/local-sandbox-execution.spec.md,
-        # "Chat Turn Relay Through the Local Agent"). The relay adapter that
-        # dispatches chat_turn work requests instead lands in a follow-up
-        # unit; guard against silently calling the wrong agent in the
-        # meantime.
-        raise NotImplementedError(
-            "backend=local chat turn relay is not yet implemented"
+        # "Chat Turn Relay Through the Local Agent"), so this dispatches a
+        # chat_turn work request instead.
+        return LocalStickyChatAgent(
+            dispatch_timeout_seconds=resolved.local_chat_turn_timeout_seconds,
+            poll_interval_seconds=resolved.local_poll_interval_seconds,
+            presence_timeout_seconds=resolved.local_presence_timeout_seconds,
         )
     if resolved.backend in {"container", "openshell"}:
         return RemoteStickyContainerChatAgent()

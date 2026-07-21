@@ -19,6 +19,13 @@ class IExtractionChatAgent(Protocol):
         user_message: str,
         ui_mode: GraphManagementUiMode,
         workload_token: str | None = None,
+        tenant_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield NDJSON-style event dictionaries ending with a terminal done event."""
+        """Yield NDJSON-style event dictionaries ending with a terminal done event.
+
+        `tenant_id` is unused by implementations that call a directly
+        reachable runtime, but is required by the local-execution relay
+        adapter to scope a dispatched work request (specs/extraction/
+        local-sandbox-execution.spec.md).
+        """
         ...

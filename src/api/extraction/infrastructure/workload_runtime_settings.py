@@ -193,6 +193,17 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
             "are failed if the claiming agent stops heartbeating this long."
         ),
     )
+    local_chat_turn_timeout_seconds: float = Field(
+        default=1000.0,
+        ge=30.0,
+        le=3600.0,
+        description=(
+            "How long the hosted API waits for a user's local agent to relay "
+            "one buffered chat turn (backend=local; mirrors "
+            "sticky_turn_timeout_seconds, since a local Sandbox turn can take "
+            "just as long as a hosted one)."
+        ),
+    )
 
     def vertex_enabled(self) -> bool:
         return vertex_enabled_from_env()

@@ -22,11 +22,19 @@ from shared_kernel.container_runtime.ports import ContainerRuntimeError
 class _InMemoryAgentSessionRepository:
     def __init__(self) -> None:
         self._sessions = {}
+        self.saved_snapshots = []
 
     async def save(self, session) -> None:
+        from copy import deepcopy
         from dataclasses import replace
 
         self._sessions[session.id] = replace(session)
+        # `runtime_context` is a mutable dict mutated in place by later calls
+        # in the same request; without a deep copy every "snapshot" would
+        # alias the same dict and retroactively reflect the final state.
+        self.saved_snapshots.append(
+            replace(session, runtime_context=deepcopy(session.runtime_context))
+        )
 
     async def get_by_id(self, session_id: str):
         session = self._sessions.get(session_id)
@@ -155,6 +163,16 @@ class _UnhealthyHealthChecker:
 class _FailingStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
     def get_or_start_runtime(self, **kwargs):
         raise ContainerRuntimeError("docker run failed: image not found")
+
+
+class _DispatchTimeoutStickyRuntimeManager(InMemoryStickySessionRuntimeManager):
+    """Simulates a local agent that never claims the dispatched work."""
+
+    def get_or_start_runtime(self, **kwargs):
+        raise TimeoutError(
+            "Timed out waiting for the local agent to claim and start the "
+            "Sandbox. Ensure your local agent is running and connected."
+        )
 
 
 class _RecordingRuntimeProbe:
@@ -397,6 +415,100 @@ async def test_ensure_runtime_for_chat_reuses_running_container_without_reprepar
     assert events == []
     assert session.runtime_context["sticky_runtime"]["phase"] == "ready"
     assert bootstrap.calls == []
+
+
+@pytest.mark.asyncio
+async def test_local_backend_surfaces_waiting_then_ready_local_runtime_state() -> None:
+    """specs/extraction/local-sandbox-execution.spec.md, "Session and Job
+    Waiting Visibility" -- "Waiting state shown for a session".
+    """
+    repo = _InMemoryAgentSessionRepository()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    sticky = InMemoryStickySessionRuntimeManager()
+    service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(),
+        sticky_runtime_manager=sticky,
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="local",
+        sticky_health_timeout_seconds=5.0,
+    )
+    session = await session_service.start_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    )
+
+    events = [
+        event
+        async for event in service.stream_runtime_warmup(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+        )
+    ]
+
+    assert any(event.get("type") == "ready" for event in events)
+    waiting_snapshots = [
+        snapshot
+        for snapshot in repo.saved_snapshots
+        if snapshot.runtime_context.get("local_runtime", {}).get("phase")
+        == "waiting_for_local_runner"
+    ]
+    assert waiting_snapshots, "must persist a waiting state before dispatch"
+    assert session.runtime_context["local_runtime"]["phase"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_local_backend_dispatch_timeout_surfaces_as_failed_local_runtime_state() -> (
+    None
+):
+    """specs/extraction/local-sandbox-execution.spec.md, "Session and Job
+    Waiting Visibility" -- "Claim timeout surfaced".
+    """
+    repo = _InMemoryAgentSessionRepository()
+    session_service = ExtractionAgentSessionService(repository=repo)
+    probe = _RecordingRuntimeProbe()
+    service = StickySessionRuntimeService(
+        session_service=session_service,
+        skill_resolution_service=_StaticSkillResolutionService(),
+        ingestion_readiness_reader=_StaticIngestionReadinessReader(),
+        sticky_runtime_manager=_DispatchTimeoutStickyRuntimeManager(),
+        bootstrap_builder=_StaticBootstrapBuilder(),
+        health_checker=_InstantHealthChecker(),
+        runtime_backend="local",
+        sticky_health_timeout_seconds=5.0,
+        probe=probe,
+    )
+    session = await session_service.start_session(
+        user_id="user-1",
+        knowledge_graph_id="kg-1",
+        ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+    )
+
+    events = [
+        event
+        async for event in service.stream_runtime_warmup(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            knowledge_graph_id="kg-1",
+            mode=ExtractionSessionMode.SCHEMA_BOOTSTRAP,
+            ui_mode=GraphManagementUiMode.INITIAL_SCHEMA_DESIGN,
+        )
+    ]
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["ok"] is False
+    assert done["error"]["code"] == "RUNTIME_START_FAILED"
+    assert "local agent" in done["error"]["message"].lower()
+    assert session.runtime_context["local_runtime"]["phase"] == "failed"
+    assert "local agent" in session.runtime_context["local_runtime"]["error"].lower()
+    assert len(probe.start_failed_calls) == 1
 
 
 @pytest.mark.asyncio

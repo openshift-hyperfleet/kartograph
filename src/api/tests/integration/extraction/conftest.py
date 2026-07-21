@@ -31,9 +31,7 @@ async def clean_local_runtime_data(async_session):  # noqa: F811 - fixture injec
 
     async def _wipe() -> None:
         await async_session.execute(text("DELETE FROM local_runtime_work_requests"))
-        await async_session.execute(
-            text("DELETE FROM local_runtime_agent_presence")
-        )
+        await async_session.execute(text("DELETE FROM local_runtime_agent_presence"))
         await async_session.commit()
 
     await _wipe()

@@ -25,6 +25,12 @@ class StickyRuntimeHealthChecker:
         if runtime_base_url.startswith("memory://"):
             yield "In-memory assistant runtime ready"
             return
+        if runtime_base_url.startswith("local-agent://"):
+            # The local agent already confirmed the Sandbox started before
+            # completing its sandbox_start work request; there is no separate
+            # HTTP /health endpoint reachable from the hosted API for it.
+            yield "Local agent Sandbox runtime ready"
+            return
 
         deadline = asyncio.get_event_loop().time() + timeout_seconds
         url = f"{runtime_base_url.rstrip('/')}/health"
@@ -50,7 +56,7 @@ class StickyRuntimeHealthChecker:
 
     async def is_healthy(self, *, runtime_base_url: str) -> bool:
         """Return whether the sticky runtime currently responds on /health."""
-        if runtime_base_url.startswith("memory://"):
+        if runtime_base_url.startswith(("memory://", "local-agent://")):
             return True
         url = f"{runtime_base_url.rstrip('/')}/health"
         try:

@@ -33,6 +33,25 @@ class TestExtractionWorkloadRuntimeSettings:
         assert settings.sticky_command == ("sleep", "3600")
         assert settings.worker_command == ("sleep", "120")
 
+    def test_local_backend_defaults_job_runner_to_stub(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(backend="local")
+
+        assert settings.backend == "local"
+        assert settings.job_runner == "stub"
+
+    def test_local_dispatch_settings_have_sane_defaults(self) -> None:
+        settings = ExtractionWorkloadRuntimeSettings(backend="local")
+
+        assert settings.local_dispatch_timeout_seconds == 120.0
+        assert settings.local_poll_interval_seconds == 1.5
+        assert settings.local_presence_timeout_seconds == 45.0
+        assert settings.local_claim_timeout_seconds == 60.0
+        assert settings.local_heartbeat_timeout_seconds == 30.0
+
+    def test_local_dispatch_timeout_rejects_out_of_range(self) -> None:
+        with pytest.raises(ValueError):
+            ExtractionWorkloadRuntimeSettings(local_dispatch_timeout_seconds=1.0)
+
     def test_resolve_workload_token_signing_key_uses_configured_value(self) -> None:
         settings = ExtractionWorkloadRuntimeSettings(
             workload_token_signing_key="configured-secret-at-least-32-bytes-long",

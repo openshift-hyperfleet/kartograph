@@ -25,7 +25,9 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
         extra="ignore",
     )
 
-    backend: Literal["memory", "container", "openshell"] = Field(default="memory")
+    backend: Literal["memory", "container", "openshell", "local"] = Field(
+        default="memory"
+    )
     job_runner: Literal["stub", "agentic_ci", "openshell"] | None = Field(default=None)
     container_engine: Literal["auto", "docker", "podman"] = Field(default="auto")
     container_network: str | None = Field(default=None)
@@ -146,6 +148,50 @@ class ExtractionWorkloadRuntimeSettings(BaseSettings):
     openshell_policy_enforcement: Literal["soft", "hard_requirement"] = Field(
         default="hard_requirement",
         description="Landlock enforcement mode for OpenShell policies (hard_requirement in prod).",
+    )
+    local_dispatch_timeout_seconds: float = Field(
+        default=120.0,
+        ge=5.0,
+        le=1800.0,
+        description=(
+            "How long the hosted API waits for a user's local agent to claim "
+            "and start a Sandbox before failing the request "
+            "(backend=local; specs/extraction/local-sandbox-execution.spec.md)."
+        ),
+    )
+    local_poll_interval_seconds: float = Field(
+        default=1.5,
+        ge=0.25,
+        le=30.0,
+        description="Poll cadence while the hosted API awaits local agent dispatch.",
+    )
+    local_presence_timeout_seconds: float = Field(
+        default=45.0,
+        ge=5.0,
+        le=600.0,
+        description=(
+            "How recently a local agent must have polled to be considered "
+            "connected. Used to fail fast instead of waiting the full "
+            "dispatch timeout when no agent is online."
+        ),
+    )
+    local_claim_timeout_seconds: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=1800.0,
+        description=(
+            "Server-side sweep threshold: pending local runtime work requests "
+            "older than this are failed if no agent claimed them."
+        ),
+    )
+    local_heartbeat_timeout_seconds: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=600.0,
+        description=(
+            "Server-side sweep threshold: claimed local runtime work requests "
+            "are failed if the claiming agent stops heartbeating this long."
+        ),
     )
 
     def vertex_enabled(self) -> bool:

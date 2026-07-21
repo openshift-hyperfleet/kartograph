@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.exc import IntegrityError
 
 from extraction.domain.local_runtime import LocalRuntimeWorkKind, LocalRuntimeWorkStatus
@@ -21,25 +20,6 @@ from extraction.infrastructure.repositories.local_runtime_repository import (
 )
 
 pytestmark = pytest.mark.integration
-
-
-@pytest_asyncio.fixture
-async def clean_local_runtime_data(async_session):
-    """Remove any leftover local-runtime rows before and after each test."""
-    from sqlalchemy import text
-
-    async def _wipe() -> None:
-        await async_session.execute(
-            text("DELETE FROM local_runtime_work_requests")
-        )
-        await async_session.execute(
-            text("DELETE FROM local_runtime_agent_presence")
-        )
-        await async_session.commit()
-
-    await _wipe()
-    yield
-    await _wipe()
 
 
 @pytest.fixture

@@ -14,6 +14,9 @@ from extraction.infrastructure.container_workload_runtime import (
 from extraction.infrastructure.openshell.openshell_sticky_session_runtime_manager import (
     OpenShellStickySessionRuntimeManager,
 )
+from extraction.infrastructure.local_runtime.sticky_session_runtime_manager import (
+    LocalStickySessionRuntimeManager,
+)
 from extraction.infrastructure.deterministic_chat_agent import (
     DeterministicExtractionChatAgent,
 )
@@ -93,6 +96,16 @@ def create_extraction_chat_agent(
 ) -> IExtractionChatAgent:
     """Build chat agent implementation for configured runtime backend."""
     resolved = settings or get_extraction_workload_runtime_settings()
+    if resolved.backend == "local":
+        # Local sessions have no hosted-reachable runtime_base_url to call
+        # directly (specs/extraction/local-sandbox-execution.spec.md,
+        # "Chat Turn Relay Through the Local Agent"). The relay adapter that
+        # dispatches chat_turn work requests instead lands in a follow-up
+        # unit; guard against silently calling the wrong agent in the
+        # meantime.
+        raise NotImplementedError(
+            "backend=local chat turn relay is not yet implemented"
+        )
     if resolved.backend in {"container", "openshell"}:
         return RemoteStickyContainerChatAgent()
     return DeterministicExtractionChatAgent()
@@ -106,6 +119,14 @@ def create_sticky_session_runtime_manager(
     if resolved.backend == "memory":
         return InMemoryStickySessionRuntimeManager(
             session_ttl=timedelta(minutes=resolved.session_ttl_minutes)
+        )
+
+    if resolved.backend == "local":
+        return LocalStickySessionRuntimeManager(
+            session_ttl=timedelta(minutes=resolved.session_ttl_minutes),
+            dispatch_timeout_seconds=resolved.local_dispatch_timeout_seconds,
+            poll_interval_seconds=resolved.local_poll_interval_seconds,
+            presence_timeout_seconds=resolved.local_presence_timeout_seconds,
         )
 
     if resolved.backend == "openshell":

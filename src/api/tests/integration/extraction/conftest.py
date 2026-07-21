@@ -6,6 +6,8 @@ import shutil
 import subprocess
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from shared_kernel.container_runtime.factory import create_container_runtime
 
@@ -21,6 +23,22 @@ from tests.integration.management.conftest import (  # noqa: F401
     test_tenant,
     test_workspace,
 )
+
+
+@pytest_asyncio.fixture
+async def clean_local_runtime_data(async_session):  # noqa: F811 - fixture injection by name
+    """Remove any leftover local-runtime rows before and after each test."""
+
+    async def _wipe() -> None:
+        await async_session.execute(text("DELETE FROM local_runtime_work_requests"))
+        await async_session.execute(
+            text("DELETE FROM local_runtime_agent_presence")
+        )
+        await async_session.commit()
+
+    await _wipe()
+    yield
+    await _wipe()
 
 
 def _engine_available(engine: str) -> bool:

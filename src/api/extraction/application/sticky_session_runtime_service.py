@@ -243,7 +243,7 @@ class StickySessionRuntimeService:
                 }
             return
 
-        if self._runtime_backend not in {"container", "openshell"}:
+        if self._runtime_backend not in {"container", "openshell", "local"}:
             lease = await asyncio.to_thread(
                 self._sticky_runtime_manager.get_or_start_runtime,
                 session_id=session.id,

@@ -54,6 +54,16 @@ class LocalRuntimeRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def commit(self) -> None:
+        """Commit the caller's unit of work.
+
+        Exposed so application-layer callers (which must not import
+        SQLAlchemy or any other infrastructure type -- enforced by
+        `tests/unit/extraction/test_architecture.py`) can commit through the
+        `ILocalRuntimeRepository` port instead of holding an `AsyncSession`.
+        """
+        await self._session.commit()
+
     async def record_presence(self, *, user_id: str, tenant_id: str) -> None:
         """Upsert the caller's last-seen timestamp on poll."""
         now = datetime.now(UTC)

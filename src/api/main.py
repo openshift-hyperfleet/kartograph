@@ -60,6 +60,10 @@ _JOB_PACKAGE_WORK_DIR = Path("/tmp/kartograph/job_packages")  # noqa: S108
 # Scheduler polling interval (seconds)
 _SCHEDULER_POLL_INTERVAL_SECONDS = 60
 
+# Local-runtime work request sweep interval (seconds). Only runs when
+# extraction runtime backend=local (specs/extraction/local-sandbox-execution.spec.md).
+_LOCAL_RUNTIME_SWEEP_INTERVAL_SECONDS = 15
+
 
 # ---------------------------------------------------------------------------
 # Session-aware outbox handler wrappers
@@ -521,6 +525,59 @@ async def _run_scheduler_loop(session_factory: Any, poll_interval: int) -> None:
             break
 
 
+async def _run_local_runtime_sweep_loop(session_factory: Any, poll_interval: int) -> None:
+    """Background asyncio task that fails timed-out local-runtime work requests.
+
+    Only started when the extraction runtime backend is `local`
+    (specs/extraction/local-sandbox-execution.spec.md, "Local Runtime Work
+    Request Lifecycle"). No local agent needs to be polling for this to run:
+    pending requests no agent ever claimed, and claimed requests whose agent
+    stopped heartbeating, are failed here so the originating session or job
+    can surface a timeout instead of waiting forever.
+
+    Args:
+        session_factory: SQLAlchemy async sessionmaker for database access
+        poll_interval: Seconds between sweep runs
+    """
+    from datetime import timedelta
+
+    from extraction.application.local_runtime_sweep_service import (
+        LocalRuntimeSweepService,
+    )
+    from extraction.infrastructure.repositories.local_runtime_repository import (
+        LocalRuntimeRepository,
+    )
+    from extraction.infrastructure.workload_runtime_settings import (
+        get_extraction_workload_runtime_settings,
+    )
+
+    while True:
+        try:
+            settings = get_extraction_workload_runtime_settings()
+            async with session_factory() as session:
+                sweep = LocalRuntimeSweepService(
+                    repository=LocalRuntimeRepository(session),
+                    claim_timeout=timedelta(
+                        seconds=settings.local_claim_timeout_seconds
+                    ),
+                    heartbeat_timeout=timedelta(
+                        seconds=settings.local_heartbeat_timeout_seconds
+                    ),
+                )
+                await sweep.sweep()
+                await session.commit()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            # Log but don't crash — sweep must remain resilient
+            pass
+
+        try:
+            await asyncio.sleep(poll_interval)
+        except asyncio.CancelledError:
+            break
+
+
 # Configure structlog before any loggers are created
 configure_logging()
 
@@ -721,6 +778,24 @@ async def kartograph_lifespan(app: FastAPI):
         )
         app.state.scheduler_task = scheduler_task
 
+    # Start the local-runtime sweep background task when this environment
+    # is configured to dispatch Sandbox execution to users' local agents
+    # (specs/extraction/local-sandbox-execution.spec.md). Independent of the
+    # outbox worker: sweeping timed-out work requests doesn't require it.
+    if hasattr(app.state, "write_sessionmaker"):
+        from extraction.infrastructure.workload_runtime_settings import (
+            get_extraction_workload_runtime_settings,
+        )
+
+        if get_extraction_workload_runtime_settings().backend == "local":
+            local_runtime_sweep_task = asyncio.create_task(
+                _run_local_runtime_sweep_loop(
+                    session_factory=app.state.write_sessionmaker,
+                    poll_interval=_LOCAL_RUNTIME_SWEEP_INTERVAL_SECONDS,
+                )
+            )
+            app.state.local_runtime_sweep_task = local_runtime_sweep_task
+
     # MCP lifespan: refresh proxy so each startup gets a fresh
     # StreamableHTTPSessionManager (it cannot be restarted after exit).
     mcp_http_app_proxy.refresh()
@@ -732,6 +807,14 @@ async def kartograph_lifespan(app: FastAPI):
         app.state.scheduler_task.cancel()
         try:
             await app.state.scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+    # Shutdown: stop local-runtime sweep background task
+    if hasattr(app.state, "local_runtime_sweep_task"):
+        app.state.local_runtime_sweep_task.cancel()
+        try:
+            await app.state.local_runtime_sweep_task
         except asyncio.CancelledError:
             pass
 

@@ -15,11 +15,17 @@ from extraction.application import (
 from extraction.application.graph_management_session_journal import (
     GraphManagementSessionJournalService,
 )
+from extraction.application.local_runtime_agent_service import (
+    LocalRuntimeAgentService,
+)
 from extraction.application.sticky_session_runtime_service import (
     StickySessionRuntimeService,
 )
 from extraction.infrastructure.repositories.extraction_job_repository import (
     ExtractionJobRepository,
+)
+from extraction.infrastructure.repositories.local_runtime_repository import (
+    LocalRuntimeRepository,
 )
 from extraction.infrastructure.sticky_runtime_health import StickyRuntimeHealthChecker
 from extraction.infrastructure.ingestion_readiness_reader import (
@@ -56,6 +62,22 @@ from extraction.ports.runtime import (
     IStickySessionRuntimeManager,
 )
 from infrastructure.database.dependencies import get_write_session
+
+
+def get_local_runtime_repository(
+    session: Annotated[AsyncSession, Depends(get_write_session)],
+) -> LocalRuntimeRepository:
+    """Get LocalRuntimeRepository for the current request's write session."""
+    return LocalRuntimeRepository(session=session)
+
+
+def get_local_runtime_agent_service(
+    repository: Annotated[
+        LocalRuntimeRepository, Depends(get_local_runtime_repository)
+    ],
+) -> LocalRuntimeAgentService:
+    """Get LocalRuntimeAgentService for local agent poll/claim HTTP routes."""
+    return LocalRuntimeAgentService(repository=repository)
 
 
 @lru_cache

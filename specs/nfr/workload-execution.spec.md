@@ -20,6 +20,12 @@ The system SHALL run extraction agents in containers for both local development 
 - WHEN extraction workloads are started
 - THEN they run in pod containers managed by the platform
 
+#### Scenario: Temporary local execution in a deployed environment
+- GIVEN a deployed environment configured for local Sandbox execution (see `extraction/local-sandbox-execution.spec.md`)
+- WHEN extraction workloads are started
+- THEN they run in containers on a registered user's own machine instead of platform-managed pods
+- AND this configuration is reversible without changes to container execution logic
+
 ### Requirement: Hybrid Container Model
 The system SHALL use sticky containers for chat sessions and ephemeral containers for extraction execution workers.
 

@@ -69,6 +69,7 @@ AI-assisted schema and extraction workflows that emit MutationLogs for Graph app
 | [Chat Turns](extraction/chat-turns.spec.md) | Graph-management chat streaming, wait states, and turn persistence |
 | [Sticky Session Runtime](extraction/sticky-session-runtime.spec.md) | Isolated sticky containers, JobPackage context, Claude Agent SDK runtime |
 | [Maintenance Jobs](extraction/maintenance-jobs.spec.md) | Scheduled delta ingest, by-files maintenance jobs, OpenShell execution |
+`| [Local Sandbox Execution](extraction/local-sandbox-execution.spec.md) | Temporary user-machine Sandbox dispatch when hosted execution is unavailable |
 
 ### [Shared Kernel](shared-kernel/) — Cross-Cutting Contracts
 Capabilities shared across bounded contexts.

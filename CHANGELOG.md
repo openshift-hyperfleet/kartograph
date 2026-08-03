@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.39.2](https://github.com/openshift-hyperfleet/kartograph/compare/v3.39.1...v3.39.2) (2026-07-15)
+
+
+### Bug Fixes
+
+* **extraction:** bump pinned OpenShell to v0.0.83 for Sandbox v1beta1 support ([#794](https://github.com/openshift-hyperfleet/kartograph/issues/794)) ([4179e64](https://github.com/openshift-hyperfleet/kartograph/commit/4179e640f6d4aa55726a85b8bacb7d3e41b1d72d))
+
 ## [3.39.1](https://github.com/openshift-hyperfleet/kartograph/compare/v3.39.0...v3.39.1) (2026-07-07)
 
 
